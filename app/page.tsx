@@ -18,5 +18,9 @@ export default async function Home() {
     useSocialSignals: true
   });
 
-  return <RecommendationWorkspace initialData={initialData} />;
+  return (
+    <main className="app-shell">
+      <RecommendationWorkspace initialData={initialData} />
+    </main>
+  );
 }

@@ -3,6 +3,9 @@
 import { useMemo, useState } from "react";
 import {
   Activity,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Database,
   Gauge,
   GitBranch,
@@ -60,6 +63,11 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
     initialData.routes[0]?.id
   );
   const [isLoading, setIsLoading] = useState(false);
+
+  // 全屏布局状态
+  const [controlsCollapsed, setControlsCollapsed] = useState(false);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [metricsCollapsed, setMetricsCollapsed] = useState(false);
 
   const topScore = useMemo(() => data.routes[0]?.totalScore ?? 0, [data.routes]);
   const amapRouteCount = useMemo(
@@ -138,8 +146,41 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
         </nav>
       </header>
 
-      <section className="workspace map-first">
-        <aside className="controls-panel" aria-label="recommendation controls">
+      <section className="workspace fullscreen-map">
+        {/* 控制面板折叠按钮 */}
+        <button
+          className={`fullscreen-panel-toggle controls-toggle-left ${controlsCollapsed ? "collapsed" : ""}`}
+          onClick={() => setControlsCollapsed(!controlsCollapsed)}
+          title={controlsCollapsed ? "展开控制面板" : "折叠控制面板"}
+          type="button"
+        >
+          {controlsCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
+        </button>
+
+        {/* 信息面板折叠按钮 */}
+        <button
+          className={`fullscreen-panel-toggle inspector-toggle-right ${inspectorCollapsed ? "collapsed" : ""}`}
+          onClick={() => setInspectorCollapsed(!inspectorCollapsed)}
+          title={inspectorCollapsed ? "展开信息面板" : "折叠信息面板"}
+          type="button"
+        >
+          {inspectorCollapsed ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
+        </button>
+
+        {/* 状态栏折叠按钮 */}
+        <button
+          className="metrics-toggle-btn"
+          onClick={() => setMetricsCollapsed(!metricsCollapsed)}
+          title={metricsCollapsed ? "展开状态栏" : "收起状态栏"}
+          type="button"
+        >
+          <ChevronDown size={16} style={{ transform: metricsCollapsed ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.3s" }} />
+        </button>
+
+        <aside
+          className={`controls-panel ${controlsCollapsed ? "collapsed" : ""}`}
+          aria-label="recommendation controls"
+        >
           <div className="section-heading">
             <SlidersHorizontal size={18} />
             <span>推荐输入</span>
@@ -239,7 +280,7 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
         </aside>
 
         <section className="map-stage" aria-label="route map workspace">
-          <div className="map-metrics" aria-label="recommendation pipeline metrics">
+          <div className={`map-metrics ${metricsCollapsed ? "collapsed" : ""}`} aria-label="recommendation pipeline metrics">
             <div>
               <Database size={16} />
               <span>候选池</span>
@@ -281,7 +322,10 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
           <RouteTimeline route={selectedRoute} />
         </section>
 
-        <aside className="inspector-rail" aria-label="route inspector">
+        <aside
+          className={`inspector-rail ${inspectorCollapsed ? "collapsed" : ""}`}
+          aria-label="route inspector"
+        >
           <div className="inspector-panel">
             <RouteInspector
               isLoading={isLoading}
