@@ -9,6 +9,7 @@ export default defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    "docs/**/*.cjs",
     "next-env.d.ts"
   ])
 ]);

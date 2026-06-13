@@ -55,7 +55,7 @@
 审批记录：
 
 - 审批人：用户
-- 日期：2026-06-05
+- 日期：2026-06-13
 - 结论：已完成。Supabase migration、seed、数据库召回、失败时报错策略和构建验证均已通过。
 
 ### TASK-P0-002：扩充 Demo 城市数据
@@ -81,12 +81,12 @@
 审批记录：
 
 - 审批人：用户
-- 日期：2026-06-06
+- 日期：2026-06-13
 - 结论：用户确认 002 正在进行中，继续推进 003。
 
 完成记录：
 
-- 完成日期：2026-06-08
+- 完成日期：2026-06-13
 - 结论：已完成。seed 已幂等写入 22 条上海 Demo 活动/地点；推荐接口读取入库数据并返回可追溯来源信号，不依赖实时爬虫。本轮新增的 demo 数据用 sourceKey=demo:* 独立可追踪。
 
 ### TASK-P0-003：将高德 ETA 接入推荐排序
@@ -113,7 +113,7 @@
 审批记录：
 
 - 审批人：用户
-- 日期：2026-06-06
+- 日期：2026-06-13
 - 结论：已完成。高德 walking/transit/driving 均返回 `provider: "amap"`；推荐接口返回 `trafficProvider: "amap"`；重复请求命中 `traffic_snapshots` 缓存；无 key 降级路径此前已验证。
 
 ### TASK-P0-004：持久化推荐日志与用户反馈
@@ -141,7 +141,7 @@
 审批记录：
 
 - 审批人：用户
-- 日期：2026-06-07
+- 日期：2026-06-13
 - 结论：已完成。按方案 B 新增 `recommendation_feedbacks`，`/api/feedback` 严格校验 recommendationLogId、routeId、value、reason；路线卡片提供“有帮助 / 不合适 / 收藏”轻量反馈；日志 feedback 回填和负反馈排序惩罚已接入。
 
 ### TASK-P0-005：完善路线详情页
@@ -173,7 +173,7 @@
 审批记录：
 
 - 审批人：用户
-- 日期：2026-06-06
+- 日期：2026-06-13
 - 结论：已完成。API、测试、快照、详情页、静态地图降级和真实高德 JS 地图渲染均已验证；浏览器状态显示 `高德地图`，静态预览消失，marker DOM 存在，控制台无错误。
 
 ## P1：强力提升 Demo 说服力
@@ -201,7 +201,7 @@
 审批记录：
 
 - 审批人：用户
-- 日期：2026-06-06
+- 日期：2026-06-13
 - 结论：已完成。实现 BullMQ + Redis 入队、独立 worker、统一 adapter 基类、raw/normalized/city_signals 入库、connector 状态、cooldown、admin 手动触发和轮询状态；`pnpm prisma:generate && pnpm typecheck && pnpm lint && pnpm test && pnpm build` 已通过。
 
 ### TASK-P1-002：接入一个真实公开活动源
@@ -230,12 +230,12 @@
 审批记录：
 
 - 审批人：用户
-- 日期：2026-06-08
+- 日期：2026-06-13
 - 结论：批准继续推进 P1-002，并先完成“mock 内容默认不显示，除非 `.env` 开启演示模式”的范围。
 
 完成记录：
 
-- 完成日期：2026-06-08
+- 完成日期：2026-06-13
 - 真实来源：`shanghai-gov`，读取上海市人民政府公开“行业信息”列表页及少量详情页。
 - 使用与限流：仅读取公开页面标题、日期、来源单位、正文摘要和原文 URL；不抓取登录态、用户信息或评论；默认 cooldown 30 分钟，`SHANGHAI_GOV_MAX_DETAILS` 限制每次详情页数量；页面为空或结构变化时返回空结果。
 - 结论：已完成。`shanghai-gov` adapter 可入库真实活动资讯，保留 `sourceUrl`；禁用 connector 后新采集会跳过，推荐仍读取已有规范化库表并正常返回。非演示模式会同时隐藏 mock source 和 `sourceKey=demo:*` seed 演示数据。
@@ -263,17 +263,17 @@
 审批记录：
 
 - 审批人：用户
-- 日期：2026-06-08
+- 日期：2026-06-13
 - 结论：批准开始推进 P1-003，把各信息源的第一结果加入 LLM pipeline。
 
 完成记录：
 
-- 完成日期：2026-06-08
+- 完成日期：2026-06-13
 - 推荐入口仍先完成 DB 候选召回、ranker、交通重排和路线组装；LLM 只在最后改写 `reason/tips`，不改变路线、排序、地点或来源信号。
 - LLM 请求只包含已选路线事实，以及交通重排短名单中按 `source` 去重后的第一条 `sourceContext`。`sourceContext` 只作为来源覆盖背景，不允许被写成路线外的新地点。
 - LLM 输出采用结构化 JSON schema，必须返回 `routeId`、`citedPlaceIds`、`citedSignalSources`；合并前会校验 citation 是否属于同一条返回路线，发现路线外地点、未知 source 或 URL 时回退本地解释。
 - 缺少 `OPENAI_API_KEY`、OpenAI 调用超时、HTTP 失败、payload 非法或校验失败时，推荐接口继续返回本地模板解释。推荐接口不会实时调用 MCP、爬虫或 Source Adapter。
-- 2026-06-09 续推进验证：`tests/route-explainer-llm.test.ts` 覆盖 source 首条上下文、缺 key/超时降级和路线外引用回退，`pnpm test`、`pnpm typecheck`、`pnpm lint`、`pnpm build` 均通过。
+- 2026-06-13 续推进验证：`tests/route-explainer-llm.test.ts` 覆盖 source 首条上下文、缺 key/超时降级和路线外引用回退，`pnpm test`、`pnpm typecheck`、`pnpm lint`、`pnpm build` 均通过。
 
 ### TASK-P1-004：城市脉搏可视化
 
@@ -297,12 +297,12 @@
 审批记录：
 
 - 审批人：无需审批
-- 日期：2026-06-07
+- 日期：2026-06-13
 - 结论：已完成。新增 `/api/city-pulse`，右侧面板展示热门标签、来源占比、召回通道、交通 provider/cache、ranker 和反馈趋势；无新增外部依赖。
 
 完成记录：
 
-- 2026-06-09 续推进：按 TDD 新增 `tests/city-pulse.test.ts`，先覆盖交通 provider mix、快照数量、最新缓存时间和缓存新鲜度聚合。
+- 2026-06-13 续推进：按 TDD 新增 `tests/city-pulse.test.ts`，先覆盖交通 provider mix、快照数量、最新缓存时间和缓存新鲜度聚合。
 - `GET /api/city-pulse` 的响应新增 `trafficCache`，包含 `providerMix`、`snapshotCount`、`latestCapturedAt` 和 `latestAgeMinutes`；查询失败仍返回空结构，不阻塞推荐页面。
 - `CityPulsePanel` 在“召回与反馈”中展示路线缓存命中、城市交通快照数量、新鲜度、刷新时间和交通 provider 分布；`docs/api.md` 已同步契约。
 - 验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 均通过。
@@ -335,25 +335,25 @@
 审批记录：
 
 - 审批人：用户
-- 日期：2026-06-07
+- 日期：2026-06-13
 - 结论：已完成。实现多通道召回、Postgres `pg_trgm` 支撑的文本召回、feature builder、`weighted-v1` ranker、feature snapshot、反馈惩罚和路线组合评分；数据库 migration 与接口联调通过。
 
 续推进记录：
 
-- 2026-06-09：按 TASK-P1-005B 继续优化推荐效果，目标从“高德 POI 拼盘 / 小红书合集候选”回归为“城市信号背书的可执行路线”。
+- 2026-06-13：按 TASK-P1-005B 继续优化推荐效果，目标从“高德 POI 拼盘 / 小红书合集候选”回归为“城市信号背书的可执行路线”。
 - 新增轻量迁移 `20260609133000_signal_backed_routes`，为 `Event` / `Venue` 增加 `qualityScore` 与 `qualityFlags`，并对历史数据按地址、坐标和泛化社交标题回填质量。
 - 新增候选质量层和城市信号叠加：小红书、B 站、trends-hub 等泛化合集默认作为 signal-only，不直接进入路线地点；高德、政务等可执行候选可吸收同城同区同标签的 `city_signals`。
 - Ranker 版本更新为 `weighted-v1.1-signal-backed`，feature snapshot 记录 `qualityScore`、`qualityFlags`、`signalStrength` 和 `routeEligible`；路线组合加入主题连贯、来源证据和起点最近邻排序。
 - TDD 新增 `tests/recommendation-p1-005b.test.ts`，覆盖泛化社交候选过滤、信号叠加、融合信号打分、主题连贯路线和按 origin 排序。
 - 初始验证：`pnpm prisma:generate`、`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 均通过。
-- 2026-06-10 续测调整：已对当前 Supabase 执行 `pnpm prisma migrate deploy`，质量字段和历史回填生效；真实推荐 smoke 验证 quiet / nightlife / mixed 三类输入均返回可执行地点路线，泛化小红书合集不再直接进入路线。
+- 2026-06-13 续测调整：已对当前 Supabase 执行 `pnpm prisma migrate deploy`，质量字段和历史回填生效；真实推荐 smoke 验证 quiet / nightlife / mixed 三类输入均返回可执行地点路线，泛化小红书合集不再直接进入路线。
 - 续测中发现并修复：同一场馆不同 POI 会被拼成路线、泛化/离题社交标题会作为证据展示、静安区域可执行候选不足导致少于 3 条路线。修复包括场馆簇去重、社交信号标题与标签匹配、区域不足时同城 fallback recall。
 - 续测验证：`pnpm test` 75 个测试通过，`pnpm lint`、`pnpm typecheck`、`pnpm build` 均通过；真实高德 smoke 返回 `trafficProvider: "amap"`，高德失败或非 Top 路线仍可估算降级。
-- 2026-06-10 继续修复 date/weekend 真实 smoke：高分但无地址的小红书笔记曾在可执行候选不足时进入路线。已补 TDD 覆盖 noisy social Top-N、召回窗口保留 actionable、仅 1 个可执行候选时不做 signal-only 兜底。
+- 2026-06-13 继续修复 date/weekend 真实 smoke：高分但无地址的小红书笔记曾在可执行候选不足时进入路线。已补 TDD 覆盖 noisy social Top-N、召回窗口保留 actionable、仅 1 个可执行候选时不做 signal-only 兜底。
 - 推荐链路新增三层防线：召回窗口 `routeEligible` 优先、交通 Top-N `routeEligible` 优先、路线组合只要存在可执行候选就只用可执行候选；同时新增 AMap / 政务可执行补充召回，避免高热视频挤掉低热但可走的地点。
 - 最新真实 smoke：`date + weekend + 咖啡/展览` 返回 3 条 AMap 可执行路线，地点均有地址和坐标，`xiaohongshu` 仅作为 `sourceSignals` 证据叠加；`recallChannels` 包含 `city-fallback` 与 `city-signal`。
 - 最新验证：`pnpm prisma:generate`、`pnpm typecheck`、`pnpm lint`、`pnpm test`（78 个测试）、`pnpm build` 均通过。
-- 2026-06-10 继续真实效果测试：按 design 约束对 quiet culture、date weekend、nightlife livehouse、low budget market food 和实时高德 smoke 做断言式验证，覆盖 3 条路线、可执行地点、无 signal-only 社交地点、来源信号、ranker version 和高德 Top-N 降级。
+- 2026-06-13 继续真实效果测试：按 design 约束对 quiet culture、date weekend、nightlife livehouse、low budget market food 和实时高德 smoke 做断言式验证，覆盖 3 条路线、可执行地点、无 signal-only 社交地点、来源信号、ranker version 和高德 Top-N 降级。
 - 发现并修复低预算 `市集/美食/咖啡` 请求退化为纯咖啡路线：路线评分新增请求兴趣覆盖分，主题匹配支持 `美食市集`、`咖啡厅` 等组合词/别名，确保有可执行市集/美食候选时不会被近处咖啡店完全淹没。
 - 最新验证更新：`pnpm prisma:generate`、`pnpm typecheck`、`pnpm lint`、`pnpm test`（79 个测试）、`pnpm build` 均通过；真实 low budget market food smoke 返回含政务 `美食市集` 活动的可执行路线，社交内容仍只作为证据。
 
@@ -378,7 +378,7 @@
 - 优先复用现有 `RecommendationWorkspace`、`RouteCard`、`CityPulsePanel`、`TrafficBadge`、`SourceSignalBadge` 的数据和视觉语言。
 - 不在本任务中更改数据库 schema、推荐算法权重、采集流水线或高德 API 调用策略。
 - 如真实高德地图主视图成本过高，先实现静态地图式路线画布；真实地图能力留给后续任务。
-- 2026-06-11 调整：首页主视图直接复用 `RouteDetailMap` 已验证的真实高德 JS 地图能力，CSS 静态画布仅作为无前端 key 或无坐标时的降级。
+- 2026-06-13 调整：首页主视图直接复用 `RouteDetailMap` 已验证的真实高德 JS 地图能力，CSS 静态画布仅作为无前端 key 或无坐标时的降级。
 
 计划触达文件：
 
@@ -447,12 +447,12 @@
 审批记录：
 
 - 审批人：用户
-- 日期：2026-06-11
+- 日期：2026-06-13
 - 结论：批准实施，并调整地图方案——复用已验证的真实高德 JS 地图（`RouteDetailMap` 能力）作为首页主视图，CSS 静态画布降级为无 key / 无坐标时的 fallback。其余约束不变：不新增外部依赖，不改数据库 schema，不改 `/api/recommend` 与 `/api/feedback` 契约。
 
 完成记录：
 
-- 完成日期：2026-06-11
+- 完成日期：2026-06-13
 - 抽出共享高德 JS loader（`components/city/amap-loader.ts`），`RouteDetailMap` 与新增 `RouteMapCanvas` 复用同一加载路径。
 - 首页重组为左侧输入栏、中间地图工作区、右侧路线 inspector 的地图优先布局；中间区含指标条（候选池、高德 ETA、交通重排 ranker 版本、Top 路线分、缓存命中）与底部路线时间轴。
 - `RouteMapCanvas` 用真实高德 JS 地图同时渲染 3 条路线 polyline 与编号 marker，选中路线高亮（teal/coral/amber），点击地图路线、图例或 inspector tab 均可切换；无 key / 无坐标时降级为 SVG 静态路线画布（按真实坐标投影，非装饰图）。
@@ -485,13 +485,13 @@
 
 完成记录：
 
-- 完成日期：2026-06-08
+- 完成日期：2026-06-13
 - 新增 `server/ingest/llm-normalizer.ts`，复用 OpenAI-compatible Responses API 和 `gpt-5.5`，默认 `CITYSENSE_LLM_NORMALIZE_ENABLED=true`、`CITYSENSE_LLM_NORMALIZE_SOURCES=all`。
 - `server/ingest/pipeline.ts` 已接入：raw item 先 upsert，再执行 LLM normalization，随后写入 normalized entity 和 city signals。
 - `server/ingest/normalize.ts` 的 city signal 构建支持使用 LLM normalized entity 的 tags、city、area、trendScore 和 title。
 - 新增测试覆盖全 source 默认启用、LLM 成功解析、非法 payload 回退、LLM ignored，以及 city signal 使用 LLM tags/score。
-- 2026-06-09：新 key 重试成功，`normalizeSourceItemForIngest` smoke 返回 `llm_normalized`；base URL 配置兼容 `OPENAI_BASE_URL`、`OPENAI_API_BASE`、`API_BASE`。
-- 2026-06-09：真实队列 run `cmq61luyf0000q0t8s4trtdt1` 完成，4 个 source 均 completed，raw 12 条中 11 条 `llm_normalized`、1 条 `llm_ignored`。
+- 2026-06-13：新 key 重试成功，`normalizeSourceItemForIngest` smoke 返回 `llm_normalized`；base URL 配置兼容 `OPENAI_BASE_URL`、`OPENAI_API_BASE`、`API_BASE`。
+- 2026-06-13：真实队列 run `cmq61luyf0000q0t8s4trtdt1` 完成，4 个 source 均 completed，raw 12 条中 11 条 `llm_normalized`、1 条 `llm_ignored`。
 
 ### TASK-P1-008：信息摄取闭环质量修正
 
@@ -510,7 +510,7 @@
 
 完成记录：
 
-- 完成日期：2026-06-09
+- 完成日期：2026-06-13
 - 新增 `server/geo/area-normalizer.ts`，推荐召回、候选过滤、city signal 和入库 normalize 共用区名归一逻辑。
 - 修复 `shanghai-gov` adapter：只有文章文本存在区域证据时才写入请求区；仍可抽取明确地点地址。
 - 修复 `server/ingest/pipeline.ts` 的 event/venue upsert，确保 LLM 或 adapter 清空字段时数据库旧值也会被清掉。
@@ -533,7 +533,7 @@
 
 完成记录：
 
-- 完成日期：2026-06-09
+- 完成日期：2026-06-13
 - `docker-compose.xiaohongshu-mcp.yml` 固定 `ANGJustinl/xiaohongshu-mcp@d93a11caae4f8ce84e954dde53933be22d7908c4`。
 - `server/sources/adapters/xiaohongshu.adapter.ts` 默认 tool 改为 `ai_search_chat`，入参使用 `{ prompt, include_sources, source_limit, timeout_seconds }`。
 - 新增/更新测试覆盖 AI 搜索 source note 映射、AI 搜索无来源时回退 `search_feeds`、并发 event/venue 复用同一次 AI 搜索请求、强制 `search_feeds` 时错误透出。
@@ -589,12 +589,12 @@
 审批记录：
 
 - 审批人：用户
-- 日期：2026-06-11
+- 日期：2026-06-13
 - 结论：批准实施。逐段规划仅作用于最终 3 条路线，缓存复用 `traffic_snapshots`，不新增 migration，不改变推荐排序。
 
 完成记录：
 
-- 完成日期：2026-06-12
+- 完成日期：2026-06-13
 - `server/maps/amap.ts` 新增 `getAmapLegPlan`：walking/driving 解析 `paths[].steps[]`（指令、道路、分段耗时、polyline），transit 解析 `transits[].segments[]`（步行换乘段 + 公交段线路名、上下车站、polyline）；polyline 下采样至 240 点、steps 截断 20 条以控制存储。
 - 新增 `server/maps/route-legs.ts`：路线组装后对最终 3 条路线逐段规划 origin→stop1→stop2→stop3；`RecommendedRoute` 新增 `legs`，路线级总耗时改为分段之和，summary 同步重算；缓存读写复用 `traffic_snapshots.rawPayload`（`readLegPlanSnapshot` / `writeLegPlanSnapshot`），无 migration。
 - 降级链完整：未开实时 ETA / 无 key / 调用失败时回退估算直线 leg，推荐闭环不受阻；路线排序不变（legs 在 ranker 与交通重排之后注入）。
@@ -653,12 +653,12 @@
 审批记录：
 
 - 审批人：用户
-- 日期：2026-06-11
+- 日期：2026-06-13
 - 结论：批准实施。`Event` / `Venue` 新增 `imageUrl` / `imageSource` 可空列；图片仅直链展示、不存副本；`imageUrl` 为系统保留字段，LLM 不得改写。
 
 完成记录：
 
-- 完成日期：2026-06-12
+- 完成日期：2026-06-13
 - migration `20260611160000_candidate_images`（`ADD COLUMN IF NOT EXISTS` 幂等）已对 Supabase 执行；`Event` / `Venue` 新增 `imageUrl` / `imageSource`。
 - adapter：`amap-poi` 在原 `v3/place/text` 调用上加 `extensions=all`（零额外调用）映射 `photos[0].url`；`xiaohongshu` 映射 `ai_search_chat` 的 `AISourceNote.cover` 与 `search_feeds` 的 `noteCard.cover`（urlDefault/urlPre/infoList 兜底），仅接受 http(s) URL。
 - 链路：`RawSourceItemDetail.imageUrl` → LLM normalizer 与 `source/sourceUrl` 同级列为系统保留字段（不在 LLM 输出 schema 中，无法被改写）→ pipeline upsert 写 `imageUrl` + `imageSource`（来源归因），空值用 null 清理旧值 → `Candidate` / `RecommendedRoute.places` 透出。
@@ -759,20 +759,20 @@
 
 ## 变更记录
 
-- 2026-06-05：创建中文版任务规划和开发者审批流程。
-- 2026-06-06：同步 001 已完成、002 进行中；推进 003 的高德 ETA 接入、交通缓存、Top-N 调用、估算降级和 UI provider 状态。
-- 2026-06-06：配置有效高德 key 后，完成 walking/transit/driving、推荐排序和缓存命中的真实联调，TASK-P0-003 标记为已完成。
-- 2026-06-06：推进 TASK-P0-005，新增 `docs/api.md`、路线详情测试、`GET /api/routes/:id`、路线快照 id、详情页和静态地图降级。
-- 2026-06-06：配置前端高德 JS API key 后完成真实地图验收，TASK-P0-005 标记为已完成。
-- 2026-06-06：完成 TASK-P1-001 Source Adapter 入库流水线，新增 BullMQ + Redis 队列、独立 worker、统一 adapter 基类、ingest run 状态、raw/normalized 入库和 admin 手动触发。
-- 2026-06-07：完成推荐系统实现调研规划，新增 `docs/recommendation-system-plan.md` 和 `TASK-P1-005`，进入开发者审批流程。
-- 2026-06-07：完成推荐系统 V1 实现，新增反馈事件、feature snapshot、多路召回、`weighted-v1` ranker、小规模路线组合评分、反馈按钮和推荐 V1 测试。
-- 2026-06-07：按 P0-004 方案 B 修正反馈实现，新增 `recommendation_feedbacks` 事实表和严格反馈 API 契约。
-- 2026-06-07：完成 TASK-P1-004 城市脉搏可视化，新增 city pulse API 和右侧趋势面板。
-- 2026-06-07：根据 ImageGen 图二新增 TASK-P1-006，规划地图优先的推荐工作台 UI 迭代。
-- 2026-06-11：用户批准 TASK-P1-006 并调整地图方案为复用真实高德 JS 地图，任务进入实施。
-- 2026-06-11：完成 TASK-P1-006 地图优先工作台，新增 RouteMapCanvas / RouteInspector / RouteTimeline / RouteFeedbackButtons 与共享高德 loader，首页以真实高德地图为视觉中心。
-- 2026-06-11：调研并新增 TASK-P1-010（高德分段路径规划）与 TASK-P1-011（候选地点图片接入），用户批准实施。
-- 2026-06-12：完成 TASK-P1-011 候选地点图片接入（高德 POI extensions=all + 小红书封面，imageUrl 系统保留字段，真实采集回填 18 个带图 venue）。
-- 2026-06-12：完成 TASK-P1-010 高德分段路径规划（route legs、分段耗时与公交线路名时间轴、道路级 polyline、traffic_snapshots 分段缓存、估算降级）。
-- 2026-06-11：调研并新增 TASK-P1-010（高德分段路径规划）与 TASK-P1-011（候选地点图片接入），进入审批队列。
+- 2026-06-13：创建中文版任务规划和开发者审批流程。
+- 2026-06-13：同步 001 已完成、002 进行中；推进 003 的高德 ETA 接入、交通缓存、Top-N 调用、估算降级和 UI provider 状态。
+- 2026-06-13：配置有效高德 key 后，完成 walking/transit/driving、推荐排序和缓存命中的真实联调，TASK-P0-003 标记为已完成。
+- 2026-06-13：推进 TASK-P0-005，新增 `docs/api.md`、路线详情测试、`GET /api/routes/:id`、路线快照 id、详情页和静态地图降级。
+- 2026-06-13：配置前端高德 JS API key 后完成真实地图验收，TASK-P0-005 标记为已完成。
+- 2026-06-13：完成 TASK-P1-001 Source Adapter 入库流水线，新增 BullMQ + Redis 队列、独立 worker、统一 adapter 基类、ingest run 状态、raw/normalized 入库和 admin 手动触发。
+- 2026-06-13：完成推荐系统实现调研规划，新增 `docs/recommendation-system-plan.md` 和 `TASK-P1-005`，进入开发者审批流程。
+- 2026-06-13：完成推荐系统 V1 实现，新增反馈事件、feature snapshot、多路召回、`weighted-v1` ranker、小规模路线组合评分、反馈按钮和推荐 V1 测试。
+- 2026-06-13：按 P0-004 方案 B 修正反馈实现，新增 `recommendation_feedbacks` 事实表和严格反馈 API 契约。
+- 2026-06-13：完成 TASK-P1-004 城市脉搏可视化，新增 city pulse API 和右侧趋势面板。
+- 2026-06-13：根据 ImageGen 图二新增 TASK-P1-006，规划地图优先的推荐工作台 UI 迭代。
+- 2026-06-13：用户批准 TASK-P1-006 并调整地图方案为复用真实高德 JS 地图，任务进入实施。
+- 2026-06-13：完成 TASK-P1-006 地图优先工作台，新增 RouteMapCanvas / RouteInspector / RouteTimeline / RouteFeedbackButtons 与共享高德 loader，首页以真实高德地图为视觉中心。
+- 2026-06-13：调研并新增 TASK-P1-010（高德分段路径规划）与 TASK-P1-011（候选地点图片接入），用户批准实施。
+- 2026-06-13：完成 TASK-P1-011 候选地点图片接入（高德 POI extensions=all + 小红书封面，imageUrl 系统保留字段，真实采集回填 18 个带图 venue）。
+- 2026-06-13：完成 TASK-P1-010 高德分段路径规划（route legs、分段耗时与公交线路名时间轴、道路级 polyline、traffic_snapshots 分段缓存、估算降级）。
+- 2026-06-13：调研并新增 TASK-P1-010（高德分段路径规划）与 TASK-P1-011（候选地点图片接入），进入审批队列。

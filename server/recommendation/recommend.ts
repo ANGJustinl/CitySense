@@ -1,11 +1,20 @@
 import { z } from "zod";
-import type { RecommendInput, RecommendResponse } from "@/server/recommendation/types";
-import { collectSourceItems } from "@/server/sources/source-registry";
-import { normalizeRawSourceItem } from "@/server/sources/crawler/normalizer";
-import { scoreCandidate } from "@/server/recommendation/scoring";
+import type {
+  RecallChannel,
+  RecommendInput,
+  RecommendResponse,
+  ScoredCandidate
+} from "@/server/recommendation/types";
+import { retrieveDatabaseCandidates } from "@/server/recommendation/candidates";
 import { enrichAndRerankByTraffic } from "@/server/recommendation/traffic-rerank";
 import { buildRoutes } from "@/server/recommendation/route-builder";
-import { explainRoutes } from "@/server/ai/explain-route";
+import { planRoutesLegs } from "@/server/maps/route-legs";
+import { buildSourceContextItems, explainRoutes } from "@/server/ai/explain-route";
+import { persistRecommendationSnapshot } from "@/server/routes/route-detail";
+import { rankCandidates } from "@/server/recommendation/ranker";
+import { routeEligibilityFromQuality } from "@/server/recommendation/quality";
+
+const TRAFFIC_ENRICHMENT_LIMIT = 20;
 
 export const recommendRequestSchema = z.object({
   userId: z.string().optional(),
@@ -25,29 +34,62 @@ export const recommendRequestSchema = z.object({
   useSocialSignals: z.boolean().default(true)
 });
 
+function isRouteEligibleForTraffic(candidate: ScoredCandidate) {
+  return (
+    candidate.routeEligible ??
+    candidate.features.routeEligible ??
+    routeEligibilityFromQuality({
+      qualityScore: candidate.qualityScore ?? candidate.features.qualityScore,
+      qualityFlags: candidate.qualityFlags ?? candidate.features.qualityFlags,
+      address: candidate.address,
+      lat: candidate.lat,
+      lng: candidate.lng
+    })
+  );
+}
+
+export function selectTrafficCandidatesForEnrichment(
+  ranked: ScoredCandidate[],
+  limit = TRAFFIC_ENRICHMENT_LIMIT
+) {
+  const routeEligible = ranked.filter(isRouteEligibleForTraffic);
+  const signalOnly = ranked.filter((candidate) => !isRouteEligibleForTraffic(candidate));
+
+  return [...routeEligible, ...signalOnly].slice(0, limit);
+}
+
 export async function recommend(rawInput: unknown): Promise<RecommendResponse> {
   const input: RecommendInput = recommendRequestSchema.parse(rawInput);
-  const sourceItems = await collectSourceItems({
-    city: input.city,
-    area: input.area,
-    keywords: input.interests.length > 0 ? input.interests : ["咖啡", "展览", "书店"],
-    timeWindow: input.timeWindow
-  });
-  const candidates = sourceItems.map(normalizeRawSourceItem);
-  const scored = candidates
-    .map((candidate) => scoreCandidate(candidate, input))
-    .sort((a, b) => b.baseScore - a.baseScore)
-    .slice(0, 10);
+  const candidates = await retrieveDatabaseCandidates(input);
+  const rankerResult = await rankCandidates(input, candidates);
+  const scored = selectTrafficCandidatesForEnrichment(rankerResult.ranked);
   const trafficRanked = await enrichAndRerankByTraffic(scored, input);
-  const routes = await explainRoutes(buildRoutes(trafficRanked, input), input);
+  const composedRoutes = await planRoutesLegs(buildRoutes(trafficRanked, input), {
+    city: input.city,
+    origin: input.origin,
+    useRealtimeTraffic: input.useRealtimeTraffic
+  });
+  const routes = await explainRoutes(composedRoutes, input, {
+    sourceContext: buildSourceContextItems(trafficRanked)
+  });
+  const snapshot = await persistRecommendationSnapshot(input, routes, trafficRanked);
+  const recallChannels: RecallChannel[] = [
+    ...new Set<RecallChannel>(
+      candidates.flatMap((candidate) => candidate.recallChannels ?? ["base"])
+    )
+  ];
 
   return {
-    routes,
+    routes: snapshot.routes,
     meta: {
+      recommendationId: snapshot.recommendationId,
       candidateCount: candidates.length,
       trafficProvider: trafficRanked.some((candidate) => candidate.traffic.provider === "amap")
         ? "amap"
         : "estimated",
+      ranker: rankerResult.ranker,
+      rankerVersion: rankerResult.rankerVersion,
+      recallChannels,
       generatedAt: new Date().toISOString()
     }
   };

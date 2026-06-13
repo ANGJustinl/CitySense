@@ -2,13 +2,26 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronDown, Clock3, ExternalLink, MapPin, Sparkles } from "lucide-react";
+import {
+  ChevronDown,
+  Clock3,
+  ExternalLink,
+  MapPin,
+  Sparkles
+} from "lucide-react";
 import type { RecommendedRoute } from "@/server/recommendation/types";
+import { RouteFeedbackButtons } from "@/components/city/RouteFeedbackButtons";
 import { SourceSignalBadge } from "@/components/city/SourceSignalBadge";
 import { TrafficBadge } from "@/components/city/TrafficBadge";
 import { VenueCard } from "@/components/city/VenueCard";
 
-export function RouteCard({ route }: { route: RecommendedRoute }) {
+export function RouteCard({
+  route,
+  recommendationId
+}: {
+  route: RecommendedRoute;
+  recommendationId?: string;
+}) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -43,6 +56,8 @@ export function RouteCard({ route }: { route: RecommendedRoute }) {
           {route.sourceSignals.length} signals
         </span>
       </div>
+
+      <RouteFeedbackButtons recommendationId={recommendationId} routeId={route.id} />
 
       <div className="signal-row">
         {route.sourceSignals.map((signal) => (

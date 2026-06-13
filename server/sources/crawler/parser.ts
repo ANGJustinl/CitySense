@@ -3,7 +3,7 @@ import type { RawSourceItem, RawSourceItemDetail } from "@/server/sources/source
 export function parseRawSourceItem(item: RawSourceItem): RawSourceItemDetail {
   return {
     ...item,
-    status: "parsed",
+    status: "normalized",
     tags: [],
     trendScore: 0,
     confidence: 0,

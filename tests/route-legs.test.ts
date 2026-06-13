@@ -307,7 +307,7 @@ test("planRouteLegs reuses cached leg plans with cacheHit", async () => {
           ],
           steps: [],
           transitLines: [],
-          capturedAt: "2026-06-11T08:00:00.000Z"
+          capturedAt: "2026-06-13T08:00:00.000Z"
         };
       },
       async writeCache() {}
