@@ -13,7 +13,8 @@ export function TrafficBadge({ traffic }: { traffic: TrafficInfo }) {
   return (
     <span className={`traffic-badge ${traffic.congestion ?? "unknown"}`}>
       <Icon size={15} />
-      {traffic.mode}
+      {traffic.provider} / {traffic.mode}
+      {traffic.cacheHit ? " 缓存" : ""}
     </span>
   );
 }

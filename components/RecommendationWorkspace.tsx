@@ -247,13 +247,17 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
 
           <div className="route-list">
             {data.routes.map((route) => (
-              <RouteCard key={route.id} route={route} />
+              <RouteCard
+                key={route.id}
+                recommendationId={data.meta.recommendationId}
+                route={route}
+              />
             ))}
           </div>
         </section>
 
         <aside className="pulse-panel">
-          <CityPulsePanel response={data} />
+          <CityPulsePanel area={area || undefined} city={city} response={data} />
           <div className="mini-map" aria-label="route map preview">
             <div className="route-line" />
             <span className="map-pin one">

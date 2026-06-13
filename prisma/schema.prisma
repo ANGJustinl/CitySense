@@ -8,36 +8,53 @@ datasource db {
 }
 
 model SourceConnector {
-  id        String   @id @default(cuid())
-  name      String
-  type      String
-  status    String
-  config    Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String    @id @default(cuid())
+  name            String    @unique
+  type            String
+  status          String
+  enabled         Boolean   @default(true)
+  cooldownSeconds Int       @default(60)
+  config          Json?
+  lastRunId       String?
+  lastRunAt       DateTime?
+  lastSuccessAt   DateTime?
+  lastErrorAt     DateTime?
+  lastError       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
 
 model RawSourceItem {
-  id          String   @id @default(cuid())
-  source      String
-  sourceId    String?
-  sourceUrl   String?
-  title       String
-  content     String?
-  author      String?
-  rawPayload  Json?
-  city        String?
-  area        String?
-  publishedAt DateTime?
-  status      String
-  createdAt   DateTime @default(now())
+  id                   String   @id @default(cuid())
+  source               String
+  sourceKey            String   @unique
+  sourceId             String?
+  sourceUrl            String?
+  title                String
+  content              String?
+  author               String?
+  rawPayload           Json?
+  parsedPayload        Json?
+  city                 String?
+  area                 String?
+  publishedAt          DateTime?
+  status               String
+  itemType             String
+  normalizedEntityType String?
+  normalizedEntityId   String?
+  ingestRunId          String?
+  firstSeenAt          DateTime @default(now())
+  lastSeenAt           DateTime @default(now())
+  createdAt            DateTime @default(now())
 
   @@index([source])
   @@index([city])
+  @@index([ingestRunId])
 }
 
 model Event {
   id          String   @id @default(cuid())
+  sourceKey   String?  @unique
   title       String
   description String?
   city        String
@@ -62,6 +79,7 @@ model Event {
 
 model Venue {
   id          String   @id @default(cuid())
+  sourceKey   String?  @unique
   name        String
   description String?
   city        String
@@ -98,6 +116,26 @@ model CitySignal {
   @@index([area])
   @@index([tag])
   @@index([capturedAt])
+}
+
+model IngestRun {
+  id          String    @id @default(cuid())
+  city        String
+  area        String?
+  keywords    String[]
+  sources     String[]
+  status      String
+  requestedBy String?
+  force       Boolean   @default(false)
+  stats       Json?
+  error       String?
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
 }
 
 model TrafficSnapshot {
@@ -139,4 +177,60 @@ model RecommendationLog {
 
   @@index([userId])
   @@index([createdAt])
+}
+
+model UserInteraction {
+  id               String   @id @default(cuid())
+  userId           String?
+  recommendationId String?
+  routeId          String?
+  itemId           String?
+  itemType         String?
+  action           String
+  weight           Float    @default(1)
+  context          Json?
+  createdAt        DateTime @default(now())
+
+  @@index([userId])
+  @@index([recommendationId])
+  @@index([itemId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model RecommendationFeatureSnapshot {
+  id               String   @id @default(cuid())
+  recommendationId String
+  candidateId      String
+  candidateType    String
+  ranker           String
+  rankerVersion    String
+  recallChannels   String[]
+  features         Json
+  score            Float
+  position         Int
+  createdAt        DateTime @default(now())
+
+  @@index([recommendationId])
+  @@index([candidateId])
+  @@index([ranker])
+}
+
+model RecommendationFeedback {
+  id                  String   @id @default(cuid())
+  recommendationLogId String   @map("recommendation_log_id")
+  routeId             String   @map("route_id")
+  userId              String?  @map("user_id")
+  sessionId           String?  @map("session_id")
+  value               String
+  reason              String?
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@index([recommendationLogId])
+  @@index([routeId])
+  @@index([userId])
+  @@index([sessionId])
+  @@index([value])
+  @@index([createdAt])
+  @@map("recommendation_feedbacks")
 }

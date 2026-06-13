@@ -1,5 +1,5 @@
 import type { CitySourceAdapter, RawSourceItemDetail } from "@/server/sources/source.types";
-import { matchCityItem } from "@/server/sources/adapters/adapter-utils";
+import { BaseCitySourceAdapter, matchCityItem } from "@/server/sources/adapters/adapter-utils";
 
 export const mockCatalog: RawSourceItemDetail[] = [
   {
@@ -13,7 +13,7 @@ export const mockCatalog: RawSourceItemDetail[] = [
     city: "上海",
     area: "徐汇",
     publishedAt: new Date().toISOString(),
-    status: "parsed",
+    status: "new",
     itemType: "event",
     address: "衡山路 880 号",
     lat: 31.204,
@@ -45,7 +45,7 @@ export const mockCatalog: RawSourceItemDetail[] = [
     city: "上海",
     area: "徐汇",
     publishedAt: new Date().toISOString(),
-    status: "parsed",
+    status: "new",
     itemType: "event",
     address: "龙腾大道 2555 号",
     lat: 31.184,
@@ -77,7 +77,7 @@ export const mockCatalog: RawSourceItemDetail[] = [
     city: "上海",
     area: "长宁",
     publishedAt: new Date().toISOString(),
-    status: "parsed",
+    status: "new",
     itemType: "event",
     address: "凯旋路 851 号",
     lat: 31.216,
@@ -109,7 +109,7 @@ export const mockCatalog: RawSourceItemDetail[] = [
     city: "上海",
     area: "长宁",
     publishedAt: new Date().toISOString(),
-    status: "parsed",
+    status: "new",
     itemType: "venue",
     address: "延安西路 1262 号",
     lat: 31.211,
@@ -138,7 +138,7 @@ export const mockCatalog: RawSourceItemDetail[] = [
     city: "上海",
     area: "静安",
     publishedAt: new Date().toISOString(),
-    status: "parsed",
+    status: "new",
     itemType: "event",
     address: "愚园路 300 号",
     lat: 31.226,
@@ -168,7 +168,7 @@ export const mockCatalog: RawSourceItemDetail[] = [
     city: "上海",
     area: "静安",
     publishedAt: new Date().toISOString(),
-    status: "parsed",
+    status: "new",
     itemType: "venue",
     address: "巨鹿路 758 号",
     lat: 31.222,
@@ -190,17 +190,27 @@ export const mockCatalog: RawSourceItemDetail[] = [
   }
 ];
 
-export const mockAdapter: CitySourceAdapter = {
-  source: "mock-city-signal",
-  kind: "mock",
-  status: "active",
-  async searchEvents(input) {
+class MockCitySourceAdapter extends BaseCitySourceAdapter {
+  constructor() {
+    super({
+      source: "mock-city-signal",
+      kind: "mock",
+      enabledByDefault: true,
+      cooldownSeconds: 10
+    });
+  }
+
+  protected async searchEventsImpl(input: Parameters<CitySourceAdapter["searchEvents"]>[0]) {
     return mockCatalog.filter((item) => item.itemType === "event" && matchCityItem(item, input));
-  },
-  async searchVenues(input) {
+  }
+
+  protected async searchVenuesImpl(input: Parameters<CitySourceAdapter["searchVenues"]>[0]) {
     return mockCatalog.filter((item) => item.itemType === "venue" && matchCityItem(item, input));
-  },
-  async getItemDetail(sourceItemId) {
+  }
+
+  protected async getItemDetailImpl(sourceItemId: string) {
     return mockCatalog.find((item) => item.id === sourceItemId || item.sourceId === sourceItemId) ?? null;
   }
-};
+}
+
+export const mockAdapter: CitySourceAdapter = new MockCitySourceAdapter();

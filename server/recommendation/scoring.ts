@@ -1,12 +1,29 @@
 import type {
   Candidate,
+  CandidateFeatures,
   RecommendInput,
   ScoreBreakdown,
   ScoredCandidate
 } from "@/server/recommendation/types";
 import { distanceMeters } from "@/server/maps/traffic";
 
-function clamp(score: number) {
+export const WEIGHTED_RANKER_NAME = "weighted-v1";
+export const WEIGHTED_RANKER_VERSION = "2026-06-13";
+
+export const WEIGHTED_RANKER_WEIGHTS = {
+  taste: 0.22,
+  textRelevance: 0.1,
+  socialTrend: 0.14,
+  freshness: 0.1,
+  distance: 0.1,
+  traffic: 0.14,
+  timeFit: 0.08,
+  novelty: 0.06,
+  userAffinity: 0.08,
+  feedbackPenalty: -0.12
+} satisfies Record<keyof ScoreBreakdown, number>;
+
+export function clamp(score: number) {
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
@@ -18,7 +35,7 @@ function average(scores: number[]) {
   return scores.reduce((sum, score) => sum + score, 0) / scores.length;
 }
 
-function tasteScore(candidate: Candidate, input: RecommendInput) {
+export function calculateTasteScore(candidate: Candidate, input: RecommendInput) {
   if (input.interests.length === 0) {
     return 62;
   }
@@ -43,7 +60,7 @@ function tasteScore(candidate: Candidate, input: RecommendInput) {
   return clamp(directScore * 0.7 + moodBoosts[input.mood] * 0.3);
 }
 
-function distanceScore(candidate: Candidate, input: RecommendInput) {
+export function calculateDistanceScore(candidate: Candidate, input: RecommendInput) {
   if (!input.origin || !candidate.lat || !candidate.lng) {
     return 62;
   }
@@ -60,7 +77,7 @@ function distanceScore(candidate: Candidate, input: RecommendInput) {
   return 28;
 }
 
-function timeFitScore(candidate: Candidate, input: RecommendInput) {
+export function calculateTimeFitScore(candidate: Candidate, input: RecommendInput) {
   if (input.timeWindow === "now") {
     return candidate.tags.includes("夜生活") ? 72 : 86;
   }
@@ -72,7 +89,7 @@ function timeFitScore(candidate: Candidate, input: RecommendInput) {
   return candidate.type === "event" ? 88 : 76;
 }
 
-function budgetScore(candidate: Candidate, input: RecommendInput) {
+export function calculateBudgetScore(candidate: Candidate, input: RecommendInput) {
   if (input.budget === "high") {
     return 84;
   }
@@ -84,46 +101,85 @@ function budgetScore(candidate: Candidate, input: RecommendInput) {
   return candidate.priceLevel <= 1 ? 94 : candidate.priceLevel === 2 ? 78 : 46;
 }
 
+export function calculateTextRelevance(candidate: Candidate, input: RecommendInput) {
+  if (candidate.textRelevance !== undefined) {
+    return clamp(candidate.textRelevance);
+  }
+
+  if (input.interests.length === 0) {
+    return 55;
+  }
+
+  const searchable = [candidate.name, candidate.description, candidate.address, ...candidate.tags]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const matches = input.interests.filter((interest) =>
+    searchable.includes(interest.toLowerCase())
+  );
+
+  return clamp((matches.length / input.interests.length) * 100);
+}
+
 export function calculateFinalScore(breakdown: ScoreBreakdown) {
   return clamp(
-    breakdown.taste * 0.25 +
-      breakdown.socialTrend * 0.18 +
-      breakdown.freshness * 0.12 +
-      breakdown.distance * 0.12 +
-      breakdown.traffic * 0.15 +
-      breakdown.timeFit * 0.1 +
-      breakdown.novelty * 0.08
+    breakdown.taste * WEIGHTED_RANKER_WEIGHTS.taste +
+      breakdown.textRelevance * WEIGHTED_RANKER_WEIGHTS.textRelevance +
+      breakdown.socialTrend * WEIGHTED_RANKER_WEIGHTS.socialTrend +
+      breakdown.freshness * WEIGHTED_RANKER_WEIGHTS.freshness +
+      breakdown.distance * WEIGHTED_RANKER_WEIGHTS.distance +
+      breakdown.traffic * WEIGHTED_RANKER_WEIGHTS.traffic +
+      breakdown.timeFit * WEIGHTED_RANKER_WEIGHTS.timeFit +
+      breakdown.novelty * WEIGHTED_RANKER_WEIGHTS.novelty +
+      breakdown.userAffinity * WEIGHTED_RANKER_WEIGHTS.userAffinity +
+      breakdown.feedbackPenalty * WEIGHTED_RANKER_WEIGHTS.feedbackPenalty
   );
 }
 
-export function scoreCandidate(candidate: Candidate, input: RecommendInput): ScoredCandidate {
+export function createDefaultFeatures(candidate: Candidate, input: RecommendInput): CandidateFeatures {
   const sourceSignalScore = input.useSocialSignals === false ? 50 : candidate.trendScore;
   const novelty = clamp(100 - candidate.popularity * 0.5 + candidate.confidence * 0.35);
-  const breakdown: ScoreBreakdown = {
-    taste: clamp((tasteScore(candidate, input) + budgetScore(candidate, input)) / 2),
+
+  return {
+    candidateId: candidate.id,
+    taste: clamp((calculateTasteScore(candidate, input) + calculateBudgetScore(candidate, input)) / 2),
+    textRelevance: calculateTextRelevance(candidate, input),
     socialTrend: clamp(sourceSignalScore),
     freshness: clamp(candidate.freshnessScore),
-    distance: distanceScore(candidate, input),
+    distance: calculateDistanceScore(candidate, input),
     traffic: 60,
-    timeFit: timeFitScore(candidate, input),
-    novelty
+    timeFit: calculateTimeFitScore(candidate, input),
+    novelty,
+    userAffinity: 50,
+    feedbackPenalty: 0
   };
+}
+
+export function scoreCandidate(candidate: Candidate, input: RecommendInput): ScoredCandidate {
+  const features = createDefaultFeatures(candidate, input);
+  const breakdown: ScoreBreakdown = features;
 
   return {
     ...candidate,
     baseScore: calculateFinalScore(breakdown),
-    scoreBreakdown: breakdown
+    scoreBreakdown: breakdown,
+    features,
+    ranker: WEIGHTED_RANKER_NAME,
+    rankerVersion: WEIGHTED_RANKER_VERSION
   };
 }
 
 export function averageBreakdown(items: ScoreBreakdown[]): ScoreBreakdown {
   return {
     taste: clamp(average(items.map((item) => item.taste))),
+    textRelevance: clamp(average(items.map((item) => item.textRelevance))),
     socialTrend: clamp(average(items.map((item) => item.socialTrend))),
     freshness: clamp(average(items.map((item) => item.freshness))),
     distance: clamp(average(items.map((item) => item.distance))),
     traffic: clamp(average(items.map((item) => item.traffic))),
     timeFit: clamp(average(items.map((item) => item.timeFit))),
-    novelty: clamp(average(items.map((item) => item.novelty)))
+    novelty: clamp(average(items.map((item) => item.novelty))),
+    userAffinity: clamp(average(items.map((item) => item.userAffinity))),
+    feedbackPenalty: clamp(average(items.map((item) => item.feedbackPenalty)))
   };
 }

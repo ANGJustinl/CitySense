@@ -1,5 +1,6 @@
 import type { TrafficInfo, TravelMode } from "@/server/recommendation/types";
 import { getAmapRouteTraffic } from "@/server/maps/amap";
+import { readTrafficSnapshot, writeTrafficSnapshot } from "@/server/maps/traffic-cache";
 
 type Point = {
   lat: number;
@@ -87,6 +88,18 @@ export async function resolveTrafficInfo(input: {
   useRealtimeTraffic?: boolean;
 }): Promise<TrafficInfo> {
   if (input.useRealtimeTraffic && input.origin && input.destination && process.env.AMAP_API_KEY) {
+    const cacheInput = {
+      city: input.city,
+      origin: input.origin,
+      destination: input.destination,
+      mode: input.mode
+    };
+    const cachedTraffic = await readTrafficSnapshot(cacheInput);
+
+    if (cachedTraffic?.provider === "amap") {
+      return cachedTraffic;
+    }
+
     const amapTraffic = await getAmapRouteTraffic({
       city: input.city,
       origin: input.origin,
@@ -95,6 +108,7 @@ export async function resolveTrafficInfo(input: {
     });
 
     if (amapTraffic) {
+      await writeTrafficSnapshot(cacheInput, amapTraffic);
       return amapTraffic;
     }
   }

@@ -6,11 +6,23 @@ const prisma = new PrismaClient();
 async function main() {
   await prisma.sourceConnector.createMany({
     data: [
-      { name: "mock-city-signal", type: "mock", status: "active" },
-      { name: "amap-poi", type: "api", status: process.env.AMAP_API_KEY ? "active" : "not_configured" },
-      { name: "xiaohongshu", type: "crawler", status: "not_configured" },
-      { name: "douban", type: "crawler", status: "not_configured" },
-      { name: "bilibili", type: "mcp", status: "not_configured" }
+      {
+        name: "mock-city-signal",
+        type: "mock",
+        status: "active",
+        enabled: true,
+        cooldownSeconds: 10
+      },
+      {
+        name: "amap-poi",
+        type: "api",
+        status: process.env.AMAP_API_KEY ? "active" : "not_configured",
+        enabled: Boolean(process.env.AMAP_API_KEY),
+        cooldownSeconds: 300
+      },
+      { name: "xiaohongshu", type: "crawler", status: "not_configured", enabled: false },
+      { name: "douban", type: "crawler", status: "not_configured", enabled: false },
+      { name: "bilibili", type: "mcp", status: "not_configured", enabled: false }
     ],
     skipDuplicates: true
   });

@@ -27,6 +27,14 @@ export type SourceSignal = {
   evidence?: string;
 };
 
+export type RecallChannel =
+  | "base"
+  | "tag"
+  | "text"
+  | "social"
+  | "city-signal"
+  | "feedback-suppression";
+
 export type Candidate = {
   id: string;
   name: string;
@@ -49,21 +57,34 @@ export type Candidate = {
   quietness: number;
   priceLevel: number;
   sourceSignals: SourceSignal[];
+  recallChannels?: RecallChannel[];
+  textRelevance?: number;
 };
 
 export type ScoreBreakdown = {
   taste: number;
+  textRelevance: number;
   socialTrend: number;
   freshness: number;
   distance: number;
   traffic: number;
   timeFit: number;
   novelty: number;
+  userAffinity: number;
+  feedbackPenalty: number;
+};
+
+export type CandidateFeatures = ScoreBreakdown & {
+  candidateId: string;
+  semanticRelevance?: number;
 };
 
 export type ScoredCandidate = Candidate & {
   baseScore: number;
   scoreBreakdown: ScoreBreakdown;
+  features: CandidateFeatures;
+  ranker: string;
+  rankerVersion: string;
 };
 
 export type TrafficInfo = {
@@ -72,6 +93,8 @@ export type TrafficInfo = {
   distanceMeters?: number;
   congestion?: string;
   provider: "amap" | "estimated";
+  cacheHit?: boolean;
+  capturedAt?: string;
 };
 
 export type TrafficCandidate = ScoredCandidate & {
@@ -105,8 +128,12 @@ export type RecommendedRoute = {
 export type RecommendResponse = {
   routes: RecommendedRoute[];
   meta: {
+    recommendationId?: string;
     candidateCount: number;
     trafficProvider: "amap" | "estimated";
+    ranker?: string;
+    rankerVersion?: string;
+    recallChannels?: RecallChannel[];
     generatedAt: string;
   };
 };

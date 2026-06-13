@@ -1,4 +1,5 @@
 import type { CitySourceAdapter, RawSourceItemDetail } from "@/server/sources/source.types";
+import { BaseCitySourceAdapter } from "@/server/sources/adapters/adapter-utils";
 
 type AmapPoi = {
   id?: string;
@@ -29,7 +30,7 @@ function toPoiItem(poi: AmapPoi, city: string): RawSourceItemDetail | null {
     rawPayload: poi,
     city,
     area: poi.adname,
-    status: "parsed",
+    status: "new",
     itemType: "venue",
     address: typeof poi.address === "string" ? poi.address : undefined,
     lat: Number.isFinite(lat) ? lat : undefined,
@@ -51,20 +52,30 @@ function toPoiItem(poi: AmapPoi, city: string): RawSourceItemDetail | null {
   };
 }
 
-export const amapPoiAdapter: CitySourceAdapter = {
-  source: "amap-poi",
-  kind: "api",
-  status: process.env.AMAP_API_KEY ? "active" : "not_configured",
-  async searchEvents() {
+class AmapPoiAdapter extends BaseCitySourceAdapter {
+  constructor() {
+    super({
+      source: "amap-poi",
+      kind: "api",
+      enabledByDefault: true,
+      cooldownSeconds: 300,
+      requiredEnvVars: ["AMAP_API_KEY"]
+    });
+  }
+
+  protected async searchEventsImpl() {
     return [];
-  },
-  async searchVenues(input) {
-    if (!process.env.AMAP_API_KEY) {
+  }
+
+  protected async searchVenuesImpl(input: Parameters<CitySourceAdapter["searchVenues"]>[0]) {
+    const apiKey = process.env.AMAP_API_KEY;
+
+    if (!apiKey) {
       return [];
     }
 
     const params = new URLSearchParams({
-      key: process.env.AMAP_API_KEY,
+      key: apiKey,
       keywords: input.keywords.join("|") || "咖啡|展览|书店",
       city: input.city,
       output: "json",
@@ -80,8 +91,11 @@ export const amapPoiAdapter: CitySourceAdapter = {
     return (data.pois ?? [])
       .map((poi) => toPoiItem(poi, input.city))
       .filter((item): item is RawSourceItemDetail => Boolean(item));
-  },
-  async getItemDetail() {
+  }
+
+  protected async getItemDetailImpl() {
     return null;
   }
-};
+}
+
+export const amapPoiAdapter: CitySourceAdapter = new AmapPoiAdapter();

@@ -7,6 +7,8 @@ type Point = {
 
 type AmapRouteResponse = {
   status?: string;
+  info?: string;
+  infocode?: string;
   route?: {
     paths?: {
       distance?: string;
@@ -77,7 +79,9 @@ export async function getAmapRouteTraffic(input: {
       mode: input.mode,
       distanceMeters: Number.isFinite(distance) ? distance : undefined,
       congestion: durationMinutes <= 20 ? "smooth" : durationMinutes <= 40 ? "moderate" : "busy",
-      provider: "amap"
+      provider: "amap",
+      cacheHit: false,
+      capturedAt: new Date().toISOString()
     };
   } catch {
     return null;

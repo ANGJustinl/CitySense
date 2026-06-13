@@ -1,0 +1,62 @@
+[
+  {
+    "id": "quiet-solo",
+    "input": {
+      "city": "上海",
+      "interests": ["书店", "咖啡", "展览"],
+      "mood": "quiet",
+      "budget": "medium",
+      "timeWindow": "tonight"
+    },
+    "expectedSignals": ["安静", "solo"],
+    "avoidSignals": ["夜生活"]
+  },
+  {
+    "id": "lively-nightlife",
+    "input": {
+      "city": "上海",
+      "interests": ["独立音乐", "夜生活"],
+      "mood": "lively",
+      "budget": "medium",
+      "timeWindow": "tonight"
+    },
+    "expectedSignals": ["独立音乐", "夜生活"],
+    "avoidSignals": ["安静"]
+  },
+  {
+    "id": "low-budget",
+    "input": {
+      "city": "上海",
+      "interests": ["咖啡", "书店"],
+      "mood": "solo",
+      "budget": "low",
+      "timeWindow": "now"
+    },
+    "expectedSignals": ["低预算", "咖啡"],
+    "avoidSignals": []
+  },
+  {
+    "id": "date-route",
+    "input": {
+      "city": "上海",
+      "interests": ["咖啡", "展览"],
+      "mood": "date",
+      "budget": "medium",
+      "timeWindow": "weekend"
+    },
+    "expectedSignals": ["约会", "展览"],
+    "avoidSignals": []
+  },
+  {
+    "id": "traffic-penalty",
+    "input": {
+      "city": "上海",
+      "interests": ["展览", "艺术"],
+      "mood": "solo",
+      "budget": "medium",
+      "timeWindow": "now"
+    },
+    "expectedSignals": ["交通可达"],
+    "avoidSignals": ["长距离"]
+  }
+]
