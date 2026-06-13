@@ -65,6 +65,7 @@ export function RouteTimeline({ route }: { route?: RecommendedRoute }) {
 
   const legs = route.legs ?? [];
   const hasLegs = legs.length > 0;
+  const originName = legs[0]?.fromName ?? "出发点";
   const congestion = route.traffic.congestion
     ? congestionLabel[route.traffic.congestion] ?? route.traffic.congestion
     : undefined;
@@ -76,7 +77,7 @@ export function RouteTimeline({ route }: { route?: RecommendedRoute }) {
   return (
     <section className="route-timeline" aria-label="route timeline">
       <div className="timeline-head">
-        <strong>{route.title}</strong>
+        <strong>行程顺序</strong>
         <span className={`timeline-traffic ${route.traffic.congestion ?? "unknown"}`}>
           <Clock3 size={14} />
           全程约 {route.traffic.estimatedDurationMinutes} min
@@ -93,7 +94,7 @@ export function RouteTimeline({ route }: { route?: RecommendedRoute }) {
             <div className="timeline-stop origin">
               <span className="timeline-stop-index">起</span>
               <div className="timeline-stop-copy">
-                <strong>出发点</strong>
+                <strong>{originName}</strong>
               </div>
             </div>
           </div>

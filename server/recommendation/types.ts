@@ -3,14 +3,20 @@ export type Budget = "low" | "medium" | "high";
 export type TimeWindow = "now" | "tonight" | "weekend";
 export type TravelMode = "walking" | "transit" | "driving";
 export type CandidateType = "venue" | "event";
+export type OriginSource = "browser" | "manual" | "default";
 
 export type RecommendInput = {
   userId?: string;
   city: string;
   area?: string;
+  originAddress?: string;
   origin?: {
     lat: number;
     lng: number;
+    label?: string;
+    address?: string;
+    source?: OriginSource;
+    provider?: "amap" | "browser" | "default";
   };
   interests: string[];
   mood: Mood;
@@ -167,6 +173,15 @@ export type RecommendResponse = {
     recommendationId?: string;
     candidateCount: number;
     trafficProvider: "amap" | "estimated";
+    origin?: {
+      lat?: number;
+      lng?: number;
+      label?: string;
+      address?: string;
+      source?: OriginSource;
+      provider?: "amap" | "browser" | "default";
+      status: "resolved" | "unresolved";
+    };
     ranker?: string;
     rankerVersion?: string;
     recallChannels?: RecallChannel[];

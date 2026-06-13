@@ -21,6 +21,7 @@ type LegEndpoint = {
 export type PlanRouteLegsInput = {
   city: string;
   origin?: Point;
+  originName?: string;
   useRealtimeTraffic?: boolean;
 };
 
@@ -198,7 +199,7 @@ export async function planRouteLegs(
 
   const endpoints: LegEndpoint[] = [
     {
-      name: "出发点",
+      name: input.originName ?? "出发点",
       point: input.origin
     },
     ...stops
