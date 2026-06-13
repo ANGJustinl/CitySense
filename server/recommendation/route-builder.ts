@@ -332,28 +332,59 @@ function generateRouteGroups(candidates: TrafficCandidate[], input: RecommendInp
   const eligible = candidates.filter(isRouteEligible);
   const top = (eligible.length > 0 ? eligible : candidates).slice(0, 20);
   const groups: RouteCandidateGroup[] = [];
-  const preferPairsOnly = top.length < 9;
+  const waypointCount = input.waypointCount ?? 3; // 默认 3 个途径点
+  const preferPairsOnly = top.length < waypointCount;
 
-  for (let first = 0; first < top.length; first += 1) {
-    for (let second = first + 1; second < top.length; second += 1) {
-      const pair = orderCandidatesForRoute([top[first], top[second]], input);
+  // 根据途径点数量生成组合
+  function generateCombinations(startIndex: number, currentCombination: TrafficCandidate[], depth: number) {
+    if (currentCombination.length === waypointCount) {
+      const ordered = orderCandidatesForRoute([...currentCombination], input);
       groups.push({
-        candidates: pair,
-        routeScore: scoreRouteGroup(pair, input)
+        candidates: ordered,
+        routeScore: scoreRouteGroup(ordered, input)
       });
+      return;
+    }
 
-      if (preferPairsOnly) {
-        continue;
-      }
+    // 如果剩余候选不足以填满组合，用较少的点生成
+    if (startIndex >= top.length && currentCombination.length >= 2) {
+      const ordered = orderCandidatesForRoute([...currentCombination], input);
+      groups.push({
+        candidates: ordered,
+        routeScore: scoreRouteGroup(ordered, input)
+      });
+      return;
+    }
 
-      for (let third = second + 1; third < top.length; third += 1) {
-        const triple = orderCandidatesForRoute([top[first], top[second], top[third]], input);
+    for (let i = startIndex; i < top.length; i++) {
+      generateCombinations(i + 1, [...currentCombination, top[i]], depth + 1);
+    }
+  }
+
+  // 如果候选点太少，至少生成所有可能的 2 点组合
+  if (top.length < waypointCount) {
+    for (let first = 0; first < top.length; first += 1) {
+      for (let second = first + 1; second < top.length; second += 1) {
+        const pair = orderCandidatesForRoute([top[first], top[second]], input);
         groups.push({
-          candidates: triple,
-          routeScore: scoreRouteGroup(triple, input)
+          candidates: pair,
+          routeScore: scoreRouteGroup(pair, input)
         });
+
+        if (top.length >= 3) {
+          for (let third = second + 1; third < top.length; third += 1) {
+            const triple = orderCandidatesForRoute([top[first], top[second], top[third]], input);
+            groups.push({
+              candidates: triple,
+              routeScore: scoreRouteGroup(triple, input)
+            });
+          }
+        }
       }
     }
+  } else {
+    // 生成指定数量的途径点组合
+    generateCombinations(0, [], 0);
   }
 
   if (groups.length === 0) {

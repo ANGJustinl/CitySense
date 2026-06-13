@@ -31,7 +31,8 @@ export const recommendRequestSchema = z.object({
   budget: z.enum(["low", "medium", "high"]).default("medium"),
   timeWindow: z.enum(["now", "tonight", "weekend"]).default("tonight"),
   useRealtimeTraffic: z.boolean().default(true),
-  useSocialSignals: z.boolean().default(true)
+  useSocialSignals: z.boolean().default(true),
+  waypointCount: z.number().min(2).max(6).default(3).optional()
 });
 
 function isRouteEligibleForTraffic(candidate: ScoredCandidate) {

@@ -18,6 +18,7 @@ export type RecommendInput = {
   timeWindow: TimeWindow;
   useRealtimeTraffic?: boolean;
   useSocialSignals?: boolean;
+  waypointCount?: number; // 路线途径点数量，默认 3
 };
 
 export type SourceSignal = {

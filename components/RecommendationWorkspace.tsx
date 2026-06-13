@@ -58,6 +58,7 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
   const [budget, setBudget] = useState<Budget>("medium");
   const [timeWindow, setTimeWindow] = useState<TimeWindow>("tonight");
   const [useRealtimeTraffic, setUseRealtimeTraffic] = useState(false);
+  const [waypointCount, setWaypointCount] = useState(3); // 途径点数量
   const [data, setData] = useState<RecommendResponse>(initialData);
   const [selectedRouteId, setSelectedRouteId] = useState<string | undefined>(
     initialData.routes[0]?.id
@@ -103,7 +104,8 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
           budget,
           timeWindow,
           useRealtimeTraffic,
-          useSocialSignals: true
+          useSocialSignals: true,
+          waypointCount
         })
       });
 
@@ -259,6 +261,22 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
                   type="button"
                 >
                   {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="field">
+            <span>途径点数量</span>
+            <div className="segmented">
+              {[2, 3, 4, 5, 6].map((count) => (
+                <button
+                  className={waypointCount === count ? "active" : ""}
+                  key={count}
+                  onClick={() => setWaypointCount(count)}
+                  type="button"
+                >
+                  {count}点
                 </button>
               ))}
             </div>
