@@ -2116,6 +2116,22 @@ p {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
   padding: 20px;
   z-index: 10;
+  /* 自定义滚动条样式 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(8, 127, 122, 0.3) transparent;
+}
+
+.fullscreen-map .controls-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.fullscreen-map .controls-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fullscreen-map .controls-panel::-webkit-scrollbar-thumb {
+  background: rgba(8, 127, 122, 0.3);
+  border-radius: 3px;
 }
 
 /* 浮动信息面板 */
@@ -2129,6 +2145,22 @@ p {
   display: grid;
   gap: 16px;
   z-index: 10;
+  /* 自定义滚动条样式 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(8, 127, 122, 0.3) transparent;
+}
+
+.fullscreen-map .inspector-rail::-webkit-scrollbar {
+  width: 6px;
+}
+
+.fullscreen-map .inspector-rail::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fullscreen-map .inspector-rail::-webkit-scrollbar-thumb {
+  background: rgba(8, 127, 122, 0.3);
+  border-radius: 3px;
 }
 
 .fullscreen-map .inspector-panel,
