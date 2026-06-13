@@ -6,6 +6,7 @@ import type {
   CandidateType,
   TrafficCandidate
 } from "@/server/recommendation/types";
+import { buildRoutePersona } from "@/components/city/route-display";
 
 export type LngLat = [lng: number, lat: number];
 
@@ -13,9 +14,13 @@ export type RouteMapMarker = {
   id: string;
   name: string;
   index: number;
+  label: string;
+  kind: "origin" | "stop";
   position: LngLat;
   address?: string;
-  type: CandidateType;
+  type?: CandidateType;
+  imageUrl?: string;
+  featured?: boolean;
 };
 
 export type RouteMapView = {
@@ -79,8 +84,9 @@ function toJson(value: unknown): Prisma.InputJsonValue {
 }
 
 export function buildRouteMapView(route: RecommendedRoute): RouteMapView {
-  const markers = route.places
-    .map((place, index) => {
+  const persona = buildRoutePersona(route);
+  const stopMarkers = route.places
+    .map<RouteMapMarker | null>((place, index) => {
       if (!hasCoordinates(place)) {
         return null;
       }
@@ -89,9 +95,13 @@ export function buildRouteMapView(route: RecommendedRoute): RouteMapView {
         id: place.id,
         name: place.name,
         index: index + 1,
+        label: String(index + 1),
+        kind: "stop" as const,
         position: [roundCoordinate(place.lng), roundCoordinate(place.lat)] as LngLat,
         ...(place.address ? { address: place.address } : {}),
-        type: place.type
+        type: place.type,
+        imageUrl: place.imageUrl,
+        featured: persona.representativePlace.id === place.id
       };
     })
     .filter((marker): marker is RouteMapMarker => marker !== null);
@@ -103,6 +113,20 @@ export function buildRouteMapView(route: RecommendedRoute): RouteMapView {
         Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1])
     )
     .map(([lng, lat]) => [roundCoordinate(lng), roundCoordinate(lat)] as LngLat);
+  const firstLeg = route.legs?.[0];
+  const firstPoint = legPolyline[0];
+  const originMarker =
+    firstLeg && firstPoint
+      ? {
+          id: `${route.id}-origin`,
+          name: firstLeg.fromName,
+          index: 0,
+          label: "起",
+          kind: "origin" as const,
+          position: firstPoint
+        }
+      : null;
+  const markers = originMarker ? [originMarker, ...stopMarkers] : stopMarkers;
   const polyline = legPolyline.length >= 2 ? legPolyline : markers.map((marker) => marker.position);
   const lngs = polyline.map(([lng]) => lng);
   const lats = polyline.map(([, lat]) => lat);

@@ -211,12 +211,13 @@ test("planRouteLegs falls back to estimated straight-line legs without realtime 
   const route = await planRouteLegs(sampleRoute(), {
     city: "上海",
     origin: { lat: 31.224, lng: 121.459 },
+    originName: "静安寺",
     useRealtimeTraffic: false
   });
 
   assert.ok(route.legs);
   assert.equal(route.legs.length, 2);
-  assert.equal(route.legs[0].fromName, "出发点");
+  assert.equal(route.legs[0].fromName, "静安寺");
   assert.equal(route.legs[0].toName, "画你漫画");
   assert.equal(route.legs[0].provider, "estimated");
   assert.equal(route.legs[0].polyline.length, 2);
@@ -307,7 +308,7 @@ test("planRouteLegs reuses cached leg plans with cacheHit", async () => {
           ],
           steps: [],
           transitLines: [],
-          capturedAt: "2026-06-13T08:00:00.000Z"
+          capturedAt: "2026-06-11T08:00:00.000Z"
         };
       },
       async writeCache() {}

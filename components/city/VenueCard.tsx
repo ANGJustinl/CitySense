@@ -2,6 +2,7 @@
 
 import { MapPin } from "lucide-react";
 import type { RecommendedRoute } from "@/server/recommendation/types";
+import { PreviewableImage } from "@/components/city/ImagePreview";
 
 type Place = RecommendedRoute["places"][number];
 
@@ -12,35 +13,53 @@ export function PlaceThumb({
 }: {
   imageUrl?: string;
   name: string;
-  size: "card" | "timeline";
+  size: "card" | "timeline" | "compact";
 }) {
   if (!imageUrl) {
     return null;
   }
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- 外部来源图片（高德/小红书 CDN）URL 任意且可能过期，next/image 优化器会代理请求并破坏 no-referrer 直链策略
-    <img
+    <PreviewableImage
       alt={name}
-      className={size === "card" ? "place-thumb" : "timeline-thumb"}
+      className={
+        size === "card"
+          ? "place-thumb"
+          : size === "compact"
+            ? "compact-place-thumb"
+            : "timeline-thumb"
+      }
       loading="lazy"
-      onError={(event) => {
-        event.currentTarget.style.display = "none";
-      }}
-      referrerPolicy="no-referrer"
       src={imageUrl}
+      wrapperClassName={size === "compact" ? "compact-place-thumb-trigger" : undefined}
     />
   );
 }
 
-export function VenueCard({ place }: { place: Place }) {
+export function VenueCard({
+  place,
+  variant = "default"
+}: {
+  place: Place;
+  variant?: "default" | "compact";
+}) {
+  const isCompact = variant === "compact";
+
   return (
-    <div className="place-row">
+    <div className={isCompact ? "place-row compact" : "place-row"}>
       <div>
         <strong>{place.name}</strong>
         <span>{place.type}</span>
       </div>
-      <PlaceThumb imageUrl={place.imageUrl} name={place.name} size="card" />
+      {isCompact && !place.imageUrl ? (
+        <span className="compact-place-thumb fallback">{place.name.slice(0, 1)}</span>
+      ) : (
+        <PlaceThumb
+          imageUrl={place.imageUrl}
+          name={place.name}
+          size={isCompact ? "compact" : "card"}
+        />
+      )}
       <p>
         <MapPin size={14} />
         {place.address ?? "地址待确认"}

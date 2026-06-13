@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type {
+  OriginSource,
   RecallChannel,
   RecommendInput,
   RecommendResponse,
@@ -13,17 +14,38 @@ import { buildSourceContextItems, explainRoutes } from "@/server/ai/explain-rout
 import { persistRecommendationSnapshot } from "@/server/routes/route-detail";
 import { rankCandidates } from "@/server/recommendation/ranker";
 import { routeEligibilityFromQuality } from "@/server/recommendation/quality";
+import { geocodeAddress, type GeocodeResult } from "@/server/maps/geocode";
 
 const TRAFFIC_ENRICHMENT_LIMIT = 20;
+const ORIGIN_ADDRESS_MAX_LENGTH = 120;
+
+const optionalTrimmedString = (maxLength: number) =>
+  z.preprocess(
+    (value) => {
+      if (typeof value !== "string") {
+        return value;
+      }
+
+      const trimmed = value.trim();
+
+      return trimmed.length > 0 ? trimmed : undefined;
+    },
+    z.string().max(maxLength).optional()
+  );
 
 export const recommendRequestSchema = z.object({
   userId: z.string().optional(),
   city: z.string().min(1).default("上海"),
-  area: z.string().optional(),
+  area: optionalTrimmedString(60),
+  originAddress: optionalTrimmedString(ORIGIN_ADDRESS_MAX_LENGTH),
   origin: z
     .object({
-      lat: z.number(),
-      lng: z.number()
+      lat: z.number().finite(),
+      lng: z.number().finite(),
+      label: optionalTrimmedString(60),
+      address: optionalTrimmedString(ORIGIN_ADDRESS_MAX_LENGTH),
+      source: z.enum(["browser", "manual", "default"]).optional(),
+      provider: z.enum(["amap", "browser", "default"]).optional()
     })
     .optional(),
   interests: z.array(z.string()).default(["咖啡", "展览", "书店"]),
@@ -33,6 +55,109 @@ export const recommendRequestSchema = z.object({
   useRealtimeTraffic: z.boolean().default(true),
   useSocialSignals: z.boolean().default(true)
 });
+
+type GeocodeAddress = typeof geocodeAddress;
+
+function originLabelFor(input: RecommendInput, geocoded?: GeocodeResult | null) {
+  return (
+    input.originAddress ??
+    input.origin?.label ??
+    input.origin?.address ??
+    geocoded?.address ??
+    "出发点"
+  );
+}
+
+function originSourceFor(input: RecommendInput): OriginSource {
+  if (input.originAddress) {
+    return "manual";
+  }
+
+  return input.origin?.source ?? "default";
+}
+
+function originProviderFor(input: RecommendInput): "amap" | "browser" | "default" {
+  if (input.origin?.provider) {
+    return input.origin.provider;
+  }
+
+  return input.origin?.source === "browser" ? "browser" : "default";
+}
+
+export async function resolveRecommendationOrigin(
+  input: RecommendInput,
+  geocode: GeocodeAddress = geocodeAddress
+): Promise<RecommendInput> {
+  if (!input.originAddress) {
+    if (!input.origin) {
+      return input;
+    }
+
+    return {
+      ...input,
+      origin: {
+        ...input.origin,
+        label: input.origin.label ?? input.origin.address ?? "出发点",
+        source: input.origin.source ?? "default",
+        provider: originProviderFor(input)
+      }
+    };
+  }
+
+  const geocoded = await geocode(input.originAddress, input.city);
+
+  if (geocoded) {
+    return {
+      ...input,
+      origin: {
+        lat: geocoded.lat,
+        lng: geocoded.lng,
+        label: originLabelFor(input, geocoded),
+        address: geocoded.address,
+        source: "manual",
+        provider: geocoded.provider === "amap" ? "amap" : "default"
+      }
+    };
+  }
+
+  if (!input.origin) {
+    return input;
+  }
+
+  return {
+    ...input,
+    origin: {
+      ...input.origin,
+      label: originLabelFor(input),
+      address: input.origin.address ?? input.originAddress,
+      source: originSourceFor(input),
+      provider: originProviderFor(input)
+    }
+  };
+}
+
+function responseOrigin(input: RecommendInput): RecommendResponse["meta"]["origin"] {
+  if (!input.origin) {
+    return input.originAddress
+      ? {
+          label: input.originAddress,
+          address: input.originAddress,
+          source: "manual",
+          status: "unresolved"
+        }
+      : undefined;
+  }
+
+  return {
+    lat: input.origin.lat,
+    lng: input.origin.lng,
+    label: input.origin.label,
+    address: input.origin.address,
+    source: input.origin.source,
+    provider: input.origin.provider,
+    status: "resolved"
+  };
+}
 
 function isRouteEligibleForTraffic(candidate: ScoredCandidate) {
   return (
@@ -59,7 +184,7 @@ export function selectTrafficCandidatesForEnrichment(
 }
 
 export async function recommend(rawInput: unknown): Promise<RecommendResponse> {
-  const input: RecommendInput = recommendRequestSchema.parse(rawInput);
+  const input = await resolveRecommendationOrigin(recommendRequestSchema.parse(rawInput));
   const candidates = await retrieveDatabaseCandidates(input);
   const rankerResult = await rankCandidates(input, candidates);
   const scored = selectTrafficCandidatesForEnrichment(rankerResult.ranked);
@@ -67,6 +192,7 @@ export async function recommend(rawInput: unknown): Promise<RecommendResponse> {
   const composedRoutes = await planRoutesLegs(buildRoutes(trafficRanked, input), {
     city: input.city,
     origin: input.origin,
+    originName: input.origin?.label ?? input.origin?.address,
     useRealtimeTraffic: input.useRealtimeTraffic
   });
   const routes = await explainRoutes(composedRoutes, input, {
@@ -87,6 +213,7 @@ export async function recommend(rawInput: unknown): Promise<RecommendResponse> {
       trafficProvider: trafficRanked.some((candidate) => candidate.traffic.provider === "amap")
         ? "amap"
         : "estimated",
+      origin: responseOrigin(input),
       ranker: rankerResult.ranker,
       rankerVersion: rankerResult.rankerVersion,
       recallChannels,

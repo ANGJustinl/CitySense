@@ -101,3 +101,33 @@ test("route map view keeps valid coordinates in lng/lat order", () => {
     northEast: [121.46, 31.22]
   });
 });
+
+test("route map view includes an origin marker when route legs start from a custom origin", () => {
+  const map = buildRouteMapView({
+    ...sampleRoute,
+    legs: [
+      {
+        fromName: "静安寺",
+        toName: "A",
+        toPlaceId: "place-a",
+        mode: "transit",
+        durationMinutes: 12,
+        distanceMeters: 1800,
+        provider: "amap",
+        polyline: [
+          [121.446, 31.223],
+          [121.4, 31.2]
+        ]
+      }
+    ]
+  });
+
+  assert.equal(map.markers[0].kind, "origin");
+  assert.equal(map.markers[0].label, "起");
+  assert.equal(map.markers[0].name, "静安寺");
+  assert.deepEqual(map.markers[0].position, [121.446, 31.223]);
+  assert.deepEqual(map.polyline, [
+    [121.446, 31.223],
+    [121.4, 31.2]
+  ]);
+});

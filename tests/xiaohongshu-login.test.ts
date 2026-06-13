@@ -12,7 +12,7 @@ test("xiaohongshu login qrcode normalizer extracts text and image data url", () 
     content: [
       {
         type: "text",
-        text: "请用小红书 App 在 2026-06-13 15:34:51 前扫码登录 👇"
+        text: "请用小红书 App 在 2026-06-07 15:34:51 前扫码登录 👇"
       },
       {
         type: "image",
@@ -23,9 +23,9 @@ test("xiaohongshu login qrcode normalizer extracts text and image data url", () 
   });
 
   assert.equal(result.status, "ok");
-  assert.equal(result.message, "请用小红书 App 在 2026-06-13 15:34:51 前扫码登录 👇");
+  assert.equal(result.message, "请用小红书 App 在 2026-06-07 15:34:51 前扫码登录 👇");
   assert.equal(result.imageDataUrl, "data:image/png;base64,abc123");
-  assert.equal(result.expiresAt, "2026-06-13T15:34:51+08:00");
+  assert.equal(result.expiresAt, "2026-06-07T15:34:51+08:00");
 });
 
 test("xiaohongshu login qrcode normalizer rejects missing image payload", () => {
