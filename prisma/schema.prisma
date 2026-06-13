@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model SourceConnector {
+  id        String   @id @default(cuid())
+  name      String
+  type      String
+  status    String
+  config    Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model RawSourceItem {
+  id          String   @id @default(cuid())
+  source      String
+  sourceId    String?
+  sourceUrl   String?
+  title       String
+  content     String?
+  author      String?
+  rawPayload  Json?
+  city        String?
+  area        String?
+  publishedAt DateTime?
+  status      String
+  createdAt   DateTime @default(now())
+
+  @@index([source])
+  @@index([city])
+}
+
+model Event {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  city        String
+  area        String?
+  address     String?
+  lat         Float?
+  lng         Float?
+  startTime   DateTime?
+  endTime     DateTime?
+  tags        String[]
+  source      String?
+  sourceUrl   String?
+  trendScore  Float    @default(0)
+  confidence  Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([city])
+  @@index([area])
+  @@index([startTime])
+}
+
+model Venue {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  city        String
+  area        String?
+  address     String?
+  lat         Float?
+  lng         Float?
+  tags        String[]
+  priceLevel  Int?
+  quietness   Int?
+  popularity  Int?
+  source      String?
+  sourceUrl   String?
+  trendScore  Float    @default(0)
+  confidence  Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([city])
+  @@index([area])
+}
+
+model CitySignal {
+  id         String   @id @default(cuid())
+  city       String
+  area       String?
+  tag        String
+  heatScore  Float
+  source     String
+  capturedAt DateTime
+  metadata   Json?
+
+  @@index([city])
+  @@index([area])
+  @@index([tag])
+  @@index([capturedAt])
+}
+
+model TrafficSnapshot {
+  id         String   @id @default(cuid())
+  city       String
+  originLat  Float
+  originLng  Float
+  destLat    Float
+  destLng    Float
+  mode       String
+  distance   Int?
+  duration   Int?
+  congestion String?
+  rawPayload Json?
+  capturedAt DateTime @default(now())
+
+  @@index([city])
+  @@index([capturedAt])
+}
+
+model UserPreference {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  interests String[]
+  mood      String?
+  budget    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model RecommendationLog {
+  id                String   @id @default(cuid())
+  userId            String?
+  input             Json
+  recommendedRoutes Json
+  feedback          Json?
+  createdAt         DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
