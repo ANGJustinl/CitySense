@@ -206,55 +206,74 @@
 
 ### TASK-P1-002：接入一个真实公开活动源
 
-- 状态：`待审批`
-- 负责人：待定
+- 状态：`已完成`
+- 负责人：用户 / Codex
 - 是否需要审批：是
 
 待办：
 
-- [ ] 选择一个合规的公开活动来源。
-- [ ] 记录该来源的使用条款、限流规则和允许用途。
-- [ ] 按现有 `CitySourceAdapter` 接口实现 adapter。
-- [ ] 解析标题、时间、地址、标签、来源 URL 和热度信号。
-- [ ] 当页面为空或结构变化时，提供可降级处理。
+- [x] 默认隐藏 mock adapter、mock connector 和历史 `*-mock` 推荐候选，除非 `.env` 显式开启演示模式。
+- [x] 选择一个合规的公开活动来源。
+- [x] 记录该来源的使用条款、限流规则和允许用途。
+- [x] 按现有 `CitySourceAdapter` 接口实现 adapter。
+- [x] 解析标题、时间、地址、标签、来源 URL 和热度信号。
+- [x] 当页面为空或结构变化时，提供可降级处理。
 
 验收标准：
 
-- [ ] 至少一个真实来源可以为 Demo 提供活动数据。
-- [ ] 来源 URL 被保留，便于结果追溯。
-- [ ] 禁用该 adapter 后，推荐系统仍可正常工作。
+- [x] 未开启演示模式时，默认采集来源和推荐候选不包含 mock 内容。
+- [x] 开启 `CITYSENSE_DEMO_MODE=true` 后，mock source 可用于演示。
+- [x] 至少一个真实来源可以为 Demo 提供活动数据。
+- [x] 来源 URL 被保留，便于结果追溯。
+- [x] 禁用该 adapter 后，推荐系统仍可正常工作。
 
 审批记录：
 
-- 审批人：
-- 日期：
-- 结论：
+- 审批人：用户
+- 日期：2026-06-13
+- 结论：批准继续推进 P1-002，并先完成“mock 内容默认不显示，除非 `.env` 开启演示模式”的范围。
+
+完成记录：
+
+- 完成日期：2026-06-13
+- 真实来源：`shanghai-gov`，读取上海市人民政府公开“行业信息”列表页及少量详情页。
+- 使用与限流：仅读取公开页面标题、日期、来源单位、正文摘要和原文 URL；不抓取登录态、用户信息或评论；默认 cooldown 30 分钟，`SHANGHAI_GOV_MAX_DETAILS` 限制每次详情页数量；页面为空或结构变化时返回空结果。
+- 结论：已完成。`shanghai-gov` adapter 可入库真实活动资讯，保留 `sourceUrl`；禁用 connector 后新采集会跳过，推荐仍读取已有规范化库表并正常返回。非演示模式会同时隐藏 mock source 和 `sourceKey=demo:*` seed 演示数据。
 
 ### TASK-P1-003：接入 LLM 推荐解释层
 
-- 状态：`待审批`
-- 负责人：待定
-- 是否需要审批：是
+- 状态：`已完成`
+- 负责人：Codex
+- 是否需要审批：是，用户已批准开始推进
 
 待办：
 
-- [ ] 补充 `OPENAI_API_KEY` 配置说明。
-- [ ] 在调用 LLM 前保持推荐候选结果确定。
-- [ ] 只向 LLM 发送已选路线的事实信息。
-- [ ] 加入超时控制和本地解释降级。
-- [ ] 防止 LLM 编造地点、活动或来源信号。
+- [x] 补充 `OPENAI_API_KEY` 配置说明。
+- [x] 在调用 LLM 前保持推荐候选结果确定。
+- [x] 只向 LLM 发送已选路线的事实信息。
+- [x] 加入超时控制和本地解释降级。
+- [x] 防止 LLM 编造地点、活动或来源信号。
 
 验收标准：
 
-- [ ] LLM 解释只引用返回路线中的地点和信号。
-- [ ] 超时或缺少密钥时，系统回退到本地解释。
-- [ ] 不配置 LLM 密钥时，构建和 API 仍然通过。
+- [x] LLM 解释只引用返回路线中的地点和信号。
+- [x] 超时或缺少密钥时，系统回退到本地解释。
+- [x] 不配置 LLM 密钥时，构建和 API 仍然通过。
 
 审批记录：
 
-- 审批人：
-- 日期：
-- 结论：
+- 审批人：用户
+- 日期：2026-06-13
+- 结论：批准开始推进 P1-003，把各信息源的第一结果加入 LLM pipeline。
+
+完成记录：
+
+- 完成日期：2026-06-13
+- 推荐入口仍先完成 DB 候选召回、ranker、交通重排和路线组装；LLM 只在最后改写 `reason/tips`，不改变路线、排序、地点或来源信号。
+- LLM 请求只包含已选路线事实，以及交通重排短名单中按 `source` 去重后的第一条 `sourceContext`。`sourceContext` 只作为来源覆盖背景，不允许被写成路线外的新地点。
+- LLM 输出采用结构化 JSON schema，必须返回 `routeId`、`citedPlaceIds`、`citedSignalSources`；合并前会校验 citation 是否属于同一条返回路线，发现路线外地点、未知 source 或 URL 时回退本地解释。
+- 缺少 `OPENAI_API_KEY`、OpenAI 调用超时、HTTP 失败、payload 非法或校验失败时，推荐接口继续返回本地模板解释。推荐接口不会实时调用 MCP、爬虫或 Source Adapter。
+- 2026-06-13 续推进验证：`tests/route-explainer-llm.test.ts` 覆盖 source 首条上下文、缺 key/超时降级和路线外引用回退，`pnpm test`、`pnpm typecheck`、`pnpm lint`、`pnpm build` 均通过。
 
 ### TASK-P1-004：城市脉搏可视化
 
@@ -280,6 +299,13 @@
 - 审批人：无需审批
 - 日期：2026-06-13
 - 结论：已完成。新增 `/api/city-pulse`，右侧面板展示热门标签、来源占比、召回通道、交通 provider/cache、ranker 和反馈趋势；无新增外部依赖。
+
+完成记录：
+
+- 2026-06-13 续推进：按 TDD 新增 `tests/city-pulse.test.ts`，先覆盖交通 provider mix、快照数量、最新缓存时间和缓存新鲜度聚合。
+- `GET /api/city-pulse` 的响应新增 `trafficCache`，包含 `providerMix`、`snapshotCount`、`latestCapturedAt` 和 `latestAgeMinutes`；查询失败仍返回空结构，不阻塞推荐页面。
+- `CityPulsePanel` 在“召回与反馈”中展示路线缓存命中、城市交通快照数量、新鲜度、刷新时间和交通 provider 分布；`docs/api.md` 已同步契约。
+- 验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 均通过。
 
 ### TASK-P1-005：推荐系统 V1 升级规划与实现
 
@@ -311,6 +337,25 @@
 - 审批人：用户
 - 日期：2026-06-13
 - 结论：已完成。实现多通道召回、Postgres `pg_trgm` 支撑的文本召回、feature builder、`weighted-v1` ranker、feature snapshot、反馈惩罚和路线组合评分；数据库 migration 与接口联调通过。
+
+续推进记录：
+
+- 2026-06-13：按 TASK-P1-005B 继续优化推荐效果，目标从“高德 POI 拼盘 / 小红书合集候选”回归为“城市信号背书的可执行路线”。
+- 新增轻量迁移 `20260609133000_signal_backed_routes`，为 `Event` / `Venue` 增加 `qualityScore` 与 `qualityFlags`，并对历史数据按地址、坐标和泛化社交标题回填质量。
+- 新增候选质量层和城市信号叠加：小红书、B 站、trends-hub 等泛化合集默认作为 signal-only，不直接进入路线地点；高德、政务等可执行候选可吸收同城同区同标签的 `city_signals`。
+- Ranker 版本更新为 `weighted-v1.1-signal-backed`，feature snapshot 记录 `qualityScore`、`qualityFlags`、`signalStrength` 和 `routeEligible`；路线组合加入主题连贯、来源证据和起点最近邻排序。
+- TDD 新增 `tests/recommendation-p1-005b.test.ts`，覆盖泛化社交候选过滤、信号叠加、融合信号打分、主题连贯路线和按 origin 排序。
+- 初始验证：`pnpm prisma:generate`、`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 均通过。
+- 2026-06-13 续测调整：已对当前 Supabase 执行 `pnpm prisma migrate deploy`，质量字段和历史回填生效；真实推荐 smoke 验证 quiet / nightlife / mixed 三类输入均返回可执行地点路线，泛化小红书合集不再直接进入路线。
+- 续测中发现并修复：同一场馆不同 POI 会被拼成路线、泛化/离题社交标题会作为证据展示、静安区域可执行候选不足导致少于 3 条路线。修复包括场馆簇去重、社交信号标题与标签匹配、区域不足时同城 fallback recall。
+- 续测验证：`pnpm test` 75 个测试通过，`pnpm lint`、`pnpm typecheck`、`pnpm build` 均通过；真实高德 smoke 返回 `trafficProvider: "amap"`，高德失败或非 Top 路线仍可估算降级。
+- 2026-06-13 继续修复 date/weekend 真实 smoke：高分但无地址的小红书笔记曾在可执行候选不足时进入路线。已补 TDD 覆盖 noisy social Top-N、召回窗口保留 actionable、仅 1 个可执行候选时不做 signal-only 兜底。
+- 推荐链路新增三层防线：召回窗口 `routeEligible` 优先、交通 Top-N `routeEligible` 优先、路线组合只要存在可执行候选就只用可执行候选；同时新增 AMap / 政务可执行补充召回，避免高热视频挤掉低热但可走的地点。
+- 最新真实 smoke：`date + weekend + 咖啡/展览` 返回 3 条 AMap 可执行路线，地点均有地址和坐标，`xiaohongshu` 仅作为 `sourceSignals` 证据叠加；`recallChannels` 包含 `city-fallback` 与 `city-signal`。
+- 最新验证：`pnpm prisma:generate`、`pnpm typecheck`、`pnpm lint`、`pnpm test`（78 个测试）、`pnpm build` 均通过。
+- 2026-06-13 继续真实效果测试：按 design 约束对 quiet culture、date weekend、nightlife livehouse、low budget market food 和实时高德 smoke 做断言式验证，覆盖 3 条路线、可执行地点、无 signal-only 社交地点、来源信号、ranker version 和高德 Top-N 降级。
+- 发现并修复低预算 `市集/美食/咖啡` 请求退化为纯咖啡路线：路线评分新增请求兴趣覆盖分，主题匹配支持 `美食市集`、`咖啡厅` 等组合词/别名，确保有可执行市集/美食候选时不会被近处咖啡店完全淹没。
+- 最新验证更新：`pnpm prisma:generate`、`pnpm typecheck`、`pnpm lint`、`pnpm test`（79 个测试）、`pnpm build` 均通过；真实 low budget market food smoke 返回含政务 `美食市集` 活动的可执行路线，社交内容仍只作为证据。
 
 ### TASK-P1-006：地图优先的推荐工作台 UI 迭代
 
@@ -403,6 +448,84 @@
 - 审批人：
 - 日期：
 - 结论：
+
+### TASK-P1-007：入库内容使用 LLM 解析归一化
+
+- 状态：`已完成`
+- 负责人：Codex
+- 是否需要审批：用户已批准“所有信息源都开启 LLM 解析”。
+
+待办：
+
+- [x] 在 raw item 入库后、event/venue/city_signal 写入前加入 LLM normalization 层。
+- [x] 默认所有 source 都启用 LLM 解析，保留显式关闭和 source 过滤配置。
+- [x] LLM 输出使用结构化 JSON schema，并通过本地校验后才进入 normalized 入库。
+- [x] LLM 失败、超时或 payload 非法时回退确定性解析，不阻塞采集任务。
+- [x] `source/sourceUrl/sourceKey` 由系统保留，LLM 不能改写来源身份。
+- [x] `RawSourceItem.parsedPayload` 记录 LLM normalize 状态和最终 normalized entity，便于排查。
+
+验收标准：
+
+- [x] `amap-poi`、`shanghai-gov`、`xiaohongshu`、`trends-hub` 等所有 source 默认都会进入 LLM normalization。
+- [x] LLM 可以增强 title、description、city、area、address、time、tags、score、confidence 等入库字段。
+- [x] LLM 可以将无关内容标记为 ignored。
+- [x] LLM 解析后的 tags 和 trendScore 会用于 `city_signals`。
+- [x] 缺少 key、超时或无效输出不会导致 ingest run 失败。
+
+完成记录：
+
+- 完成日期：2026-06-13
+- 新增 `server/ingest/llm-normalizer.ts`，复用 OpenAI-compatible Responses API 和 `gpt-5.5`，默认 `CITYSENSE_LLM_NORMALIZE_ENABLED=true`、`CITYSENSE_LLM_NORMALIZE_SOURCES=all`。
+- `server/ingest/pipeline.ts` 已接入：raw item 先 upsert，再执行 LLM normalization，随后写入 normalized entity 和 city signals。
+- `server/ingest/normalize.ts` 的 city signal 构建支持使用 LLM normalized entity 的 tags、city、area、trendScore 和 title。
+- 新增测试覆盖全 source 默认启用、LLM 成功解析、非法 payload 回退、LLM ignored，以及 city signal 使用 LLM tags/score。
+- 2026-06-13：新 key 重试成功，`normalizeSourceItemForIngest` smoke 返回 `llm_normalized`；base URL 配置兼容 `OPENAI_BASE_URL`、`OPENAI_API_BASE`、`API_BASE`。
+- 2026-06-13：真实队列 run `cmq61luyf0000q0t8s4trtdt1` 完成，4 个 source 均 completed，raw 12 条中 11 条 `llm_normalized`、1 条 `llm_ignored`。
+
+### TASK-P1-008：信息摄取闭环质量修正
+
+- 状态：`已完成`
+- 负责人：Codex
+- 是否需要审批：用户已要求继续运行并修正全自动信息摄取闭环。
+
+待办：
+
+- [x] 统一上海区名别名，避免 `静安` 与 `静安区` 推荐结果不一致。
+- [x] LLM 入库时不再把缺少正文/地址证据的搜索区域写入 normalized entity。
+- [x] 上海政府源不再把请求 area 当作文章事实 fallback。
+- [x] normalized entity upsert 时可空字段使用 `null` 清理旧值，避免 stale area/address 留在库表。
+- [x] 增强上海政府源对 `上海体育场` 的地址抽取。
+- [x] 用真实队列 run 验证静安闭环结果。
+
+完成记录：
+
+- 完成日期：2026-06-13
+- 新增 `server/geo/area-normalizer.ts`，推荐召回、候选过滤、city signal 和入库 normalize 共用区名归一逻辑。
+- 修复 `shanghai-gov` adapter：只有文章文本存在区域证据时才写入请求区；仍可抽取明确地点地址。
+- 修复 `server/ingest/pipeline.ts` 的 event/venue upsert，确保 LLM 或 adapter 清空字段时数据库旧值也会被清掉。
+- 真实闭环验证：`shanghai-gov` 队列 run `cmq5x0cwh0000q0x2s5215eq4` 完成后，“上海体彩好事发生市集...” 更新为 `area=null`、`address=上海体育场`；`静安` 与 `静安区` 推荐候选数一致，且不再包含该跨区活动。
+
+### TASK-P1-009：小红书 MCP 切换到 AI 搜索接口
+
+- 状态：`已完成`
+- 负责人：Codex
+- 是否需要审批：用户已要求切换到 `ANGJustinl/xiaohongshu-mcp`，并接入新增 LLM 搜索接口。
+
+待办：
+
+- [x] Docker 构建源切到 `ANGJustinl/xiaohongshu-mcp` 并固定 commit。
+- [x] 小红书 adapter 默认调用 `ai_search_chat`。
+- [x] 将 AI 搜索返回的 `sources.notes` 映射成标准 `RawSourceItemDetail[]`。
+- [x] AI 搜索无来源或不可用时回退 `search_feeds`。
+- [x] 保留 `search_feeds` 强制开关，便于排障。
+- [x] 更新 `.env.example` 和 README。
+
+完成记录：
+
+- 完成日期：2026-06-13
+- `docker-compose.xiaohongshu-mcp.yml` 固定 `ANGJustinl/xiaohongshu-mcp@d93a11caae4f8ce84e954dde53933be22d7908c4`。
+- `server/sources/adapters/xiaohongshu.adapter.ts` 默认 tool 改为 `ai_search_chat`，入参使用 `{ prompt, include_sources, source_limit, timeout_seconds }`。
+- 新增/更新测试覆盖 AI 搜索 source note 映射、AI 搜索无来源时回退 `search_feeds`、并发 event/venue 复用同一次 AI 搜索请求、强制 `search_feeds` 时错误透出。
 
 ## P2：黑客松后的产品化打磨
 

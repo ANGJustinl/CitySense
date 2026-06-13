@@ -22,6 +22,7 @@ const sampleRoute: RecommendedRoute = {
     traffic: 92,
     timeFit: 88,
     novelty: 76,
+    actionability: 100,
     userAffinity: 50,
     feedbackPenalty: 0
   },

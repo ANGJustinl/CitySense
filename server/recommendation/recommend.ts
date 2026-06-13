@@ -2,16 +2,18 @@ import { z } from "zod";
 import type {
   RecallChannel,
   RecommendInput,
-  RecommendResponse
+  RecommendResponse,
+  ScoredCandidate
 } from "@/server/recommendation/types";
 import { retrieveDatabaseCandidates } from "@/server/recommendation/candidates";
 import { enrichAndRerankByTraffic } from "@/server/recommendation/traffic-rerank";
 import { buildRoutes } from "@/server/recommendation/route-builder";
-import { explainRoutes } from "@/server/ai/explain-route";
+import { buildSourceContextItems, explainRoutes } from "@/server/ai/explain-route";
 import { persistRecommendationSnapshot } from "@/server/routes/route-detail";
 import { rankCandidates } from "@/server/recommendation/ranker";
+import { routeEligibilityFromQuality } from "@/server/recommendation/quality";
 
-const TRAFFIC_ENRICHMENT_LIMIT = 10;
+const TRAFFIC_ENRICHMENT_LIMIT = 20;
 
 export const recommendRequestSchema = z.object({
   userId: z.string().optional(),
@@ -31,13 +33,39 @@ export const recommendRequestSchema = z.object({
   useSocialSignals: z.boolean().default(true)
 });
 
+function isRouteEligibleForTraffic(candidate: ScoredCandidate) {
+  return (
+    candidate.routeEligible ??
+    candidate.features.routeEligible ??
+    routeEligibilityFromQuality({
+      qualityScore: candidate.qualityScore ?? candidate.features.qualityScore,
+      qualityFlags: candidate.qualityFlags ?? candidate.features.qualityFlags,
+      address: candidate.address,
+      lat: candidate.lat,
+      lng: candidate.lng
+    })
+  );
+}
+
+export function selectTrafficCandidatesForEnrichment(
+  ranked: ScoredCandidate[],
+  limit = TRAFFIC_ENRICHMENT_LIMIT
+) {
+  const routeEligible = ranked.filter(isRouteEligibleForTraffic);
+  const signalOnly = ranked.filter((candidate) => !isRouteEligibleForTraffic(candidate));
+
+  return [...routeEligible, ...signalOnly].slice(0, limit);
+}
+
 export async function recommend(rawInput: unknown): Promise<RecommendResponse> {
   const input: RecommendInput = recommendRequestSchema.parse(rawInput);
   const candidates = await retrieveDatabaseCandidates(input);
   const rankerResult = await rankCandidates(input, candidates);
-  const scored = rankerResult.ranked.slice(0, TRAFFIC_ENRICHMENT_LIMIT);
+  const scored = selectTrafficCandidatesForEnrichment(rankerResult.ranked);
   const trafficRanked = await enrichAndRerankByTraffic(scored, input);
-  const routes = await explainRoutes(buildRoutes(trafficRanked, input), input);
+  const routes = await explainRoutes(buildRoutes(trafficRanked, input), input, {
+    sourceContext: buildSourceContextItems(trafficRanked)
+  });
   const snapshot = await persistRecommendationSnapshot(input, routes, trafficRanked);
   const recallChannels: RecallChannel[] = [
     ...new Set<RecallChannel>(

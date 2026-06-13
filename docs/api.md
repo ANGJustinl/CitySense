@@ -151,6 +151,12 @@ type CityPulseQuery = {
 type CityPulseResponse = {
   topTags: { label: string; value: number }[]
   sourceMix: { label: string; value: number }[]
+  trafficCache: {
+    providerMix: { label: "amap" | "estimated"; value: number }[]
+    snapshotCount: number
+    latestCapturedAt?: string
+    latestAgeMinutes?: number
+  }
   feedbackTrend: { label: string; value: number }[]
   rankerMix: { label: string; value: number }[]
   generatedAt: string

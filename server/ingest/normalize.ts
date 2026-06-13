@@ -1,5 +1,6 @@
 import type { CandidateType } from "@/server/recommendation/types";
 import type { RawSourceItemDetail } from "@/server/sources/source.types";
+import { canonicalizeArea } from "@/server/geo/area-normalizer";
 
 export type NormalizedEntityInput = {
   sourceKey: string;
@@ -48,7 +49,7 @@ export function toNormalizedEntityInput(
     title,
     description: item.content,
     city: item.city,
-    area: item.area,
+    area: canonicalizeArea(item.area),
     address: item.address,
     lat: item.lat,
     lng: item.lng,
@@ -68,14 +69,16 @@ export function toNormalizedEntityInput(
 export function buildCitySignalRows(
   item: RawSourceItemDetail,
   sourceKey: string,
-  normalizedEntityId: string
+  normalizedEntityId: string,
+  entity?: NormalizedEntityInput
 ) {
   const capturedAt = new Date();
-  const heatScore = item.trendScore ?? item.sourceSignals?.[0]?.score ?? 0;
+  const heatScore = entity?.trendScore ?? item.trendScore ?? item.sourceSignals?.[0]?.score ?? 0;
+  const tags = entity?.tags.length ? entity.tags : item.tags;
 
-  return item.tags.map((tag) => ({
-    city: item.city ?? "上海",
-    area: item.area,
+  return tags.map((tag) => ({
+    city: entity?.city ?? item.city ?? "上海",
+    area: canonicalizeArea(entity?.area ?? item.area),
     tag,
     heatScore,
     source: item.source,
@@ -83,8 +86,8 @@ export function buildCitySignalRows(
     metadata: {
       sourceKey,
       normalizedEntityId,
-      itemType: item.itemType,
-      title: item.title,
+      itemType: entity?.entityType ?? item.itemType,
+      title: entity?.title ?? item.title,
       sourceSignals: item.sourceSignals ?? []
     }
   }));

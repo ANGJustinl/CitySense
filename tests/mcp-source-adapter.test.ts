@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { toNormalizedEntityInput } from "@/server/ingest/normalize";
+import { createSourceKey } from "@/server/ingest/source-key";
 import { createMcpSourceAdapter } from "@/server/sources/adapters/mcp-source.adapter";
 import { createXiaohongshuMcpAdapter } from "@/server/sources/adapters/xiaohongshu.adapter";
 import { callMcpTool, type McpClientDependencies } from "@/server/sources/mcp/mcp-client";
@@ -222,18 +223,107 @@ test("mcp source adapter stays not_configured without url", async () => {
   }
 });
 
-test("xiaohongshu adapter uses search_feeds and maps feed cards into city events", async () => {
+test("xiaohongshu adapter uses ai_search_chat and maps source notes into city events by default", async () => {
   const previous = process.env.XIAOHONGSHU_MCP_URL;
+  const previousTool = process.env.XIAOHONGSHU_MCP_SEARCH_TOOL;
   process.env.XIAOHONGSHU_MCP_URL = "http://localhost:18060/mcp";
+  delete process.env.XIAOHONGSHU_MCP_SEARCH_TOOL;
 
   const adapter = createXiaohongshuMcpAdapter({
     client: {
       async callTool(call) {
         assert.equal(call.connector, "xiaohongshu");
+        assert.equal(call.tool, "ai_search_chat");
+        assert.equal(call.config?.timeoutMs, 140_000);
+        assert.match(String(call.input.prompt), /静安寺 上海/);
+        assert.match(String(call.input.prompt), /咖啡、展览/);
+        assert.equal(call.input.include_sources, true);
+        assert.equal(call.input.source_limit, 20);
+        assert.equal(call.input.timeout_seconds, 90);
+
+        return {
+          connector: call.connector,
+          tool: call.tool,
+          status: "ok",
+          data: {
+            prompt: call.input.prompt,
+            answer: "静安寺附近最近适合咖啡和展览路线。",
+            sources: {
+              ok: true,
+              notes: [
+                {
+                  idx: 0,
+                  noteId: "684100000000000001",
+                  title: "武康路新展和咖啡路线",
+                  url: "https://www.xiaohongshu.com/search_result/684100000000000001",
+                  author: "上海周末观察",
+                  likedCount: "120",
+                  text: "展览之后可以顺路喝咖啡。"
+                }
+              ]
+            }
+          }
+        };
+      }
+    }
+  });
+
+  const events = await adapter.searchEvents({ city: "上海", area: "静安寺", keywords: ["咖啡", "展览"] });
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].source, "xiaohongshu");
+  assert.equal(events[0].sourceId, "684100000000000001:event");
+  assert.equal(events[0].sourceUrl, "https://www.xiaohongshu.com/search_result/684100000000000001");
+  assert.equal(events[0].title, "武康路新展和咖啡路线");
+  assert.equal(events[0].content, "展览之后可以顺路喝咖啡。");
+  assert.equal(events[0].author, "上海周末观察");
+  assert.equal(events[0].area, "静安寺");
+  assert.deepEqual(events[0].tags, ["静安寺", "咖啡", "展览", "AI搜索", "同城"]);
+  assert.equal(events[0].trendScore, 61);
+  assert.equal(events[0].popularity, 61);
+
+  const normalized = toNormalizedEntityInput(events[0], createSourceKey(events[0]));
+  assert.ok(normalized);
+  assert.equal(normalized.entityType, "event");
+
+  if (previous === undefined) {
+    delete process.env.XIAOHONGSHU_MCP_URL;
+  } else {
+    process.env.XIAOHONGSHU_MCP_URL = previous;
+  }
+
+  if (previousTool === undefined) {
+    delete process.env.XIAOHONGSHU_MCP_SEARCH_TOOL;
+  } else {
+    process.env.XIAOHONGSHU_MCP_SEARCH_TOOL = previousTool;
+  }
+});
+
+test("xiaohongshu adapter falls back to search_feeds when ai_search_chat has no sources", async () => {
+  const previous = process.env.XIAOHONGSHU_MCP_URL;
+  const previousTool = process.env.XIAOHONGSHU_MCP_SEARCH_TOOL;
+  process.env.XIAOHONGSHU_MCP_URL = "http://localhost:18060/mcp";
+  delete process.env.XIAOHONGSHU_MCP_SEARCH_TOOL;
+  const calls: string[] = [];
+
+  const adapter = createXiaohongshuMcpAdapter({
+    client: {
+      async callTool(call) {
+        calls.push(call.tool);
+
+        if (call.tool === "ai_search_chat") {
+          return {
+            connector: call.connector,
+            tool: call.tool,
+            status: "ok",
+            data: {
+              answer: "没有展开来源。"
+            }
+          };
+        }
+
         assert.equal(call.tool, "search_feeds");
-        assert.equal(call.config?.timeoutMs, 120_000);
         assert.equal(call.input.keyword, "静安寺 上海 咖啡 展览");
-        assert.equal(call.input.filters, undefined);
 
         return {
           connector: call.connector,
@@ -266,7 +356,7 @@ test("xiaohongshu adapter uses search_feeds and maps feed cards into city events
 
   assert.equal(events.length, 1);
   assert.equal(events[0].source, "xiaohongshu");
-  assert.equal(events[0].sourceId, "684100000000000001");
+  assert.equal(events[0].sourceId, "684100000000000001:event");
   assert.equal(events[0].sourceUrl, "https://www.xiaohongshu.com/explore/684100000000000001?xsec_token=token-1");
   assert.equal(events[0].title, "武康路新展和咖啡路线");
   assert.equal(events[0].author, "上海周末观察");
@@ -275,44 +365,55 @@ test("xiaohongshu adapter uses search_feeds and maps feed cards into city events
   assert.equal(events[0].trendScore, 62);
   assert.equal(events[0].popularity, 62);
 
-  const normalized = toNormalizedEntityInput(events[0], "xiaohongshu:684100000000000001");
+  const normalized = toNormalizedEntityInput(events[0], createSourceKey(events[0]));
   assert.ok(normalized);
   assert.equal(normalized.entityType, "event");
+  assert.deepEqual(calls, ["ai_search_chat", "search_feeds"]);
 
   if (previous === undefined) {
     delete process.env.XIAOHONGSHU_MCP_URL;
   } else {
     process.env.XIAOHONGSHU_MCP_URL = previous;
   }
+
+  if (previousTool === undefined) {
+    delete process.env.XIAOHONGSHU_MCP_SEARCH_TOOL;
+  } else {
+    process.env.XIAOHONGSHU_MCP_SEARCH_TOOL = previousTool;
+  }
 });
 
-test("xiaohongshu adapter reuses one search_feeds result for concurrent event and venue lookups", async () => {
+test("xiaohongshu adapter reuses one ai_search_chat result for concurrent event and venue lookups", async () => {
   const previous = process.env.XIAOHONGSHU_MCP_URL;
+  const previousTool = process.env.XIAOHONGSHU_MCP_SEARCH_TOOL;
   process.env.XIAOHONGSHU_MCP_URL = "http://localhost:18060/mcp";
+  delete process.env.XIAOHONGSHU_MCP_SEARCH_TOOL;
   let callCount = 0;
 
   const adapter = createXiaohongshuMcpAdapter({
     client: {
       async callTool(call) {
         callCount += 1;
-        assert.equal(call.input.keyword, "静安寺 上海 咖啡 展览");
+        assert.equal(call.tool, "ai_search_chat");
         await new Promise((resolve) => setTimeout(resolve, 10));
 
         return {
           connector: call.connector,
           tool: call.tool,
           status: "ok",
-          data: [
-            {
-              id: "684100000000000002",
-              noteCard: {
-                displayTitle: "上海咖啡新展双线索",
-                interactInfo: {
+          data: {
+            answer: "上海咖啡新展双线索。",
+            sources: {
+              ok: true,
+              notes: [
+                {
+                  noteId: "684100000000000002",
+                  title: "上海咖啡新展双线索",
                   likedCount: "10"
                 }
-              }
+              ]
             }
-          ]
+          }
         };
       }
     }
@@ -328,19 +429,30 @@ test("xiaohongshu adapter reuses one search_feeds result for concurrent event an
   assert.equal(venues.length, 1);
   assert.equal(events[0].itemType, "event");
   assert.equal(venues[0].itemType, "venue");
+  assert.equal(events[0].sourceId, "684100000000000002:event");
+  assert.equal(venues[0].sourceId, "684100000000000002:venue");
+  assert.notEqual(createSourceKey(events[0]), createSourceKey(venues[0]));
   assert.equal(events[0].area, "静安寺");
-  assert.deepEqual(events[0].tags, ["静安寺", "咖啡", "展览", "同城"]);
+  assert.deepEqual(events[0].tags, ["静安寺", "咖啡", "展览", "AI搜索", "同城"]);
 
   if (previous === undefined) {
     delete process.env.XIAOHONGSHU_MCP_URL;
   } else {
     process.env.XIAOHONGSHU_MCP_URL = previous;
   }
+
+  if (previousTool === undefined) {
+    delete process.env.XIAOHONGSHU_MCP_SEARCH_TOOL;
+  } else {
+    process.env.XIAOHONGSHU_MCP_SEARCH_TOOL = previousTool;
+  }
 });
 
 test("xiaohongshu adapter surfaces search_feeds tool errors", async () => {
   const previous = process.env.XIAOHONGSHU_MCP_URL;
+  const previousTool = process.env.XIAOHONGSHU_MCP_SEARCH_TOOL;
   process.env.XIAOHONGSHU_MCP_URL = "http://localhost:18060/mcp";
+  process.env.XIAOHONGSHU_MCP_SEARCH_TOOL = "search_feeds";
   const adapter = createXiaohongshuMcpAdapter({
     client: {
       async callTool(call) {
@@ -364,5 +476,11 @@ test("xiaohongshu adapter surfaces search_feeds tool errors", async () => {
     delete process.env.XIAOHONGSHU_MCP_URL;
   } else {
     process.env.XIAOHONGSHU_MCP_URL = previous;
+  }
+
+  if (previousTool === undefined) {
+    delete process.env.XIAOHONGSHU_MCP_SEARCH_TOOL;
+  } else {
+    process.env.XIAOHONGSHU_MCP_SEARCH_TOOL = previousTool;
   }
 });

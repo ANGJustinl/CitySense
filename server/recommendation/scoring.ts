@@ -6,20 +6,22 @@ import type {
   ScoredCandidate
 } from "@/server/recommendation/types";
 import { distanceMeters } from "@/server/maps/traffic";
+import { assessCandidateQuality } from "@/server/recommendation/quality";
 
 export const WEIGHTED_RANKER_NAME = "weighted-v1";
-export const WEIGHTED_RANKER_VERSION = "2026-06-13";
+export const WEIGHTED_RANKER_VERSION = "weighted-v1.1-signal-backed";
 
 export const WEIGHTED_RANKER_WEIGHTS = {
-  taste: 0.22,
-  textRelevance: 0.1,
-  socialTrend: 0.14,
-  freshness: 0.1,
-  distance: 0.1,
-  traffic: 0.14,
-  timeFit: 0.08,
-  novelty: 0.06,
-  userAffinity: 0.08,
+  taste: 0.18,
+  textRelevance: 0.09,
+  socialTrend: 0.1,
+  freshness: 0.07,
+  distance: 0.12,
+  traffic: 0.12,
+  timeFit: 0.07,
+  novelty: 0.04,
+  actionability: 0.2,
+  userAffinity: 0.05,
   feedbackPenalty: -0.12
 } satisfies Record<keyof ScoreBreakdown, number>;
 
@@ -101,6 +103,68 @@ export function calculateBudgetScore(candidate: Candidate, input: RecommendInput
   return candidate.priceLevel <= 1 ? 94 : candidate.priceLevel === 2 ? 78 : 46;
 }
 
+function isGenericSocialListicle(candidate: Candidate) {
+  const text = [candidate.name, candidate.description, ...candidate.tags].filter(Boolean).join(" ");
+
+  return /合集|汇总|路线|攻略|地图|清单|一览|必逛|必藏|收藏|码住|抄作业|citywalk|\d+\+?个|\d+家/i.test(text);
+}
+
+function candidateQuality(candidate: Candidate) {
+  if (
+    typeof candidate.qualityScore === "number" &&
+    Array.isArray(candidate.qualityFlags) &&
+    typeof candidate.routeEligible === "boolean"
+  ) {
+    return {
+      qualityScore: candidate.qualityScore,
+      qualityFlags: candidate.qualityFlags,
+      routeEligible: candidate.routeEligible
+    };
+  }
+
+  return assessCandidateQuality({
+    name: candidate.name,
+    type: candidate.type,
+    source: candidate.source,
+    address: candidate.address,
+    lat: candidate.lat,
+    lng: candidate.lng,
+    tags: candidate.tags
+  });
+}
+
+export function calculateActionabilityScore(candidate: Candidate) {
+  const hasAddress = Boolean(candidate.address?.trim());
+  const hasCoordinates = Number.isFinite(candidate.lat) && Number.isFinite(candidate.lng);
+  const quality = candidateQuality(candidate);
+
+  if (quality.qualityFlags.includes("generic_social")) {
+    return Math.min(12, quality.qualityScore);
+  }
+
+  if (hasAddress && hasCoordinates) {
+    return clamp(100 * 0.6 + quality.qualityScore * 0.4);
+  }
+
+  if (hasCoordinates) {
+    return clamp(92 * 0.6 + quality.qualityScore * 0.4);
+  }
+
+  if (hasAddress) {
+    return clamp(82 * 0.6 + quality.qualityScore * 0.4);
+  }
+
+  if (isGenericSocialListicle(candidate)) {
+    return 12;
+  }
+
+  if (/咖啡馆|咖啡店|书店|画廊|美术馆|公园|中心|市集|展|节|店/.test(candidate.name)) {
+    return 42;
+  }
+
+  return 28;
+}
+
 export function calculateTextRelevance(candidate: Candidate, input: RecommendInput) {
   if (candidate.textRelevance !== undefined) {
     return clamp(candidate.textRelevance);
@@ -131,13 +195,16 @@ export function calculateFinalScore(breakdown: ScoreBreakdown) {
       breakdown.traffic * WEIGHTED_RANKER_WEIGHTS.traffic +
       breakdown.timeFit * WEIGHTED_RANKER_WEIGHTS.timeFit +
       breakdown.novelty * WEIGHTED_RANKER_WEIGHTS.novelty +
+      breakdown.actionability * WEIGHTED_RANKER_WEIGHTS.actionability +
       breakdown.userAffinity * WEIGHTED_RANKER_WEIGHTS.userAffinity +
       breakdown.feedbackPenalty * WEIGHTED_RANKER_WEIGHTS.feedbackPenalty
   );
 }
 
 export function createDefaultFeatures(candidate: Candidate, input: RecommendInput): CandidateFeatures {
-  const sourceSignalScore = input.useSocialSignals === false ? 50 : candidate.trendScore;
+  const quality = candidateQuality(candidate);
+  const signalStrength = candidate.signalStrength ?? candidate.trendScore;
+  const sourceSignalScore = input.useSocialSignals === false ? 50 : signalStrength;
   const novelty = clamp(100 - candidate.popularity * 0.5 + candidate.confidence * 0.35);
 
   return {
@@ -150,8 +217,13 @@ export function createDefaultFeatures(candidate: Candidate, input: RecommendInpu
     traffic: 60,
     timeFit: calculateTimeFitScore(candidate, input),
     novelty,
+    actionability: calculateActionabilityScore(candidate),
     userAffinity: 50,
-    feedbackPenalty: 0
+    feedbackPenalty: 0,
+    qualityScore: quality.qualityScore,
+    qualityFlags: quality.qualityFlags,
+    signalStrength: clamp(signalStrength),
+    routeEligible: quality.routeEligible
   };
 }
 
@@ -179,6 +251,7 @@ export function averageBreakdown(items: ScoreBreakdown[]): ScoreBreakdown {
     traffic: clamp(average(items.map((item) => item.traffic))),
     timeFit: clamp(average(items.map((item) => item.timeFit))),
     novelty: clamp(average(items.map((item) => item.novelty))),
+    actionability: clamp(average(items.map((item) => item.actionability))),
     userAffinity: clamp(average(items.map((item) => item.userAffinity))),
     feedbackPenalty: clamp(average(items.map((item) => item.feedbackPenalty)))
   };

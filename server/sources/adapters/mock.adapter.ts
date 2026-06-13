@@ -1,4 +1,5 @@
 import type { CitySourceAdapter, RawSourceItemDetail } from "@/server/sources/source.types";
+import { isDemoModeEnabled } from "@/server/config/demo-mode";
 import { BaseCitySourceAdapter, matchCityItem } from "@/server/sources/adapters/adapter-utils";
 
 export const mockCatalog: RawSourceItemDetail[] = [
@@ -198,6 +199,10 @@ class MockCitySourceAdapter extends BaseCitySourceAdapter {
       enabledByDefault: true,
       cooldownSeconds: 10
     });
+  }
+
+  isConfigured() {
+    return isDemoModeEnabled();
   }
 
   protected async searchEventsImpl(input: Parameters<CitySourceAdapter["searchEvents"]>[0]) {

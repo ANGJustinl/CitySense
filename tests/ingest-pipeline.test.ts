@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { BaseCitySourceAdapter } from "@/server/sources/adapters/adapter-utils";
 import { createSourceKey } from "@/server/ingest/source-key";
-import { toNormalizedEntityInput } from "@/server/ingest/normalize";
+import { buildCitySignalRows, toNormalizedEntityInput } from "@/server/ingest/normalize";
+import { __testing as pipelineTesting } from "@/server/ingest/pipeline";
 import { applySourceResult, createEmptyIngestStats } from "@/server/ingest/types";
 import type { RawSourceItemDetail } from "@/server/sources/source.types";
 
@@ -82,6 +83,59 @@ test("raw source item maps to normalized event input", () => {
   assert.equal(normalized.city, "上海");
   assert.equal(normalized.trendScore, 72);
   assert.deepEqual(normalized.tags, ["展览", "咖啡"]);
+});
+
+test("normalized entity input canonicalizes Shanghai district suffixes", () => {
+  const normalized = toNormalizedEntityInput(
+    {
+      ...sampleItem,
+      area: "静安区"
+    },
+    createSourceKey(sampleItem)
+  );
+
+  assert.ok(normalized);
+  assert.equal(normalized.area, "静安");
+});
+
+test("city signal rows use LLM-normalized tags and score when provided", () => {
+  const normalized = toNormalizedEntityInput(sampleItem, createSourceKey(sampleItem));
+
+  assert.ok(normalized);
+
+  const rows = buildCitySignalRows(sampleItem, createSourceKey(sampleItem), "event-1", {
+    ...normalized,
+    tags: ["插画展", "夜间活动", "咖啡"],
+    trendScore: 88,
+    confidence: 90
+  });
+
+  assert.deepEqual(
+    rows.map((row) => `${row.tag}:${row.heatScore}`),
+    ["插画展:88", "夜间活动:88", "咖啡:88"]
+  );
+});
+
+test("event upsert update data clears stale nullable fields", () => {
+  const normalized = toNormalizedEntityInput(
+    {
+      ...sampleItem,
+      area: undefined,
+      address: undefined,
+      startsAt: undefined,
+      sourceUrl: undefined
+    },
+    createSourceKey(sampleItem)
+  );
+
+  assert.ok(normalized);
+
+  const data = pipelineTesting.eventDataForEntity(normalized);
+
+  assert.equal(data.update.area, null);
+  assert.equal(data.update.address, null);
+  assert.equal(data.update.startTime, null);
+  assert.equal(data.update.sourceUrl, null);
 });
 
 test("ingest stats aggregate source results", () => {

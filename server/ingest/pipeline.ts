@@ -1,6 +1,13 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db/prisma";
-import { buildCitySignalRows, toNormalizedEntityInput } from "@/server/ingest/normalize";
+import {
+  buildCitySignalRows,
+  type NormalizedEntityInput
+} from "@/server/ingest/normalize";
+import {
+  normalizeSourceItemForIngest,
+  type LlmIngestNormalizeResult
+} from "@/server/ingest/llm-normalizer";
 import { createSourceKey } from "@/server/ingest/source-key";
 import {
   applySourceResult,
@@ -9,7 +16,8 @@ import {
   type SourceIngestResult
 } from "@/server/ingest/types";
 import { syncSourceConnectors } from "@/server/ingest/status";
-import { sourceAdapters } from "@/server/sources/source-registry";
+import { assessCandidateQuality } from "@/server/recommendation/quality";
+import { getSourceAdapters } from "@/server/sources/source-registry";
 import type { RawSourceItemDetail } from "@/server/sources/source.types";
 
 type IngestRunRecord = NonNullable<Awaited<ReturnType<typeof prisma.ingestRun.findUnique>>>;
@@ -19,7 +27,7 @@ function toJson(value: unknown): Prisma.InputJsonValue {
 }
 
 function adapterBySource(source: string) {
-  return sourceAdapters.find((adapter) => adapter.source === source);
+  return getSourceAdapters().find((adapter) => adapter.source === source);
 }
 
 function isInCooldown(lastRunAt: Date | null, cooldownSeconds: number) {
@@ -111,51 +119,96 @@ async function upsertRawSourceItem(input: {
   });
 }
 
-async function upsertNormalizedEntity(item: RawSourceItemDetail, sourceKey: string) {
-  const entity = toNormalizedEntityInput(item, sourceKey);
+function eventDataForEntity(entity: NormalizedEntityInput) {
+  const quality = assessCandidateQuality({
+    name: entity.title,
+    type: entity.entityType,
+    source: entity.source,
+    address: entity.address,
+    lat: entity.lat,
+    lng: entity.lng,
+    tags: entity.tags
+  });
+  const values = {
+    title: entity.title,
+    description: entity.description ?? null,
+    city: entity.city,
+    area: entity.area ?? null,
+    address: entity.address ?? null,
+    lat: entity.lat ?? null,
+    lng: entity.lng ?? null,
+    startTime: entity.startTime ?? null,
+    endTime: entity.endTime ?? null,
+    tags: entity.tags,
+    source: entity.source,
+    sourceUrl: entity.sourceUrl ?? null,
+    trendScore: entity.trendScore,
+    confidence: entity.confidence,
+    qualityScore: quality.qualityScore,
+    qualityFlags: quality.qualityFlags
+  };
 
+  return {
+    create: {
+      sourceKey: entity.sourceKey,
+      ...values
+    },
+    update: values
+  };
+}
+
+function venueDataForEntity(entity: NormalizedEntityInput) {
+  const quality = assessCandidateQuality({
+    name: entity.title,
+    type: entity.entityType,
+    source: entity.source,
+    address: entity.address,
+    lat: entity.lat,
+    lng: entity.lng,
+    tags: entity.tags
+  });
+  const values = {
+    name: entity.title,
+    description: entity.description ?? null,
+    city: entity.city,
+    area: entity.area ?? null,
+    address: entity.address ?? null,
+    lat: entity.lat ?? null,
+    lng: entity.lng ?? null,
+    tags: entity.tags,
+    priceLevel: entity.priceLevel ?? null,
+    quietness: entity.quietness ?? null,
+    popularity: entity.popularity ?? null,
+    source: entity.source,
+    sourceUrl: entity.sourceUrl ?? null,
+    trendScore: entity.trendScore,
+    confidence: entity.confidence,
+    qualityScore: quality.qualityScore,
+    qualityFlags: quality.qualityFlags
+  };
+
+  return {
+    create: {
+      sourceKey: entity.sourceKey,
+      ...values
+    },
+    update: values
+  };
+}
+
+async function upsertNormalizedEntity(entity: NormalizedEntityInput | null) {
   if (!entity) {
     return null;
   }
 
   if (entity.entityType === "event") {
+    const data = eventDataForEntity(entity);
     const event = await prisma.event.upsert({
       where: {
-        sourceKey
+        sourceKey: entity.sourceKey
       },
-      create: {
-        sourceKey,
-        title: entity.title,
-        description: entity.description,
-        city: entity.city,
-        area: entity.area,
-        address: entity.address,
-        lat: entity.lat,
-        lng: entity.lng,
-        startTime: entity.startTime,
-        endTime: entity.endTime,
-        tags: entity.tags,
-        source: entity.source,
-        sourceUrl: entity.sourceUrl,
-        trendScore: entity.trendScore,
-        confidence: entity.confidence
-      },
-      update: {
-        title: entity.title,
-        description: entity.description,
-        city: entity.city,
-        area: entity.area,
-        address: entity.address,
-        lat: entity.lat,
-        lng: entity.lng,
-        startTime: entity.startTime,
-        endTime: entity.endTime,
-        tags: entity.tags,
-        source: entity.source,
-        sourceUrl: entity.sourceUrl,
-        trendScore: entity.trendScore,
-        confidence: entity.confidence
-      }
+      create: data.create,
+      update: data.update
     });
 
     return {
@@ -164,45 +217,13 @@ async function upsertNormalizedEntity(item: RawSourceItemDetail, sourceKey: stri
     };
   }
 
+  const data = venueDataForEntity(entity);
   const venue = await prisma.venue.upsert({
     where: {
-      sourceKey
+      sourceKey: entity.sourceKey
     },
-    create: {
-      sourceKey,
-      name: entity.title,
-      description: entity.description,
-      city: entity.city,
-      area: entity.area,
-      address: entity.address,
-      lat: entity.lat,
-      lng: entity.lng,
-      tags: entity.tags,
-      priceLevel: entity.priceLevel,
-      quietness: entity.quietness,
-      popularity: entity.popularity,
-      source: entity.source,
-      sourceUrl: entity.sourceUrl,
-      trendScore: entity.trendScore,
-      confidence: entity.confidence
-    },
-    update: {
-      name: entity.title,
-      description: entity.description,
-      city: entity.city,
-      area: entity.area,
-      address: entity.address,
-      lat: entity.lat,
-      lng: entity.lng,
-      tags: entity.tags,
-      priceLevel: entity.priceLevel,
-      quietness: entity.quietness,
-      popularity: entity.popularity,
-      source: entity.source,
-      sourceUrl: entity.sourceUrl,
-      trendScore: entity.trendScore,
-      confidence: entity.confidence
-    }
+    create: data.create,
+    update: data.update
   });
 
   return {
@@ -211,13 +232,34 @@ async function upsertNormalizedEntity(item: RawSourceItemDetail, sourceKey: stri
   };
 }
 
+function parsedPayloadFor(
+  item: RawSourceItemDetail,
+  normalized: LlmIngestNormalizeResult
+): Prisma.InputJsonValue {
+  return toJson({
+    ...item,
+    llmNormalization: {
+      status: normalized.status,
+      model: normalized.model,
+      ignoreReason: normalized.ignoreReason,
+      error: normalized.error,
+      output: normalized.output
+    },
+    normalizedEntity: normalized.entity
+  });
+}
+
 async function normalizeItem(input: {
   item: RawSourceItemDetail;
   sourceKey: string;
   runId: string;
 }) {
   await upsertRawSourceItem(input);
-  const normalized = await upsertNormalizedEntity(input.item, input.sourceKey);
+  const normalizedInput = await normalizeSourceItemForIngest({
+    item: input.item,
+    sourceKey: input.sourceKey
+  });
+  const normalized = await upsertNormalizedEntity(normalizedInput.entity);
 
   if (!normalized) {
     await prisma.rawSourceItem.update({
@@ -226,6 +268,7 @@ async function normalizeItem(input: {
       },
       data: {
         status: "ignored",
+        parsedPayload: parsedPayloadFor(input.item, normalizedInput),
         normalizedEntityType: null,
         normalizedEntityId: null
       }
@@ -237,7 +280,12 @@ async function normalizeItem(input: {
     };
   }
 
-  const signals = buildCitySignalRows(input.item, input.sourceKey, normalized.entityId);
+  const signals = buildCitySignalRows(
+    input.item,
+    input.sourceKey,
+    normalized.entityId,
+    normalizedInput.entity ?? undefined
+  );
 
   if (signals.length > 0) {
     await prisma.citySignal.createMany({
@@ -254,6 +302,7 @@ async function normalizeItem(input: {
     },
     data: {
       status: "normalized",
+      parsedPayload: parsedPayloadFor(input.item, normalizedInput),
       normalizedEntityType: normalized.entityType,
       normalizedEntityId: normalized.entityId
     }
@@ -475,3 +524,8 @@ export async function executeIngestRun(runId: string) {
     stats
   };
 }
+
+export const __testing = {
+  eventDataForEntity,
+  venueDataForEntity
+};

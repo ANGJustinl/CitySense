@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { enqueueIngestRun, isIngestQueueConfigured, resolveIngestSources } from "@/server/ingest/queue";
 import { ingestRunRequestSchema } from "@/server/ingest/types";
-import { sourceAdapters } from "@/server/sources/source-registry";
+import { getSourceAdapters } from "@/server/sources/source-registry";
 
 export const runtime = "nodejs";
 
@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
     const input = ingestRunRequestSchema.parse(body);
-    const knownSources = new Set(sourceAdapters.map((adapter) => adapter.source));
+    const knownSources = new Set(getSourceAdapters().map((adapter) => adapter.source));
     const unknownSources = input.sources?.filter((source) => !knownSources.has(source)) ?? [];
 
     if (unknownSources.length > 0) {

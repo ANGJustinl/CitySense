@@ -33,6 +33,7 @@ export type RecallChannel =
   | "text"
   | "social"
   | "city-signal"
+  | "city-fallback"
   | "feedback-suppression";
 
 export type Candidate = {
@@ -59,6 +60,10 @@ export type Candidate = {
   sourceSignals: SourceSignal[];
   recallChannels?: RecallChannel[];
   textRelevance?: number;
+  qualityScore?: number;
+  qualityFlags?: string[];
+  routeEligible?: boolean;
+  signalStrength?: number;
 };
 
 export type ScoreBreakdown = {
@@ -70,6 +75,7 @@ export type ScoreBreakdown = {
   traffic: number;
   timeFit: number;
   novelty: number;
+  actionability: number;
   userAffinity: number;
   feedbackPenalty: number;
 };
@@ -77,6 +83,10 @@ export type ScoreBreakdown = {
 export type CandidateFeatures = ScoreBreakdown & {
   candidateId: string;
   semanticRelevance?: number;
+  qualityScore?: number;
+  qualityFlags?: string[];
+  signalStrength?: number;
+  routeEligible?: boolean;
 };
 
 export type ScoredCandidate = Candidate & {

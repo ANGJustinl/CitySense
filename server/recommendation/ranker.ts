@@ -44,6 +44,7 @@ export const weightedRanker: CandidateRanker = {
           traffic: features.traffic,
           timeFit: features.timeFit,
           novelty: features.novelty,
+          actionability: features.actionability,
           userAffinity: features.userAffinity,
           feedbackPenalty: features.feedbackPenalty
         };

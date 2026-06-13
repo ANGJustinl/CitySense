@@ -1,7 +1,7 @@
 import { Queue } from "bullmq";
 import IORedis from "ioredis";
 import { prisma } from "@/server/db/prisma";
-import { sourceAdapters } from "@/server/sources/source-registry";
+import { getSourceAdapters } from "@/server/sources/source-registry";
 import type { IngestRunRequest } from "@/server/ingest/types";
 
 export const INGEST_QUEUE_NAME = "ingest";
@@ -30,7 +30,7 @@ export function createIngestQueue() {
 }
 
 export function resolveIngestSources(sources?: string[]) {
-  const known = new Set(sourceAdapters.map((adapter) => adapter.source));
+  const known = new Set(getSourceAdapters().map((adapter) => adapter.source));
 
   if (!sources?.length) {
     return [...known];

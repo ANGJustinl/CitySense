@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { __testing as candidateTesting } from "@/server/recommendation/candidates";
 import { buildRoutes } from "@/server/recommendation/route-builder";
 import { scoreCandidate } from "@/server/recommendation/scoring";
 import { calculateFeedbackPenalty } from "@/server/recommendation/user-signals";
@@ -67,9 +68,38 @@ test("weighted ranker score carries V1 metadata", () => {
   const scored = scoreCandidate(candidate("event-a", ["展览", "安静"], 31.22, 121.45), request);
 
   assert.equal(scored.ranker, "weighted-v1");
-  assert.equal(scored.rankerVersion, "2026-06-13");
+  assert.equal(scored.rankerVersion, "weighted-v1.1-signal-backed");
   assert.equal(scored.features.candidateId, "event-a");
   assert.equal(scored.scoreBreakdown.textRelevance, 70);
+  assert.equal(scored.features.routeEligible, true);
+  assert.ok(typeof scored.features.qualityScore === "number");
+});
+
+test("weighted ranker prefers actionable places over generic social listicles", () => {
+  const generic = scoreCandidate(
+    {
+      ...candidate("event-generic", ["静安", "咖啡", "展览", "市集"], 31.22, 121.45),
+      name: "上海7月33个活动合集🔥市集&快闪&展览",
+      address: undefined,
+      lat: undefined,
+      lng: undefined,
+      source: "xiaohongshu",
+      trendScore: 88
+    },
+    request
+  );
+  const actionable = scoreCandidate(
+    {
+      ...candidate("venue-actionable", ["咖啡", "咖啡厅", "静安"], 31.224, 121.459),
+      name: "具体咖啡馆",
+      address: "南京西路 100 号",
+      source: "amap-poi",
+      trendScore: 50
+    },
+    request
+  );
+
+  assert.ok(actionable.baseScore > generic.baseScore);
 });
 
 test("negative user signals create feedback penalty", () => {
@@ -99,4 +129,82 @@ test("route assembler returns unique route places", () => {
     const ids = route.places.map((place) => place.id);
     assert.equal(new Set(ids).size, ids.length);
   }
+});
+
+test("route assembler fills three routes when top candidates share generic tags", () => {
+  const sharedTags = ["静安", "咖啡", "展览", "市集", "夜生活", "独处"];
+  const routes = buildRoutes(
+    Array.from({ length: 10 }, (_, index) =>
+      trafficCandidate(
+        candidate(`event-shared-${index}`, sharedTags, 31.22 + index * 0.001, 121.45 + index * 0.001),
+        90 - index
+      )
+    ),
+    request
+  );
+
+  assert.equal(routes.length, 3);
+  assert.equal(new Set(routes.map((route) => route.places[0]?.id)).size, 3);
+});
+
+test("route assembler avoids reusing places across routes when enough candidates exist", () => {
+  const routes = buildRoutes(
+    Array.from({ length: 8 }, (_, index) =>
+      trafficCandidate(
+        candidate(
+          `venue-distinct-${index}`,
+          index % 2 === 0 ? ["咖啡", "书店"] : ["展览", "独立音乐"],
+          31.22 + index * 0.001,
+          121.45 + index * 0.001
+        ),
+        90 - index
+      )
+    ),
+    request
+  );
+  const placeIds = routes.flatMap((route) => route.places.map((place) => place.id));
+
+  assert.equal(routes.length, 3);
+  assert.equal(new Set(placeIds).size, placeIds.length);
+});
+
+test("route assembler prefers fully addressed routes when addressable candidates exist", () => {
+  const addressable = Array.from({ length: 6 }, (_, index) =>
+    trafficCandidate(
+      candidate(
+        `venue-addressed-${index}`,
+        index % 2 === 0 ? ["咖啡", "书店"] : ["展览", "独立音乐"],
+        31.22 + index * 0.001,
+        121.45 + index * 0.001
+      ),
+      70 - index
+    )
+  );
+  const vague = Array.from({ length: 8 }, (_, index) =>
+    trafficCandidate(
+      {
+        ...candidate(
+          `event-vague-${index}`,
+          ["咖啡", "展览", "市集"],
+          31.3 + index * 0.001,
+          121.5 + index * 0.001
+        ),
+        address: undefined,
+        lat: undefined,
+        lng: undefined
+      },
+      90 - index
+    )
+  );
+  const routes = buildRoutes([...vague, ...addressable], request);
+  const places = routes.flatMap((route) => route.places);
+
+  assert.equal(routes.length, 3);
+  assert.equal(places.every((place) => Boolean(place.address)), true);
+});
+
+test("candidate area matching treats district suffix as the same area", () => {
+  assert.equal(candidateTesting.matchesCandidateArea("静安区", "静安"), true);
+  assert.equal(candidateTesting.matchesCandidateArea("静安", "静安区"), true);
+  assert.equal(candidateTesting.matchesCandidateArea("徐汇", "静安"), false);
 });

@@ -1,5 +1,19 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db/prisma";
+import { isDemoModeEnabled, MOCK_SOURCE_NAMES } from "@/server/config/demo-mode";
+import {
+  areaVariants,
+  areasMatch,
+  canonicalizeArea
+} from "@/server/geo/area-normalizer";
+import {
+  assessCandidateQuality,
+  routeEligibilityFromQuality
+} from "@/server/recommendation/quality";
+import {
+  applySignalBackedContext,
+  type CitySignalContextRow
+} from "@/server/recommendation/signal-fusion";
 import type {
   Candidate,
   RecallChannel,
@@ -15,6 +29,9 @@ type TextRecallRow = {
   entityType: EntityType;
   score: number;
 };
+
+const CANDIDATE_RECALL_LIMIT = 80;
+const ACTIONABLE_SUPPLEMENT_LIMIT = 80;
 
 function hasDatabaseUrl() {
   return Boolean(process.env.DATABASE_URL);
@@ -32,7 +49,7 @@ function matchesInput(candidate: Candidate, input: RecommendInput) {
     return false;
   }
 
-  if (input.area && candidate.area !== input.area) {
+  if (!matchesCandidateArea(candidate.area, input.area)) {
     return false;
   }
 
@@ -58,10 +75,24 @@ function candidateDedupeKey(candidate: Candidate) {
     "place",
     candidate.type,
     normalizedText(candidate.city),
-    normalizedText(candidate.area),
+    normalizedText(canonicalizeArea(candidate.area)),
     normalizedText(candidate.name),
     normalizedText(candidate.address)
   ].join(":");
+}
+
+function matchesCandidateArea(candidateArea?: string | null, requestedArea?: string | null) {
+  return areasMatch(candidateArea, requestedArea);
+}
+
+function areaWhere(area?: string): Prisma.StringNullableFilter | undefined {
+  const variants = areaVariants(area);
+
+  return variants.length > 0
+    ? {
+        in: variants
+      }
+    : undefined;
 }
 
 function mergeRecallChannels(existing: Candidate, incoming: Candidate) {
@@ -89,6 +120,54 @@ function dedupeCandidates(candidates: Candidate[]) {
   }
 
   return [...map.values()];
+}
+
+function normalizedClusterText(value?: string) {
+  return (value ?? "")
+    .replace(/\([^)]*\)|（[^）]*）/g, "")
+    .replace(/\s+/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function candidateClusterKey(candidate: Candidate) {
+  const address = normalizedClusterText(candidate.address);
+
+  if (address) {
+    const streetNumber = address.match(/[\u4e00-\u9fa5]+(?:路|街|道|弄)\d+号/)?.[0];
+
+    return streetNumber ?? address;
+  }
+
+  return normalizedClusterText(candidate.name);
+}
+
+function actionableClusterCount(candidates: Candidate[]) {
+  return new Set(
+    candidates
+      .filter((candidate) => candidate.routeEligible)
+      .map(candidateClusterKey)
+      .filter(Boolean)
+  ).size;
+}
+
+function sortByTrendAndRelevance(a: Candidate, b: Candidate) {
+  return (
+    b.trendScore - a.trendScore ||
+    (b.textRelevance ?? 0) - (a.textRelevance ?? 0) ||
+    b.confidence - a.confidence
+  );
+}
+
+function selectCandidateRecallWindow(candidates: Candidate[], limit = CANDIDATE_RECALL_LIMIT) {
+  const routeEligible = candidates
+    .filter((candidate) => candidate.routeEligible)
+    .sort(sortByTrendAndRelevance);
+  const signalOnly = candidates
+    .filter((candidate) => !candidate.routeEligible)
+    .sort(sortByTrendAndRelevance);
+
+  return [...routeEligible, ...signalOnly].slice(0, limit);
 }
 
 function sourceSignalsFor(input: {
@@ -163,14 +242,67 @@ function freshnessFromDate(date?: Date | null) {
   return 48;
 }
 
+function storedQuality(row: unknown) {
+  const value = row as {
+    qualityScore?: unknown;
+    qualityFlags?: unknown;
+  };
+
+  return {
+    qualityScore: typeof value.qualityScore === "number" ? value.qualityScore : undefined,
+    qualityFlags: Array.isArray(value.qualityFlags)
+      ? value.qualityFlags.filter((flag): flag is string => typeof flag === "string")
+      : undefined
+  };
+}
+
+function candidateQuality(input: {
+  name: string;
+  type: Candidate["type"];
+  source?: string | null;
+  address?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  tags: string[];
+  row: unknown;
+}) {
+  const fallback = assessCandidateQuality(input);
+  const stored = storedQuality(input.row);
+  const qualityScore = stored.qualityScore ?? fallback.qualityScore;
+  const qualityFlags = stored.qualityFlags ?? fallback.qualityFlags;
+
+  return {
+    qualityScore,
+    qualityFlags,
+    routeEligible: routeEligibilityFromQuality({
+      qualityScore,
+      qualityFlags,
+      address: input.address,
+      lat: input.lat,
+      lng: input.lng
+    })
+  };
+}
+
 function eventToCandidate(event: DbEvent): Candidate {
+  const quality = candidateQuality({
+    name: event.title,
+    type: "event",
+    source: event.source,
+    address: event.address,
+    lat: event.lat,
+    lng: event.lng,
+    tags: event.tags,
+    row: event
+  });
+
   return {
     id: event.id,
     name: event.title,
     type: "event",
     description: event.description ?? undefined,
     city: event.city,
-    area: event.area ?? undefined,
+    area: canonicalizeArea(event.area),
     address: event.address ?? undefined,
     lat: event.lat ?? undefined,
     lng: event.lng ?? undefined,
@@ -191,18 +323,31 @@ function eventToCandidate(event: DbEvent): Candidate {
       confidence: event.confidence,
       tags: event.tags
     }),
-    recallChannels: ["base"]
+    recallChannels: ["base"],
+    ...quality,
+    signalStrength: event.trendScore
   };
 }
 
 function venueToCandidate(venue: DbVenue): Candidate {
+  const quality = candidateQuality({
+    name: venue.name,
+    type: "venue",
+    source: venue.source,
+    address: venue.address,
+    lat: venue.lat,
+    lng: venue.lng,
+    tags: venue.tags,
+    row: venue
+  });
+
   return {
     id: venue.id,
     name: venue.name,
     type: "venue",
     description: venue.description ?? undefined,
     city: venue.city,
-    area: venue.area ?? undefined,
+    area: canonicalizeArea(venue.area),
     address: venue.address ?? undefined,
     lat: venue.lat ?? undefined,
     lng: venue.lng ?? undefined,
@@ -221,29 +366,78 @@ function venueToCandidate(venue: DbVenue): Candidate {
       confidence: venue.confidence,
       tags: venue.tags
     }),
-    recallChannels: ["base"]
+    recallChannels: ["base"],
+    ...quality,
+    signalStrength: venue.trendScore
   };
 }
 
-function candidateWhere(input: RecommendInput) {
-  const where = {
-    city: input.city,
-    ...(input.area ? { area: input.area } : {})
-  };
+function eventWhere(input: RecommendInput): Prisma.EventWhereInput {
+  const area = areaWhere(input.area);
 
-  return where;
+  return {
+    city: input.city,
+    ...(area ? { area } : {}),
+    ...(isDemoModeEnabled()
+      ? {}
+      : {
+          NOT: [
+            {
+              source: {
+                in: [...MOCK_SOURCE_NAMES]
+              }
+            },
+            {
+              sourceKey: {
+                startsWith: "demo:"
+              }
+            }
+          ]
+        })
+  };
+}
+
+function venueWhere(input: RecommendInput): Prisma.VenueWhereInput {
+  const area = areaWhere(input.area);
+
+  return {
+    city: input.city,
+    ...(area ? { area } : {}),
+    ...(isDemoModeEnabled()
+      ? {}
+      : {
+          NOT: [
+            {
+              source: {
+                in: [...MOCK_SOURCE_NAMES]
+              }
+            },
+            {
+              sourceKey: {
+                startsWith: "demo:"
+              }
+            }
+          ]
+        })
+  };
+}
+
+function nonMockSourceSql() {
+  return isDemoModeEnabled()
+    ? Prisma.empty
+    : Prisma.sql`AND ("source" IS NULL OR "source" NOT IN (${Prisma.join([...MOCK_SOURCE_NAMES])}))
+                  AND ("sourceKey" IS NULL OR "sourceKey" NOT LIKE 'demo:%')`;
 }
 
 async function loadBaseCandidates(input: RecommendInput) {
-  const where = candidateWhere(input);
   const [events, venues] = await Promise.all([
     prisma.event.findMany({
-      where,
+      where: eventWhere(input),
       orderBy: [{ trendScore: "desc" }, { createdAt: "desc" }],
       take: 50
     }),
     prisma.venue.findMany({
-      where,
+      where: venueWhere(input),
       orderBy: [{ trendScore: "desc" }, { createdAt: "desc" }],
       take: 50
     })
@@ -263,7 +457,11 @@ async function loadTextRecallRows(input: RecommendInput): Promise<TextRecallRow[
     return [];
   }
 
-  const areaClause = input.area ? Prisma.sql`AND "area" = ${input.area}` : Prisma.empty;
+  const variants = areaVariants(input.area);
+  const areaClause = variants.length
+    ? Prisma.sql`AND "area" IN (${Prisma.join(variants)})`
+    : Prisma.empty;
+  const sourceClause = nonMockSourceSql();
 
   try {
     const [eventRows, venueRows] = await Promise.all([
@@ -278,6 +476,7 @@ async function loadTextRecallRows(input: RecommendInput): Promise<TextRecallRow[
         FROM "Event"
         WHERE "city" = ${input.city}
           ${areaClause}
+          ${sourceClause}
           AND similarity(
             lower(concat_ws(' ', "title", coalesce("description", ''), coalesce("address", ''), array_to_string("tags", ' '))),
             lower(${query})
@@ -296,6 +495,7 @@ async function loadTextRecallRows(input: RecommendInput): Promise<TextRecallRow[
         FROM "Venue"
         WHERE "city" = ${input.city}
           ${areaClause}
+          ${sourceClause}
           AND similarity(
             lower(concat_ws(' ', "name", coalesce("description", ''), coalesce("address", ''), array_to_string("tags", ' '))),
             lower(${query})
@@ -346,42 +546,167 @@ async function loadTextRecallCandidates(input: RecommendInput): Promise<Candidat
   ];
 }
 
-async function loadCitySignalTags(input: RecommendInput) {
+async function loadCityFallbackCandidates(input: RecommendInput): Promise<Candidate[]> {
+  if (!input.area) {
+    return [];
+  }
+
+  const fallbackInput = {
+    ...input,
+    area: undefined
+  };
+  const [baseResult, textResult] = await Promise.allSettled([
+    loadBaseCandidates(fallbackInput),
+    loadTextRecallCandidates(fallbackInput)
+  ]);
+  const baseCandidates = baseResult.status === "fulfilled" ? baseResult.value : [];
+  const textCandidates = textResult.status === "fulfilled" ? textResult.value : [];
+
+  return dedupeCandidates([...baseCandidates, ...textCandidates]).map((candidate) =>
+    withRecall(candidate, ["city-fallback"])
+  );
+}
+
+async function loadActionableSupplementCandidates(input: RecommendInput): Promise<Candidate[]> {
+  const area = areaWhere(input.area);
+  const executablePlaceFilter = {
+    qualityScore: {
+      gte: 55
+    },
+    NOT: {
+      qualityFlags: {
+        has: "generic_social"
+      }
+    },
+    OR: [
+      {
+        address: {
+          not: null
+        }
+      },
+      {
+        AND: [
+          {
+            lat: {
+              not: null
+            }
+          },
+          {
+            lng: {
+              not: null
+            }
+          }
+        ]
+      }
+    ]
+  } satisfies Pick<Prisma.EventWhereInput, "qualityScore" | "NOT" | "OR">;
+
+  const [events, venues] = await Promise.all([
+    prisma.event.findMany({
+      where: {
+        city: input.city,
+        ...(area ? { area } : {}),
+        source: {
+          in: ["shanghai-gov"]
+        },
+        ...executablePlaceFilter,
+        ...(isDemoModeEnabled()
+          ? {}
+          : {
+              NOT: [
+                executablePlaceFilter.NOT,
+                {
+                  source: {
+                    in: [...MOCK_SOURCE_NAMES]
+                  }
+                },
+                {
+                  sourceKey: {
+                    startsWith: "demo:"
+                  }
+                }
+              ]
+            })
+      },
+      orderBy: [{ qualityScore: "desc" }, { trendScore: "desc" }, { createdAt: "desc" }],
+      take: ACTIONABLE_SUPPLEMENT_LIMIT
+    }),
+    prisma.venue.findMany({
+      where: {
+        city: input.city,
+        ...(area ? { area } : {}),
+        source: {
+          in: ["amap-poi"]
+        },
+        qualityScore: {
+          gte: 55
+        },
+        NOT: {
+          qualityFlags: {
+            has: "generic_social"
+          }
+        },
+        OR: executablePlaceFilter.OR
+      },
+      orderBy: [{ qualityScore: "desc" }, { trendScore: "desc" }, { createdAt: "desc" }],
+      take: ACTIONABLE_SUPPLEMENT_LIMIT
+    })
+  ]);
+  const supplementInput = {
+    ...input,
+    area: input.area
+  };
+
+  return dedupeCandidates([
+    ...events.map(eventToCandidate),
+    ...venues.map(venueToCandidate)
+  ])
+    .filter((candidate) => matchesInput(candidate, supplementInput))
+    .map((candidate) =>
+      withRecall(candidate, ["city-fallback"], textScore(candidate, input))
+    );
+}
+
+async function loadCitySignalRows(input: RecommendInput): Promise<CitySignalContextRow[]> {
+  const area = areaWhere(input.area);
+
   try {
     const signals = await prisma.citySignal.findMany({
       where: {
         city: input.city,
-        ...(input.area ? { area: input.area } : {}),
+        ...(area ? { area } : {}),
         ...(input.interests.length > 0
           ? {
               tag: {
                 in: input.interests
               }
             }
-          : {})
+          : {}),
+        ...(isDemoModeEnabled()
+          ? {}
+          : {
+              source: {
+                notIn: [...MOCK_SOURCE_NAMES]
+              }
+            })
       },
       orderBy: {
         heatScore: "desc"
       },
-      take: 20
+      take: 80
     });
 
-    return new Set(signals.map((signal) => signal.tag));
+    return signals.map((signal) => ({
+      city: signal.city,
+      area: signal.area,
+      tag: signal.tag,
+      heatScore: signal.heatScore,
+      source: signal.source,
+      metadata: signal.metadata
+    }));
   } catch {
-    return new Set<string>();
+    return [];
   }
-}
-
-function applyCitySignalRecall(candidates: Candidate[], citySignalTags: Set<string>) {
-  if (citySignalTags.size === 0) {
-    return candidates;
-  }
-
-  return candidates.map((candidate) =>
-    candidate.tags.some((tag) => citySignalTags.has(tag))
-      ? withRecall(candidate, ["city-signal"])
-      : candidate
-  );
 }
 
 export async function retrieveDatabaseCandidates(input: RecommendInput): Promise<Candidate[]> {
@@ -392,19 +717,42 @@ export async function retrieveDatabaseCandidates(input: RecommendInput): Promise
   const [baseResult, textResult, signalResult] = await Promise.allSettled([
     loadBaseCandidates(input),
     loadTextRecallCandidates(input),
-    loadCitySignalTags(input)
+    loadCitySignalRows(input)
   ]);
   const baseCandidates = baseResult.status === "fulfilled" ? baseResult.value : [];
   const textCandidates = textResult.status === "fulfilled" ? textResult.value : [];
-  const citySignalTags = signalResult.status === "fulfilled" ? signalResult.value : new Set<string>();
-  const merged = applyCitySignalRecall(
-    dedupeCandidates([...baseCandidates, ...textCandidates]),
-    citySignalTags
+  const citySignals = signalResult.status === "fulfilled" ? signalResult.value : [];
+  let recalledCandidates = dedupeCandidates([...baseCandidates, ...textCandidates]);
+
+  if (actionableClusterCount(recalledCandidates) < 6) {
+    const supplementInput = input.area
+      ? {
+          ...input,
+          area: undefined
+        }
+      : input;
+
+    recalledCandidates = dedupeCandidates([
+      ...recalledCandidates,
+      ...(await loadCityFallbackCandidates(input)),
+      ...(await loadActionableSupplementCandidates(supplementInput))
+    ]);
+  }
+
+  const merged = applySignalBackedContext(
+    recalledCandidates,
+    citySignals,
+    input
   );
 
   if (merged.length === 0 && baseResult.status === "rejected") {
     throw baseResult.reason;
   }
 
-  return merged.sort((a, b) => b.trendScore - a.trendScore).slice(0, 80);
+  return selectCandidateRecallWindow(merged);
 }
+
+export const __testing = {
+  matchesCandidateArea,
+  selectCandidateRecallWindow
+};

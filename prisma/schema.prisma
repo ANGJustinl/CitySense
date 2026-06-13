@@ -69,12 +69,15 @@ model Event {
   sourceUrl   String?
   trendScore  Float    @default(0)
   confidence  Float    @default(0)
+  qualityScore Float    @default(50)
+  qualityFlags String[] @default([])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([city])
   @@index([area])
   @@index([startTime])
+  @@index([qualityScore])
 }
 
 model Venue {
@@ -95,11 +98,14 @@ model Venue {
   sourceUrl   String?
   trendScore  Float    @default(0)
   confidence  Float    @default(0)
+  qualityScore Float    @default(50)
+  qualityFlags String[] @default([])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([city])
   @@index([area])
+  @@index([qualityScore])
 }
 
 model CitySignal {

@@ -48,6 +48,24 @@ function formatTime(value?: string) {
   }).format(new Date(value));
 }
 
+function ageMinutes(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  const time = new Date(value).getTime();
+
+  return Number.isFinite(time) ? Math.max(0, Math.round((Date.now() - time) / 60_000)) : undefined;
+}
+
+function formatAge(value?: number) {
+  if (value === undefined) {
+    return "无快照";
+  }
+
+  return value <= 0 ? "刚刚" : `${value}分钟前`;
+}
+
 function MetricBars({ metrics, empty }: { metrics: PulseMetric[]; empty: string }) {
   const max = Math.max(...metrics.map((metric) => metric.value), 1);
 
@@ -102,6 +120,9 @@ export function CityPulsePanel({ response, city, area }: CityPulsePanelProps) {
   const recallChannels = response.meta.recallChannels ?? [];
   const topTags = pulse?.topTags.length ? pulse.topTags : derived.topTags;
   const sourceMix = pulse?.sourceMix.length ? pulse.sourceMix : derived.sourceMix;
+  const trafficCache = pulse?.trafficCache;
+  const trafficProviderMix = trafficCache?.providerMix ?? [];
+  const trafficAge = trafficCache?.latestAgeMinutes ?? ageMinutes(trafficCapturedAt);
 
   useEffect(() => {
     const params = new URLSearchParams({
@@ -193,14 +214,30 @@ export function CityPulsePanel({ response, city, area }: CityPulsePanelProps) {
             <strong>{response.meta.ranker ?? "weighted-v1"}</strong>
           </div>
           <div>
-            <span>缓存</span>
+            <span>路线缓存</span>
             <strong>{cacheHits}/{response.routes.length}</strong>
           </div>
           <div>
+            <span>快照</span>
+            <strong>{trafficCache?.snapshotCount ?? 0}</strong>
+          </div>
+          <div>
+            <span>新鲜度</span>
+            <strong>{formatAge(trafficAge)}</strong>
+          </div>
+          <div>
             <span>刷新</span>
-            <strong>{formatTime(trafficCapturedAt ?? pulse?.generatedAt)}</strong>
+            <strong>{formatTime(trafficCache?.latestCapturedAt ?? trafficCapturedAt ?? pulse?.generatedAt)}</strong>
           </div>
         </div>
+        {trafficProviderMix.length ? (
+          <div className="pulse-token-row traffic">
+            {trafficProviderMix.map((metric) => (
+              <span key={metric.label}>{metric.label}: {metric.value}</span>
+            ))}
+            <span>{formatTime(trafficCache?.latestCapturedAt ?? trafficCapturedAt)}</span>
+          </div>
+        ) : null}
         {pulse?.feedbackTrend.length ? (
           <div className="pulse-token-row feedback">
             {pulse.feedbackTrend.map((metric) => (

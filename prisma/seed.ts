@@ -1,13 +1,16 @@
 import { demoSeedCatalog } from "@/prisma/demo-seed-data";
+import { isDemoModeEnabled } from "@/server/config/demo-mode";
 import { prisma } from "@/server/db/prisma";
 import type { RawSourceItemDetail } from "@/server/sources/source.types";
+
+const demoMode = isDemoModeEnabled();
 
 const connectors = [
   {
     name: "mock-city-signal",
     type: "mock",
-    status: "active",
-    enabled: true,
+    status: demoMode ? "active" : "disabled",
+    enabled: demoMode,
     cooldownSeconds: 10
   },
   {
@@ -30,6 +33,13 @@ const connectors = [
     status: "not_configured",
     enabled: false,
     cooldownSeconds: 600
+  },
+  {
+    name: "shanghai-gov",
+    type: "crawler",
+    status: "active",
+    enabled: true,
+    cooldownSeconds: 1800
   },
   {
     name: "bilibili",

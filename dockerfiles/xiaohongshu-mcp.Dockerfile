@@ -1,8 +1,10 @@
 FROM golang:1.24 AS builder
 
 WORKDIR /src
-RUN git init . && git remote add origin https://github.com/xpzouying/xiaohongshu-mcp.git
-RUN git fetch --depth=1 origin 0cf885c2d02745678ec6cc91b401d898373064e9 && git checkout FETCH_HEAD
+ARG XHS_MCP_REPO=https://github.com/ANGJustinl/xiaohongshu-mcp.git
+ARG XHS_MCP_COMMIT=d93a11caae4f8ce84e954dde53933be22d7908c4
+RUN git init . && git remote add origin ${XHS_MCP_REPO}
+RUN git fetch --depth=1 origin ${XHS_MCP_COMMIT} && git checkout FETCH_HEAD
 COPY dockerfiles/xiaohongshu-mcp-search-timeout.patch /tmp/xiaohongshu-mcp-search-timeout.patch
 RUN git apply --recount /tmp/xiaohongshu-mcp-search-timeout.patch
 RUN go mod download

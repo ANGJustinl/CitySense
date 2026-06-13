@@ -1,6 +1,7 @@
 import { prisma } from "@/server/db/prisma";
+import { isDemoModeEnabled, isMockSourceName, MOCK_SOURCE_NAMES } from "@/server/config/demo-mode";
 import { isIngestQueueConfigured } from "@/server/ingest/queue";
-import { sourceAdapters } from "@/server/sources/source-registry";
+import { getSourceAdapters } from "@/server/sources/source-registry";
 
 export type IngestConnectorView = {
   source: string;
@@ -53,8 +54,10 @@ export async function syncSourceConnectors() {
     return;
   }
 
+  const adapters = getSourceAdapters();
+
   await Promise.all(
-    sourceAdapters.map((adapter) =>
+    adapters.map((adapter) =>
       prisma.sourceConnector.upsert({
         where: {
           name: adapter.source
@@ -76,7 +79,7 @@ export async function syncSourceConnectors() {
 }
 
 function staticConnectors(): IngestConnectorView[] {
-  return sourceAdapters.map((adapter) => ({
+  return getSourceAdapters().map((adapter) => ({
     source: adapter.source,
     kind: adapter.kind,
     enabled: adapter.enabledByDefault,
@@ -119,7 +122,20 @@ function runView(run: {
   };
 }
 
+function visibleRunView(run: IngestRunView) {
+  if (isDemoModeEnabled()) {
+    return run;
+  }
+
+  return {
+    ...run,
+    sources: run.sources.filter((source) => !isMockSourceName(source))
+  };
+}
+
 export async function getIngestStatus(runId?: string): Promise<IngestStatusResponse> {
+  const adapters = getSourceAdapters();
+
   if (!hasDatabaseUrl()) {
     return {
       queue: {
@@ -135,6 +151,13 @@ export async function getIngestStatus(runId?: string): Promise<IngestStatusRespo
 
     const [connectors, recentRuns, run] = await Promise.all([
       prisma.sourceConnector.findMany({
+        where: isDemoModeEnabled()
+          ? undefined
+          : {
+              name: {
+                notIn: [...MOCK_SOURCE_NAMES]
+              }
+            },
         orderBy: {
           name: "asc"
         }
@@ -159,7 +182,7 @@ export async function getIngestStatus(runId?: string): Promise<IngestStatusRespo
         configured: isIngestQueueConfigured()
       },
       connectors: connectors.map((connector) => {
-        const adapter = sourceAdapters.find((item) => item.source === connector.name);
+        const adapter = adapters.find((item) => item.source === connector.name);
         const runtimeStatus = adapter?.status ?? connector.status;
 
         return {
@@ -178,8 +201,8 @@ export async function getIngestStatus(runId?: string): Promise<IngestStatusRespo
           cooldownSeconds: connector.cooldownSeconds
         };
       }),
-      recentRuns: recentRuns.map(runView),
-      ...(run ? { run: runView(run) } : {})
+      recentRuns: recentRuns.map(runView).map(visibleRunView),
+      ...(run ? { run: visibleRunView(runView(run)) } : {})
     };
   } catch {
     return {
