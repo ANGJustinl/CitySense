@@ -1,0 +1,22 @@
+services:
+  xiaohongshu-mcp:
+    image: citysense/xiaohongshu-mcp:d93a11c-ai-search
+    build:
+      context: .
+      dockerfile: dockerfiles/xiaohongshu-mcp.Dockerfile
+      args:
+        XHS_MCP_REPO: https://github.com/ANGJustinl/xiaohongshu-mcp.git
+        XHS_MCP_COMMIT: d93a11caae4f8ce84e954dde53933be22d7908c4
+    container_name: citysense-xiaohongshu-mcp
+    restart: unless-stopped
+    init: true
+    tty: true
+    environment:
+      ROD_BROWSER_BIN: /usr/bin/google-chrome
+      COOKIES_PATH: /app/data/cookies.json
+      XHS_PROXY: ${XHS_PROXY:-}
+    ports:
+      - "18060:18060"
+    volumes:
+      - ./docker/xiaohongshu-mcp/data:/app/data
+      - ./docker/xiaohongshu-mcp/images:/app/images
