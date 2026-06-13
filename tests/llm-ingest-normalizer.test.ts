@@ -241,3 +241,111 @@ test("llm ingest normalizer does not keep an unevidenced search area", async () 
   assert.equal(result.status, "llm_normalized");
   assert.equal(result.entity?.area, undefined);
 });
+
+test("llm ingest normalizer ignores pure clickbait titles from xiaohongshu", async () => {
+  const client: LlmIngestNormalizerClient = {
+    async normalize() {
+      return {
+        status: "ignored",
+        ignoreReason: "标题夸张且内容无具体展览名称"
+      };
+    }
+  };
+
+  const result = await normalizeSourceItemForIngest({
+    item: rawItem("xiaohongshu", {
+      title: "上海生活简直是看展天花板",
+      content: "分享几个不错的展览",
+      tags: ["展览"]
+    }),
+    sourceKey: "xiaohongshu:clickbait-1",
+    client,
+    enabled: true,
+    timeoutMs: 1000
+  });
+
+  assert.equal(result.status, "llm_ignored");
+  assert.equal(result.ignoreReason, "标题夸张且内容无具体展览名称");
+  assert.equal(result.entity, null);
+});
+
+test("llm ingest normalizer extracts real name from descriptive xiaohongshu content", async () => {
+  const client: LlmIngestNormalizerClient = {
+    async normalize() {
+      return {
+        status: "normalized",
+        entityType: "event",
+        title: "浦东美术馆新展：光与影的对话",
+        description: "浦东美术馆新展，展期至6月30日",
+        city: "上海",
+        area: "浦东",
+        address: "浦东美术馆",
+        startTime: "2026-06-13T10:00:00.000Z",
+        endTime: "2026-06-30T18:00:00.000Z",
+        tags: ["展览", "艺术", "浦东"],
+        trendScore: 75,
+        confidence: 80,
+        popularity: 75,
+        quietness: 50,
+        priceLevel: 2
+      };
+    }
+  };
+
+  const result = await normalizeSourceItemForIngest({
+    item: rawItem("xiaohongshu", {
+      title: "上海看展天花板！这个展太美了",
+      content: "浦东美术馆新展：光与影的对话，展期至6月30日，值得一看",
+      tags: ["展览"]
+    }),
+    sourceKey: "xiaohongshu:real-exhibition-1",
+    client,
+    enabled: true,
+    timeoutMs: 1000
+  });
+
+  assert.equal(result.status, "llm_normalized");
+  assert.equal(result.entity?.title, "浦东美术馆新展：光与影的对话");
+  assert.equal(result.entity?.entityType, "event");
+  assert.deepEqual(result.entity?.tags, ["展览", "艺术", "浦东"]);
+});
+
+test("llm ingest normalizer handles amap POI correctly", async () => {
+  const client: LlmIngestNormalizerClient = {
+    async normalize() {
+      return {
+        status: "normalized",
+        entityType: "venue",
+        title: "星巴克臻选上海烘焙工坊",
+        description: "咖啡店、餐厅、休闲场所",
+        city: "上海",
+        area: "黄浦区",
+        address: "南京西路789号",
+        tags: ["咖啡", "烘焙", "餐厅"],
+        trendScore: 70,
+        confidence: 85,
+        popularity: 80,
+        quietness: 40,
+        priceLevel: 3
+      };
+    }
+  };
+
+  const result = await normalizeSourceItemForIngest({
+    item: rawItem("amap-poi", {
+      title: "星巴克臻选上海烘焙工坊",
+      content: "咖啡店;餐厅;休闲场所",
+      itemType: "venue",
+      tags: ["咖啡"]
+    }),
+    sourceKey: "amap-poi:starbucks-reserve",
+    client,
+    enabled: true,
+    timeoutMs: 1000
+  });
+
+  assert.equal(result.status, "llm_normalized");
+  assert.equal(result.entity?.title, "星巴克臻选上海烘焙工坊");
+  assert.equal(result.entity?.entityType, "venue");
+  assert.deepEqual(result.entity?.tags, ["咖啡", "烘焙", "餐厅"]);
+});
