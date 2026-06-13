@@ -1,3 +1,7 @@
-import { createPassiveAdapter } from "@/server/sources/adapters/adapter-utils";
+import { createMcpSourceAdapter } from "@/server/sources/adapters/mcp-source.adapter";
 
-export const bilibiliAdapter = createPassiveAdapter("bilibili", "mcp");
+export const bilibiliAdapter = createMcpSourceAdapter({
+  source: "bilibili",
+  urlEnvVar: "BILIBILI_MCP_URL",
+  tokenEnvVar: "BILIBILI_MCP_TOKEN"
+});

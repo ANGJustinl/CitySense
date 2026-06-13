@@ -15,6 +15,7 @@
     "db:seed": "prisma db seed"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@prisma/client": "^6.19.3",
     "bullmq": "^5.78.0",
     "clsx": "^2.1.1",

@@ -837,6 +837,93 @@ p {
   line-height: 1.15;
 }
 
+.xhs-login-panel {
+  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.xhs-login-copy {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.xhs-login-copy .eyebrow {
+  grid-column: 1 / -1;
+}
+
+.xhs-login-copy h3 {
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.xhs-login-pill {
+  align-items: center;
+  border-radius: 8px;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 850;
+  gap: 7px;
+  justify-self: start;
+  min-height: 28px;
+  padding: 0 9px;
+}
+
+.xhs-login-pill.logged_in {
+  background: #e2f3ef;
+  color: var(--accent-strong);
+}
+
+.xhs-login-pill.not_logged_in {
+  background: #fff7de;
+  color: var(--amber);
+}
+
+.xhs-login-pill.unknown {
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
+.xhs-login-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.xhs-qr-box {
+  align-items: center;
+  background: var(--surface-muted);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 128px minmax(0, 1fr);
+  max-width: 560px;
+  padding: 12px;
+}
+
+.xhs-qr-box img {
+  background: white;
+  border-radius: 8px;
+  height: 128px;
+  width: 128px;
+}
+
+.xhs-qr-box p,
+.xhs-login-message {
+  white-space: pre-line;
+}
+
+.xhs-code-form {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(180px, 280px) auto;
+}
+
 .queue-pill {
   align-items: center;
   border-radius: 8px;
@@ -863,7 +950,7 @@ p {
 .ingest-form {
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(120px, 0.8fr) minmax(220px, 1.5fr) auto;
+  grid-template-columns: minmax(110px, 0.7fr) minmax(140px, 0.85fr) minmax(220px, 1.4fr) auto;
 }
 
 .source-picker {
@@ -912,6 +999,11 @@ p {
   gap: 8px;
   min-height: 40px;
   padding: 0 12px;
+}
+
+.secondary-button:disabled {
+  cursor: wait;
+  opacity: 0.68;
 }
 
 .inline-error {
@@ -1354,6 +1446,12 @@ p {
   .source-control-bar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .xhs-login-copy,
+  .xhs-code-form,
+  .xhs-qr-box {
+    grid-template-columns: 1fr;
   }
 
   .route-detail-grid {

@@ -60,29 +60,34 @@
 
 ### TASK-P0-002：扩充 Demo 城市数据
 
-- 状态：`进行中`
+- 状态：`已完成`
 - 负责人：用户 / Codex
 - 是否需要审批：是
 
 待办：
 
-- [ ] 将 seed 数据扩展到至少 20 个上海地点或活动。
-- [ ] 覆盖多个区域：徐汇、静安、长宁、黄浦、浦东。
-- [ ] 加入小红书、豆瓣、B 站、高德 POI、mock city signals 等来源信号。
-- [ ] 补充真实感较强的标签、坐标、价格、人流安静度、热度和趋势分。
-- [ ] 在 `README.md` 中补充 seed 命令说明。
+- [x] 将 seed 数据扩展到至少 20 个上海地点或活动。
+- [x] 覆盖多个区域：徐汇、静安、长宁、黄浦、浦东。
+- [x] 加入小红书、豆瓣、B 站、高德 POI 等来源信号。
+- [x] 补充真实感较强的标签、坐标、价格、人流安静度、热度和趋势分。
+- [x] 在 `README.md` 中补充 seed 命令说明。
 
 验收标准：
 
-- [ ] 推荐结果会随心情、兴趣、预算和时间窗口产生明显变化。
-- [ ] 每条路线都展示可追溯的来源信号。
-- [ ] 任意路线都不依赖实时爬虫。
+- [x] 推荐结果会随心情、兴趣、预算和时间窗口产生明显变化。
+- [x] 每条路线都展示可追溯的来源信号。
+- [x] 任意路线都不依赖实时爬虫。
 
 审批记录：
 
 - 审批人：用户
 - 日期：2026-06-13
 - 结论：用户确认 002 正在进行中，继续推进 003。
+
+完成记录：
+
+- 完成日期：2026-06-13
+- 结论：已完成。seed 已幂等写入 22 条上海 Demo 活动/地点；推荐接口读取入库数据并返回可追溯来源信号，不依赖实时爬虫。本轮新增的 demo 数据用 sourceKey=demo:* 独立可追踪。
 
 ### TASK-P0-003：将高德 ETA 接入推荐排序
 
@@ -307,6 +312,98 @@
 - 日期：2026-06-13
 - 结论：已完成。实现多通道召回、Postgres `pg_trgm` 支撑的文本召回、feature builder、`weighted-v1` ranker、feature snapshot、反馈惩罚和路线组合评分；数据库 migration 与接口联调通过。
 
+### TASK-P1-006：地图优先的推荐工作台 UI 迭代
+
+- 状态：`待审批`
+- 负责人：Codex / 用户
+- 是否需要审批：是，作为黑客松 demo 主界面重构；若新增地图 SDK、外部依赖或更改推荐数据契约，需要重新审批。
+- 视觉目标：ImageGen 图二 `Map-first Feasibility Planner`
+- 参考图：`/home/server/.codex/generated_images/019ea1bf-c43d-7892-bdee-0b80ea93ed94/ig_0dffe9e4e6280147016a2560f0c948819185a6925ec5cdfc76.png`
+
+目标：
+
+- 将首页从“三栏卡片工作台”迭代为“地图优先的路线可达性工作台”。
+- 让用户和评委第一眼看到：高德 ETA 和交通重排实际影响路线排序，而不是只作为地图装饰。
+- 保留现有推荐闭环：偏好输入、3 条路线、交通耗时、来源信号、AI 解释、反馈按钮。
+
+设计原则：
+
+- 首页是可操作产品界面，不做营销页。
+- 地图是可达性证据层，推荐路线仍是核心决策对象。
+- 优先复用现有 `RecommendationWorkspace`、`RouteCard`、`CityPulsePanel`、`TrafficBadge`、`SourceSignalBadge` 的数据和视觉语言。
+- 不在本任务中更改数据库 schema、推荐算法权重、采集流水线或高德 API 调用策略。
+- 如真实高德地图主视图成本过高，先实现静态地图式路线画布；真实地图能力留给后续任务。
+
+计划触达文件：
+
+- 修改：`components/RecommendationWorkspace.tsx`
+  - 重组首页布局为左侧输入栏、中间地图工作区、右侧路线 inspector。
+  - 增加选中路线状态，支持 Route 1 / Route 2 / Route 3 切换。
+  - 保留现有 `POST /api/recommend` 调用和反馈链路。
+- 新增：`components/city/RouteMapCanvas.tsx`
+  - 渲染地图式路线画布、3 条路线线条、编号 marker、地图工具按钮和顶部图例。
+  - 首版使用 CSS 网格与路线 polyline 风格表达，不新增外部依赖。
+- 新增：`components/city/RouteInspector.tsx`
+  - 展示选中路线的分数、ETA、总时长、站点列表、AI explanation、来源信号、反馈按钮。
+  - 从现有 `RouteCard` 拆用或复用反馈提交逻辑，避免重复 API 契约。
+- 新增：`components/city/RouteTimeline.tsx`
+  - 展示 3 个 stop 的时间轴、每段交通耗时、交通状态和地点摘要。
+- 修改：`app/globals.css`
+  - 新增地图优先工作台布局、地图画布、路线 inspector、时间轴和响应式规则。
+  - 保持现有 8px 圆角、teal/coral/amber 色系和轻量边框风格。
+- 视情况修改：`components/city/RouteCard.tsx`
+  - 抽出反馈按钮或轻量 route summary，减少 inspector 与 card 的重复实现。
+
+实施阶段：
+
+- [ ] 阶段 1：布局骨架
+  - 将首页改成左侧 control rail、中间 map workspace、右侧 route inspector。
+  - 桌面端优先匹配图二；移动端降级为输入、地图、路线详情纵向堆叠。
+- [ ] 阶段 2：地图可达性表达
+  - 在 `RouteMapCanvas` 中显示 3 条路线，Top route 使用 teal 高亮，其他路线使用 coral/amber。
+  - 显示路线编号 marker、简化地图网格、地图工具按钮、图例和交通状态。
+  - 顶部加入指标条：Candidate Pool、Amap ETA Calls、Traffic Rerank、Top Route Score、Cache Hits。
+- [ ] 阶段 3：右侧路线 inspector
+  - 支持 Route 1 / Route 2 / Route 3 切换。
+  - 展示推荐分、总时长、交通耗时、距离摘要、站点列表、AI 解释、来源信号和反馈按钮。
+  - 明确展示“因实时 ETA 更优提升排序”的产品文案。
+- [ ] 阶段 4：底部路线时间轴
+  - 将选中路线的 3 个地点串成时间轴。
+  - 展示每段出行时间、交通状态和地点标签。
+  - 与 inspector 选中状态保持同步。
+- [ ] 阶段 5：状态与降级
+  - 推荐生成中显示地图和 inspector 的加载状态。
+  - 无路线时显示可理解空状态。
+  - 交通 provider 为估算值时，明确显示降级状态，避免误导为真实高德数据。
+- [ ] 阶段 6：验证
+  - 运行 `pnpm typecheck`。
+  - 运行 `pnpm lint`。
+  - 启动 `pnpm dev` 并用浏览器检查桌面与移动端布局。
+  - 检查控制台无明显错误，生成路线和反馈按钮仍可用。
+
+验收标准：
+
+- [ ] 首页首屏以地图工作区为视觉中心，而不是路线卡片列表。
+- [ ] 用户可以从左侧输入偏好并生成 3 条路线。
+- [ ] 3 条路线在地图画布中同时可见，当前 Top route 视觉优先级最高。
+- [ ] 右侧 inspector 可以切换 3 条路线，并展示 ETA、站点、来源信号、AI 解释和反馈按钮。
+- [ ] 顶部指标条能解释推荐链路：候选池、ETA、交通重排、最高分、缓存。
+- [ ] 不新增数据库 migration，不改变 `/api/recommend` 和 `/api/feedback` 的现有 API 契约。
+- [ ] 桌面端 `1440 x 1024` 视口下接近图二的信息层级；移动端不出现文字重叠或横向溢出。
+- [ ] `pnpm typecheck`、`pnpm lint` 通过。
+
+风险与降级：
+
+- 如果真实高德地图主视图接入超出时间预算，首版使用静态地图式路线画布，并保留路线详情页的真实高德地图能力。
+- 如果路线 polyline 数据不足，首版用稳定的 mock route geometry 仅作 UI 表达，不改变推荐排序事实。
+- 如果 inspector 与 `RouteCard` 反馈逻辑出现重复，优先抽出共享反馈组件，避免两个 UI 入口产生不一致行为。
+
+审批记录：
+
+- 审批人：
+- 日期：
+- 结论：
+
 ## P2：黑客松后的产品化打磨
 
 ### TASK-P2-001：MCP Connector 抽象
@@ -393,6 +490,7 @@
 - [x] 审查并批准 `TASK-P0-004`。
 - [x] 审查并批准 `TASK-P0-005`。
 - [x] 审查并批准 `TASK-P1-005`。
+- [ ] 审查并批准 `TASK-P1-006`。
 
 ## 变更记录
 
@@ -406,3 +504,4 @@
 - 2026-06-13：完成推荐系统 V1 实现，新增反馈事件、feature snapshot、多路召回、`weighted-v1` ranker、小规模路线组合评分、反馈按钮和推荐 V1 测试。
 - 2026-06-13：按 P0-004 方案 B 修正反馈实现，新增 `recommendation_feedbacks` 事实表和严格反馈 API 契约。
 - 2026-06-13：完成 TASK-P1-004 城市脉搏可视化，新增 city pulse API 和右侧趋势面板。
+- 2026-06-13：根据 ImageGen 图二新增 TASK-P1-006，规划地图优先的推荐工作台 UI 迭代。

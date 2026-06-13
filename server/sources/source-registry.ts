@@ -2,6 +2,7 @@ import { amapPoiAdapter } from "@/server/sources/adapters/amap-poi.adapter";
 import { bilibiliAdapter } from "@/server/sources/adapters/bilibili.adapter";
 import { doubanAdapter } from "@/server/sources/adapters/douban.adapter";
 import { mockAdapter } from "@/server/sources/adapters/mock.adapter";
+import { trendsHubAdapter } from "@/server/sources/adapters/trends-hub.adapter";
 import { xiaohongshuAdapter } from "@/server/sources/adapters/xiaohongshu.adapter";
 import type { RawSourceItemDetail, SourceSearchInput } from "@/server/sources/source.types";
 
@@ -9,6 +10,7 @@ export const sourceAdapters = [
   mockAdapter,
   amapPoiAdapter,
   xiaohongshuAdapter,
+  trendsHubAdapter,
   doubanAdapter,
   bilibiliAdapter
 ];
