@@ -1,6 +1,8 @@
 import { RecommendationWorkspace } from "@/components/RecommendationWorkspace";
 import { recommend } from "@/server/recommendation/recommend";
 
+export const dynamic = "force-dynamic";
+
 export default async function Home() {
   const initialData = await recommend({
     city: "上海",

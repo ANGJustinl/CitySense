@@ -1,4 +1,11 @@
 import type { CitySourceAdapter, RawSourceItemDetail } from "@/server/sources/source.types";
+import { BaseCitySourceAdapter } from "@/server/sources/adapters/adapter-utils";
+
+type FetchLike = typeof fetch;
+
+type AmapPoiAdapterOptions = {
+  fetchFn?: FetchLike;
+};
 
 type AmapPoi = {
   id?: string;
@@ -9,9 +16,43 @@ type AmapPoi = {
   pname?: string;
   cityname?: string;
   adname?: string;
+  photos?: {
+    title?: unknown;
+    url?: unknown;
+  }[];
 };
 
-function toPoiItem(poi: AmapPoi, city: string): RawSourceItemDetail | null {
+function firstPhotoUrl(poi: AmapPoi) {
+  if (!Array.isArray(poi.photos)) {
+    return undefined;
+  }
+
+  for (const photo of poi.photos) {
+    if (typeof photo?.url === "string" && /^https?:\/\//.test(photo.url)) {
+      return photo.url;
+    }
+  }
+
+  return undefined;
+}
+
+function uniqueTags(tags: string[]) {
+  return [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
+}
+
+function poiKey(poi: AmapPoi) {
+  return poi.id ?? [poi.name, poi.address, poi.adname].filter(Boolean).join("|");
+}
+
+function searchKeywordFor(keyword: string) {
+  if (keyword === "独立音乐") {
+    return "livehouse";
+  }
+
+  return keyword;
+}
+
+function toPoiItem(poi: AmapPoi, city: string, keyword: string): RawSourceItemDetail | null {
   if (!poi.name) {
     return null;
   }
@@ -29,12 +70,13 @@ function toPoiItem(poi: AmapPoi, city: string): RawSourceItemDetail | null {
     rawPayload: poi,
     city,
     area: poi.adname,
-    status: "parsed",
+    status: "new",
     itemType: "venue",
     address: typeof poi.address === "string" ? poi.address : undefined,
     lat: Number.isFinite(lat) ? lat : undefined,
     lng: Number.isFinite(lng) ? lng : undefined,
-    tags: (poi.type ?? "城市地点").split(";").slice(0, 4),
+    imageUrl: firstPhotoUrl(poi),
+    tags: uniqueTags([keyword, ...(poi.type ?? "城市地点").split(";")]).slice(0, 5),
     trendScore: 50,
     confidence: 68,
     popularity: 55,
@@ -51,37 +93,80 @@ function toPoiItem(poi: AmapPoi, city: string): RawSourceItemDetail | null {
   };
 }
 
-export const amapPoiAdapter: CitySourceAdapter = {
-  source: "amap-poi",
-  kind: "api",
-  status: process.env.AMAP_API_KEY ? "active" : "not_configured",
-  async searchEvents() {
+class AmapPoiAdapter extends BaseCitySourceAdapter {
+  private fetchFn: FetchLike;
+
+  constructor(options: AmapPoiAdapterOptions = {}) {
+    super({
+      source: "amap-poi",
+      kind: "api",
+      enabledByDefault: true,
+      cooldownSeconds: 300,
+      requiredEnvVars: ["AMAP_API_KEY"]
+    });
+    this.fetchFn = options.fetchFn ?? fetch;
+  }
+
+  protected async searchEventsImpl() {
     return [];
-  },
-  async searchVenues(input) {
-    if (!process.env.AMAP_API_KEY) {
+  }
+
+  protected async searchVenuesImpl(input: Parameters<CitySourceAdapter["searchVenues"]>[0]) {
+    const apiKey = process.env.AMAP_API_KEY;
+
+    if (!apiKey) {
       return [];
     }
 
-    const params = new URLSearchParams({
-      key: process.env.AMAP_API_KEY,
-      keywords: input.keywords.join("|") || "咖啡|展览|书店",
-      city: input.city,
-      output: "json",
-      offset: "10",
-      page: "1"
-    });
+    const keywords = input.keywords.length > 0 ? input.keywords : ["咖啡", "展览", "书店"];
+    const results = await Promise.all(
+      keywords.map(async (keyword) => {
+        const searchKeyword = searchKeywordFor(keyword);
+        const params = new URLSearchParams({
+          key: apiKey,
+          keywords: input.area ? `${input.area} ${searchKeyword}` : searchKeyword,
+          city: input.city,
+          output: "json",
+          extensions: "all",
+          offset: "6",
+          page: "1"
+        });
 
-    const response = await fetch(`https://restapi.amap.com/v3/place/text?${params.toString()}`, {
-      next: { revalidate: 60 * 30 }
-    });
-    const data = (await response.json()) as { pois?: AmapPoi[] };
+        const response = await this.fetchFn(`https://restapi.amap.com/v3/place/text?${params.toString()}`, {
+          next: { revalidate: 60 * 30 }
+        });
+        const data = (await response.json()) as { pois?: AmapPoi[] };
 
-    return (data.pois ?? [])
-      .map((poi) => toPoiItem(poi, input.city))
+        return (data.pois ?? []).map((poi) => ({
+          keyword,
+          poi
+        }));
+      })
+    );
+    const seen = new Set<string>();
+
+    return results
+      .flat()
+      .filter(({ poi }) => {
+        const key = poiKey(poi);
+        if (!key || seen.has(key)) {
+          return false;
+        }
+
+        seen.add(key);
+        return true;
+      })
+      .map(({ keyword, poi }) => toPoiItem(poi, input.city, keyword))
       .filter((item): item is RawSourceItemDetail => Boolean(item));
-  },
-  async getItemDetail() {
+  }
+
+  protected async getItemDetailImpl() {
     return null;
   }
-};
+}
+
+export function createAmapPoiAdapter(options?: AmapPoiAdapterOptions): CitySourceAdapter {
+  return new AmapPoiAdapter(options);
+}
+
+export const amapPoiAdapter: CitySourceAdapter = createAmapPoiAdapter();

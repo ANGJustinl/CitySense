@@ -47,10 +47,15 @@ export async function enrichAndRerankByTraffic(
         ...candidate.scoreBreakdown,
         traffic: trafficScore
       };
+      const features = {
+        ...candidate.features,
+        traffic: trafficScore
+      };
 
       return {
         ...candidate,
         traffic,
+        features,
         scoreBreakdown,
         adjustedScore: calculateFinalScore(scoreBreakdown)
       };

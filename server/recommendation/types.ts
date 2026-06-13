@@ -27,6 +27,15 @@ export type SourceSignal = {
   evidence?: string;
 };
 
+export type RecallChannel =
+  | "base"
+  | "tag"
+  | "text"
+  | "social"
+  | "city-signal"
+  | "city-fallback"
+  | "feedback-suppression";
+
 export type Candidate = {
   id: string;
   name: string;
@@ -40,6 +49,7 @@ export type Candidate = {
   tags: string[];
   source?: string;
   sourceUrl?: string;
+  imageUrl?: string;
   startsAt?: string;
   endsAt?: string;
   trendScore: number;
@@ -49,21 +59,43 @@ export type Candidate = {
   quietness: number;
   priceLevel: number;
   sourceSignals: SourceSignal[];
+  recallChannels?: RecallChannel[];
+  textRelevance?: number;
+  qualityScore?: number;
+  qualityFlags?: string[];
+  routeEligible?: boolean;
+  signalStrength?: number;
 };
 
 export type ScoreBreakdown = {
   taste: number;
+  textRelevance: number;
   socialTrend: number;
   freshness: number;
   distance: number;
   traffic: number;
   timeFit: number;
   novelty: number;
+  actionability: number;
+  userAffinity: number;
+  feedbackPenalty: number;
+};
+
+export type CandidateFeatures = ScoreBreakdown & {
+  candidateId: string;
+  semanticRelevance?: number;
+  qualityScore?: number;
+  qualityFlags?: string[];
+  signalStrength?: number;
+  routeEligible?: boolean;
 };
 
 export type ScoredCandidate = Candidate & {
   baseScore: number;
   scoreBreakdown: ScoreBreakdown;
+  features: CandidateFeatures;
+  ranker: string;
+  rankerVersion: string;
 };
 
 export type TrafficInfo = {
@@ -72,6 +104,30 @@ export type TrafficInfo = {
   distanceMeters?: number;
   congestion?: string;
   provider: "amap" | "estimated";
+  cacheHit?: boolean;
+  capturedAt?: string;
+};
+
+export type RouteLegStep = {
+  instruction?: string;
+  road?: string;
+  distanceMeters?: number;
+  durationMinutes?: number;
+};
+
+export type RouteLeg = {
+  fromName: string;
+  toName: string;
+  toPlaceId?: string;
+  mode: TravelMode;
+  durationMinutes: number;
+  distanceMeters?: number;
+  congestion?: string;
+  provider: "amap" | "estimated";
+  polyline: [lng: number, lat: number][];
+  transitLines?: string[];
+  steps?: RouteLegStep[];
+  cacheHit?: boolean;
 };
 
 export type TrafficCandidate = ScoredCandidate & {
@@ -86,6 +142,7 @@ export type RecommendedRoute = {
   totalScore: number;
   scoreBreakdown: ScoreBreakdown;
   traffic: TrafficInfo;
+  legs?: RouteLeg[];
   sourceSignals: SourceSignal[];
   places: {
     id: string;
@@ -97,6 +154,7 @@ export type RecommendedRoute = {
     tags: string[];
     source?: string;
     sourceUrl?: string;
+    imageUrl?: string;
   }[];
   reason: string;
   tips: string[];
@@ -105,8 +163,12 @@ export type RecommendedRoute = {
 export type RecommendResponse = {
   routes: RecommendedRoute[];
   meta: {
+    recommendationId?: string;
     candidateCount: number;
     trafficProvider: "amap" | "estimated";
+    ranker?: string;
+    rankerVersion?: string;
+    recallChannels?: RecallChannel[];
     generatedAt: string;
   };
 };

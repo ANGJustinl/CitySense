@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-import { getConnectorStatuses } from "@/server/sources/source-registry";
+import { getIngestStatus } from "@/server/ingest/status";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const runId = url.searchParams.get("runId") ?? undefined;
+
   return NextResponse.json({
-    connectors: getConnectorStatuses(),
+    ...(await getIngestStatus(runId)),
     checkedAt: new Date().toISOString()
   });
 }

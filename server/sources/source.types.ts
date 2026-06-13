@@ -1,7 +1,14 @@
 import type { CandidateType } from "@/server/recommendation/types";
 
 export type SourceKind = "mcp" | "crawler" | "api" | "mock";
-export type ConnectorStatus = "active" | "paused" | "error" | "not_configured";
+export type ConnectorStatus =
+  | "active"
+  | "paused"
+  | "error"
+  | "not_configured"
+  | "disabled"
+  | "cooldown";
+export type RawSourceItemStatus = "new" | "normalized" | "ignored" | "error";
 
 export type RawSourceItem = {
   id: string;
@@ -15,7 +22,7 @@ export type RawSourceItem = {
   city?: string;
   area?: string;
   publishedAt?: string;
-  status: "new" | "parsed" | "ignored" | "error";
+  status: RawSourceItemStatus;
   itemType: CandidateType;
 };
 
@@ -25,6 +32,7 @@ export type RawSourceItemDetail = RawSourceItem & {
   lng?: number;
   startsAt?: string;
   endsAt?: string;
+  imageUrl?: string;
   tags: string[];
   trendScore?: number;
   confidence?: number;
@@ -50,6 +58,9 @@ export interface CitySourceAdapter {
   source: string;
   kind: SourceKind;
   status: ConnectorStatus;
+  cooldownSeconds: number;
+  enabledByDefault: boolean;
+  isConfigured(): boolean;
   searchEvents(input: SourceSearchInput): Promise<RawSourceItemDetail[]>;
   searchVenues(input: SourceSearchInput): Promise<RawSourceItemDetail[]>;
   getItemDetail(sourceItemId: string): Promise<RawSourceItemDetail | null>;
