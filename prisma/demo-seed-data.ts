@@ -249,7 +249,7 @@ export const demoSeedCatalog: DemoSeedItem[] = [
     address: "凯旋路 851 号",
     lat: 31.216,
     lng: 121.424,
-    startsAt: "2026-06-12T20:30:00.000+08:00",
+    startsAt: "2026-06-13T20:30:00.000+08:00",
     tags: ["独立音乐", "livehouse", "夜生活", "lively"],
     trendScore: 83,
     confidence: 79,

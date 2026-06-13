@@ -359,7 +359,7 @@
 
 ### TASK-P1-006：地图优先的推荐工作台 UI 迭代
 
-- 状态：`待审批`
+- 状态：`已完成`
 - 负责人：Codex / 用户
 - 是否需要审批：是，作为黑客松 demo 主界面重构；若新增地图 SDK、外部依赖或更改推荐数据契约，需要重新审批。
 - 视觉目标：ImageGen 图二 `Map-first Feasibility Planner`
@@ -378,6 +378,7 @@
 - 优先复用现有 `RecommendationWorkspace`、`RouteCard`、`CityPulsePanel`、`TrafficBadge`、`SourceSignalBadge` 的数据和视觉语言。
 - 不在本任务中更改数据库 schema、推荐算法权重、采集流水线或高德 API 调用策略。
 - 如真实高德地图主视图成本过高，先实现静态地图式路线画布；真实地图能力留给后续任务。
+- 2026-06-13 调整：首页主视图直接复用 `RouteDetailMap` 已验证的真实高德 JS 地图能力，CSS 静态画布仅作为无前端 key 或无坐标时的降级。
 
 计划触达文件：
 
@@ -386,8 +387,8 @@
   - 增加选中路线状态，支持 Route 1 / Route 2 / Route 3 切换。
   - 保留现有 `POST /api/recommend` 调用和反馈链路。
 - 新增：`components/city/RouteMapCanvas.tsx`
-  - 渲染地图式路线画布、3 条路线线条、编号 marker、地图工具按钮和顶部图例。
-  - 首版使用 CSS 网格与路线 polyline 风格表达，不新增外部依赖。
+  - 复用 `RouteDetailMap` 的高德 JS loader，渲染真实高德地图、3 条路线 polyline、编号 marker 和顶部图例。
+  - 无前端高德 JS key 或路线缺少坐标时，降级 CSS 静态路线画布；不新增外部依赖。
 - 新增：`components/city/RouteInspector.tsx`
   - 展示选中路线的分数、ETA、总时长、站点列表、AI explanation、来源信号、反馈按钮。
   - 从现有 `RouteCard` 拆用或复用反馈提交逻辑，避免重复 API 契约。
@@ -401,26 +402,26 @@
 
 实施阶段：
 
-- [ ] 阶段 1：布局骨架
+- [x] 阶段 1：布局骨架
   - 将首页改成左侧 control rail、中间 map workspace、右侧 route inspector。
   - 桌面端优先匹配图二；移动端降级为输入、地图、路线详情纵向堆叠。
-- [ ] 阶段 2：地图可达性表达
-  - 在 `RouteMapCanvas` 中显示 3 条路线，Top route 使用 teal 高亮，其他路线使用 coral/amber。
-  - 显示路线编号 marker、简化地图网格、地图工具按钮、图例和交通状态。
+- [x] 阶段 2：地图可达性表达
+  - 在 `RouteMapCanvas` 中用真实高德 JS 地图显示 3 条路线，Top route 使用 teal 高亮，其他路线使用 coral/amber。
+  - 显示路线编号 marker、图例和交通状态；无 key 时降级简化地图网格静态画布。
   - 顶部加入指标条：Candidate Pool、Amap ETA Calls、Traffic Rerank、Top Route Score、Cache Hits。
-- [ ] 阶段 3：右侧路线 inspector
+- [x] 阶段 3：右侧路线 inspector
   - 支持 Route 1 / Route 2 / Route 3 切换。
   - 展示推荐分、总时长、交通耗时、距离摘要、站点列表、AI 解释、来源信号和反馈按钮。
   - 明确展示“因实时 ETA 更优提升排序”的产品文案。
-- [ ] 阶段 4：底部路线时间轴
+- [x] 阶段 4：底部路线时间轴
   - 将选中路线的 3 个地点串成时间轴。
   - 展示每段出行时间、交通状态和地点标签。
   - 与 inspector 选中状态保持同步。
-- [ ] 阶段 5：状态与降级
+- [x] 阶段 5：状态与降级
   - 推荐生成中显示地图和 inspector 的加载状态。
   - 无路线时显示可理解空状态。
   - 交通 provider 为估算值时，明确显示降级状态，避免误导为真实高德数据。
-- [ ] 阶段 6：验证
+- [x] 阶段 6：验证
   - 运行 `pnpm typecheck`。
   - 运行 `pnpm lint`。
   - 启动 `pnpm dev` 并用浏览器检查桌面与移动端布局。
@@ -428,26 +429,36 @@
 
 验收标准：
 
-- [ ] 首页首屏以地图工作区为视觉中心，而不是路线卡片列表。
-- [ ] 用户可以从左侧输入偏好并生成 3 条路线。
-- [ ] 3 条路线在地图画布中同时可见，当前 Top route 视觉优先级最高。
-- [ ] 右侧 inspector 可以切换 3 条路线，并展示 ETA、站点、来源信号、AI 解释和反馈按钮。
-- [ ] 顶部指标条能解释推荐链路：候选池、ETA、交通重排、最高分、缓存。
-- [ ] 不新增数据库 migration，不改变 `/api/recommend` 和 `/api/feedback` 的现有 API 契约。
-- [ ] 桌面端 `1440 x 1024` 视口下接近图二的信息层级；移动端不出现文字重叠或横向溢出。
-- [ ] `pnpm typecheck`、`pnpm lint` 通过。
+- [x] 首页首屏以地图工作区为视觉中心，而不是路线卡片列表。
+- [x] 用户可以从左侧输入偏好并生成 3 条路线。
+- [x] 3 条路线在地图画布中同时可见，当前 Top route 视觉优先级最高。
+- [x] 右侧 inspector 可以切换 3 条路线，并展示 ETA、站点、来源信号、AI 解释和反馈按钮。
+- [x] 顶部指标条能解释推荐链路：候选池、ETA、交通重排、最高分、缓存。
+- [x] 不新增数据库 migration，不改变 `/api/recommend` 和 `/api/feedback` 的现有 API 契约。
+- [x] 桌面端 `1440 x 1024` 视口下接近图二的信息层级；移动端不出现文字重叠或横向溢出。
+- [x] `pnpm typecheck`、`pnpm lint` 通过。
 
 风险与降级：
 
-- 如果真实高德地图主视图接入超出时间预算，首版使用静态地图式路线画布，并保留路线详情页的真实高德地图能力。
+- 真实高德地图主视图复用 `RouteDetailMap` 已验证的 loader 与渲染路径；若浏览器端加载失败或缺少 key，自动降级为静态地图式路线画布，不阻塞推荐闭环。
 - 如果路线 polyline 数据不足，首版用稳定的 mock route geometry 仅作 UI 表达，不改变推荐排序事实。
 - 如果 inspector 与 `RouteCard` 反馈逻辑出现重复，优先抽出共享反馈组件，避免两个 UI 入口产生不一致行为。
 
 审批记录：
 
-- 审批人：
-- 日期：
-- 结论：
+- 审批人：用户
+- 日期：2026-06-13
+- 结论：批准实施，并调整地图方案——复用已验证的真实高德 JS 地图（`RouteDetailMap` 能力）作为首页主视图，CSS 静态画布降级为无 key / 无坐标时的 fallback。其余约束不变：不新增外部依赖，不改数据库 schema，不改 `/api/recommend` 与 `/api/feedback` 契约。
+
+完成记录：
+
+- 完成日期：2026-06-13
+- 抽出共享高德 JS loader（`components/city/amap-loader.ts`），`RouteDetailMap` 与新增 `RouteMapCanvas` 复用同一加载路径。
+- 首页重组为左侧输入栏、中间地图工作区、右侧路线 inspector 的地图优先布局；中间区含指标条（候选池、高德 ETA、交通重排 ranker 版本、Top 路线分、缓存命中）与底部路线时间轴。
+- `RouteMapCanvas` 用真实高德 JS 地图同时渲染 3 条路线 polyline 与编号 marker，选中路线高亮（teal/coral/amber），点击地图路线、图例或 inspector tab 均可切换；无 key / 无坐标时降级为 SVG 静态路线画布（按真实坐标投影，非装饰图）。
+- 反馈逻辑抽出为共享组件 `RouteFeedbackButtons`，`RouteCard` 与 `RouteInspector` 共用同一 `/api/feedback` 契约；时间轴只展示路线级聚合耗时与出行方式，不虚构分段耗时（API 响应无分段数据）。
+- 估算交通降级状态在指标条（“估算降级”琥珀色）与 inspector 文案中均显式提示，不误导为真实高德数据。
+- 验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`（79 个测试）、`pnpm build` 均通过；浏览器实测桌面 1440x1024 与移动 390x844 布局无溢出，真实高德地图渲染（状态徽章“高德地图”）、路线切换、反馈“已记录”、生成路线加载态均正常，控制台无错误。
 
 ### TASK-P1-007：入库内容使用 LLM 解析归一化
 
@@ -526,6 +537,135 @@
 - `docker-compose.xiaohongshu-mcp.yml` 固定 `ANGJustinl/xiaohongshu-mcp@d93a11caae4f8ce84e954dde53933be22d7908c4`。
 - `server/sources/adapters/xiaohongshu.adapter.ts` 默认 tool 改为 `ai_search_chat`，入参使用 `{ prompt, include_sources, source_limit, timeout_seconds }`。
 - 新增/更新测试覆盖 AI 搜索 source note 映射、AI 搜索无来源时回退 `search_feeds`、并发 event/venue 复用同一次 AI 搜索请求、强制 `search_feeds` 时错误透出。
+
+### TASK-P1-010：高德分段路径规划与真实路线展示
+
+- 状态：`已完成`
+- 负责人：Codex
+- 是否需要审批：是，涉及高德 API 调用行为变化（每次推荐新增按段方向规划调用）。
+
+背景与现状：
+
+- `server/maps/amap.ts` 调用的 v3 方向 API 响应中本就包含每段 `steps`（指令、道路、分段耗时）和 `polyline`（真实道路坐标串），当前实现只解析总耗时与距离。
+- 现有交通模型是 origin→单个候选点；路线级耗时为各候选耗时求和 ×0.75 的合成值，时间轴无法展示真实分段耗时。
+- 地图上的路线是站点间直线连线，不反映真实道路走向。
+
+目标：
+
+- 对最终 3 条路线做逐段规划（origin→stop1→stop2→stop3），向用户展示真实分段耗时、公交线路名与道路级 polyline。
+- 时间轴的连接段显示每段真实耗时与方式；地图画布与路线详情页绘制真实道路 polyline。
+- 路线级总耗时改为分段耗时之和（真实值），替代合成估算。
+
+方案与约束：
+
+- 扩展 `getAmapRouteTraffic` 解析 `steps` / `polyline`（walking/driving 取 `paths[].steps[]`；transit 取 `transits[].segments[]`，含步行段与公交段 `buslines` 名称、上下车站）。
+- 新增 leg 规划层：路线组装完成后仅对最终 3 条路线逐段调用（约 3 路线 × 3 段 = 9 次/请求），符合“高德 API 只打 Top-N 候选”约束。
+- 分段结果缓存进 `TrafficSnapshot.rawPayload`（现有 Json 列），leg 数据随路线快照写入 `RecommendationLog.recommendedRoutes`（现有 Json 列）——不需要数据库 migration。
+- 推荐排序不变：leg 规划发生在 ranker 与交通重排之后，仅影响展示与路线级耗时事实。
+- 降级：未配置 key、调用失败或超时，回退现有直线连线 + 聚合估算展示，推荐闭环不受阻。
+
+计划触达文件：
+
+- 修改：`server/maps/amap.ts`（解析 steps/polyline）、`server/maps/traffic.ts` / `traffic-cache.ts`（leg 缓存）
+- 新增：`server/maps/route-legs.ts`（逐段规划器）
+- 修改：`server/recommendation/route-builder.ts`（route.legs 注入与真实总耗时）、`server/routes/route-detail.ts`（map view 使用真实 polyline）
+- 修改：`components/city/RouteTimeline.tsx`（分段耗时/公交线路名）、`RouteMapCanvas.tsx` / `RouteDetailMap.tsx`(真实道路 polyline)、`RouteInspector.tsx`（可选 step 摘要）
+- 新增测试：leg 解析、缓存命中、降级回退
+
+验收标准：
+
+- [x] 配置有效 key 时，时间轴每个连接段显示该段真实耗时；transit 模式显示公交线路名。
+- [x] 地图画布与详情页绘制道路级 polyline，而不是站点直线。
+- [x] 路线级总耗时等于分段耗时之和。
+- [x] 重复请求命中 `traffic_snapshots` 分段缓存。
+- [x] 无 key / 调用失败时回退现状展示，接口不报错。
+- [x] 不新增数据库 migration；`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 通过。
+
+风险与降级：
+
+- 方向 API 调用量约为现状 3 倍（仅最终路线、有 10 分钟缓存兜底）；如配额紧张，可改为仅对选中路线懒加载（通过现有 `/api/amap/route` 扩展）。
+- transit 响应体较大，`rawPayload` 存储增长；可只保留 polyline 与段摘要、丢弃冗余字段。
+
+审批记录：
+
+- 审批人：用户
+- 日期：2026-06-13
+- 结论：批准实施。逐段规划仅作用于最终 3 条路线，缓存复用 `traffic_snapshots`，不新增 migration，不改变推荐排序。
+
+完成记录：
+
+- 完成日期：2026-06-13
+- `server/maps/amap.ts` 新增 `getAmapLegPlan`：walking/driving 解析 `paths[].steps[]`（指令、道路、分段耗时、polyline），transit 解析 `transits[].segments[]`（步行换乘段 + 公交段线路名、上下车站、polyline）；polyline 下采样至 240 点、steps 截断 20 条以控制存储。
+- 新增 `server/maps/route-legs.ts`：路线组装后对最终 3 条路线逐段规划 origin→stop1→stop2→stop3；`RecommendedRoute` 新增 `legs`，路线级总耗时改为分段之和，summary 同步重算；缓存读写复用 `traffic_snapshots.rawPayload`（`readLegPlanSnapshot` / `writeLegPlanSnapshot`），无 migration。
+- 降级链完整：未开实时 ETA / 无 key / 调用失败时回退估算直线 leg，推荐闭环不受阻；路线排序不变（legs 在 ranker 与交通重排之后注入）。
+- UI：`RouteTimeline` 连接段显示每段真实耗时与公交线路名（估算段加“约”前缀），新增出发点节点；`RouteMapCanvas` 与 `buildRouteMapView`（详情页地图）使用真实道路 polyline，无 legs 时回退站点直线。
+- 测试：新增 `tests/route-legs.test.ts` 8 个用例（polyline 解析/下采样、walking/transit 解析、估算回退、amap 求和、缓存命中、无 origin/坐标跳过）。
+- 真实验证：开启实时 ETA 后首页时间轴显示“22 min · 71路(申昆路枢纽站--延安东路外滩)”、“29 min · 地铁13号线(金运路--张江路)”等真实分段，全程 81 min（amap · 缓行），指标条“高德 ETA 3/3”，地图渲染沿街道路级 polyline；`pnpm typecheck`、`pnpm lint`、`pnpm test`（88 个测试）、`pnpm build` 均通过。
+
+### TASK-P1-011：候选地点图片接入（高德 POI + 小红书封面）
+
+- 状态：`已完成`
+- 负责人：Codex
+- 是否需要审批：是，涉及数据库结构（`Event` / `Venue` 新增 `imageUrl`）与外部图片直链合规。
+
+背景与现状：
+
+- `amap-poi` adapter 调用 `v3/place/text` 未带 `extensions=all`；带上即可在同一次调用中获得 `photos[]`（POI 实拍图 URL），零额外 API 调用。
+- 小红书 MCP（`ANGJustinl/xiaohongshu-mcp@d93a11c`）的 `ai_search_chat` 返回的 `AISourceNote` 已包含 `cover` 字段（笔记封面图 URL），CitySense adapter 尚未映射；`search_feeds` 的 `noteCard` 封面已存在历史 `rawPayload` 中。
+- `RawSourceItemDetail`、`Candidate`、`RecommendedRoute.places` 与 UI 均无图片字段。
+
+目标：
+
+- 候选地点带真实图片：高德 POI 实拍图、小红书笔记封面。
+- inspector 站点列表与时间轴展示缩略图，提升 demo 视觉说服力。
+
+方案与约束：
+
+- migration：`Event` / `Venue` 新增 `imageUrl String?` 与 `imageSource String?`（记录图片出处，便于追溯与合规审查）。
+- `RawSourceItemDetail` 新增 `imageUrl`；`amap-poi` 加 `extensions=all` 映射 `photos[0].url`；`xiaohongshu` 映射 `AISourceNote.cover` 与 feed `noteCard` 封面。
+- `imageUrl` 与 `source/sourceUrl/sourceKey` 一样列为系统保留字段：LLM normalizer 不得改写或编造图片 URL。
+- UI 直链展示：xhscdn 域名使用 `referrerPolicy="no-referrer"`；图片加载失败时隐藏并回退为现有标签色块占位，不阻塞布局。
+- 合规：仅直链展示 + 保留来源链接（现有 sourceUrl 已展示），不下载、不存储图片副本；小红书封面 URL 可能过期，按 best-effort 处理。
+
+计划触达文件：
+
+- 修改：`prisma/schema.prisma` + 新增 migration
+- 修改：`server/sources/source.types.ts`、`adapters/amap-poi.adapter.ts`、`adapters/xiaohongshu.adapter.ts`
+- 修改：`server/ingest/llm-normalizer.ts`（保留字段）、`server/ingest/pipeline.ts` / `normalize.ts`（imageUrl 入库）
+- 修改：`server/recommendation/types.ts`、`candidates.ts`、`route-builder.ts`（places 透出 imageUrl）
+- 修改：`components/city/VenueCard.tsx`、`RouteInspector.tsx`、`RouteTimeline.tsx`（缩略图 + 失败降级）
+- 新增测试：adapter 图片映射、LLM 保留字段、无图降级
+
+验收标准：
+
+- [x] `amap-poi` 新采集的 venue 带 `imageUrl`，且未增加 API 调用次数。
+- [x] `xiaohongshu` AI 搜索来源笔记的封面进入 `imageUrl`。
+- [x] LLM normalization 不能改写 `imageUrl`。
+- [x] 推荐响应 places 携带 `imageUrl`，inspector 与时间轴展示缩略图。
+- [x] 图片 URL 失效或为空时 UI 优雅降级，无破图。
+- [x] migration 幂等可回滚；`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 通过。
+
+风险与降级：
+
+- 小红书封面直链依赖 no-referrer 且 URL 会过期：必须有 onError 降级；如 demo 期间失效率过高，可只用高德 POI 图。
+- 历史库存数据无图片：需一次重新采集（`/admin/sources` 手动触发）回填，或接受存量无图。
+
+审批记录：
+
+- 审批人：用户
+- 日期：2026-06-13
+- 结论：批准实施。`Event` / `Venue` 新增 `imageUrl` / `imageSource` 可空列；图片仅直链展示、不存副本；`imageUrl` 为系统保留字段，LLM 不得改写。
+
+完成记录：
+
+- 完成日期：2026-06-13
+- migration `20260611160000_candidate_images`（`ADD COLUMN IF NOT EXISTS` 幂等）已对 Supabase 执行；`Event` / `Venue` 新增 `imageUrl` / `imageSource`。
+- adapter：`amap-poi` 在原 `v3/place/text` 调用上加 `extensions=all`（零额外调用）映射 `photos[0].url`；`xiaohongshu` 映射 `ai_search_chat` 的 `AISourceNote.cover` 与 `search_feeds` 的 `noteCard.cover`（urlDefault/urlPre/infoList 兜底），仅接受 http(s) URL。
+- 链路：`RawSourceItemDetail.imageUrl` → LLM normalizer 与 `source/sourceUrl` 同级列为系统保留字段（不在 LLM 输出 schema 中，无法被改写）→ pipeline upsert 写 `imageUrl` + `imageSource`（来源归因），空值用 null 清理旧值 → `Candidate` / `RecommendedRoute.places` 透出。
+- UI：`VenueCard` 抽出 `PlaceThumb`（`referrerPolicy="no-referrer"` + onError 隐藏），inspector 站点与时间轴均显示缩略图，无图时回退现有标签布局。
+- 真实回填：amap-poi 队列 run（UTF-8 请求体）fetched 18 / normalized 18，18 个 venue 带 `imageUrl` 入库；浏览器实测 CARINO BAKERY&CAFE 实拍图在 inspector 与时间轴正常渲染。
+- 排障记录：联调期间队列 run 一度 fetched 0，定位为 Windows git-bash curl 内联中文 JSON 编码损坏（高德返回 status=1 count=0），非产品代码问题；浏览器 admin UI 触发不受影响。
+- 验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`（88 个测试，含 adapter 图片映射、LLM 保留字段、upsert 归因/清理用例）、`pnpm build` 均通过。
 
 ## P2：黑客松后的产品化打磨
 
@@ -613,7 +753,9 @@
 - [x] 审查并批准 `TASK-P0-004`。
 - [x] 审查并批准 `TASK-P0-005`。
 - [x] 审查并批准 `TASK-P1-005`。
-- [ ] 审查并批准 `TASK-P1-006`。
+- [x] 审查并批准 `TASK-P1-006`。
+- [x] 审查并批准 `TASK-P1-010`。
+- [x] 审查并批准 `TASK-P1-011`。
 
 ## 变更记录
 
@@ -628,3 +770,9 @@
 - 2026-06-13：按 P0-004 方案 B 修正反馈实现，新增 `recommendation_feedbacks` 事实表和严格反馈 API 契约。
 - 2026-06-13：完成 TASK-P1-004 城市脉搏可视化，新增 city pulse API 和右侧趋势面板。
 - 2026-06-13：根据 ImageGen 图二新增 TASK-P1-006，规划地图优先的推荐工作台 UI 迭代。
+- 2026-06-13：用户批准 TASK-P1-006 并调整地图方案为复用真实高德 JS 地图，任务进入实施。
+- 2026-06-13：完成 TASK-P1-006 地图优先工作台，新增 RouteMapCanvas / RouteInspector / RouteTimeline / RouteFeedbackButtons 与共享高德 loader，首页以真实高德地图为视觉中心。
+- 2026-06-13：调研并新增 TASK-P1-010（高德分段路径规划）与 TASK-P1-011（候选地点图片接入），用户批准实施。
+- 2026-06-13：完成 TASK-P1-011 候选地点图片接入（高德 POI extensions=all + 小红书封面，imageUrl 系统保留字段，真实采集回填 18 个带图 venue）。
+- 2026-06-13：完成 TASK-P1-010 高德分段路径规划（route legs、分段耗时与公交线路名时间轴、道路级 polyline、traffic_snapshots 分段缓存、估算降级）。
+- 2026-06-13：调研并新增 TASK-P1-010（高德分段路径规划）与 TASK-P1-011（候选地点图片接入），进入审批队列。

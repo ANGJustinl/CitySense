@@ -256,6 +256,7 @@ test("xiaohongshu adapter uses ai_search_chat and maps source notes into city ev
                   noteId: "684100000000000001",
                   title: "武康路新展和咖啡路线",
                   url: "https://www.xiaohongshu.com/search_result/684100000000000001",
+                  cover: "https://sns-webpic-qc.xhscdn.com/cover-684100000000000001.jpg",
                   author: "上海周末观察",
                   likedCount: "120",
                   text: "展览之后可以顺路喝咖啡。"
@@ -276,6 +277,7 @@ test("xiaohongshu adapter uses ai_search_chat and maps source notes into city ev
   assert.equal(events[0].sourceUrl, "https://www.xiaohongshu.com/search_result/684100000000000001");
   assert.equal(events[0].title, "武康路新展和咖啡路线");
   assert.equal(events[0].content, "展览之后可以顺路喝咖啡。");
+  assert.equal(events[0].imageUrl, "https://sns-webpic-qc.xhscdn.com/cover-684100000000000001.jpg");
   assert.equal(events[0].author, "上海周末观察");
   assert.equal(events[0].area, "静安寺");
   assert.deepEqual(events[0].tags, ["静安寺", "咖啡", "展览", "AI搜索", "同城"]);
@@ -336,6 +338,9 @@ test("xiaohongshu adapter falls back to search_feeds when ai_search_chat has no 
               noteCard: {
                 displayTitle: "武康路新展和咖啡路线",
                 type: "normal",
+                cover: {
+                  urlDefault: "https://sns-webpic-qc.xhscdn.com/feed-cover-684100000000000001.jpg"
+                },
                 user: {
                   nickname: "上海周末观察"
                 },
@@ -359,6 +364,7 @@ test("xiaohongshu adapter falls back to search_feeds when ai_search_chat has no 
   assert.equal(events[0].sourceId, "684100000000000001:event");
   assert.equal(events[0].sourceUrl, "https://www.xiaohongshu.com/explore/684100000000000001?xsec_token=token-1");
   assert.equal(events[0].title, "武康路新展和咖啡路线");
+  assert.equal(events[0].imageUrl, "https://sns-webpic-qc.xhscdn.com/feed-cover-684100000000000001.jpg");
   assert.equal(events[0].author, "上海周末观察");
   assert.equal(events[0].area, "静安寺");
   assert.deepEqual(events[0].tags, ["静安寺", "咖啡", "展览", "同城"]);

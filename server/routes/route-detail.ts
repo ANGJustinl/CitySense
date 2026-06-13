@@ -95,7 +95,15 @@ export function buildRouteMapView(route: RecommendedRoute): RouteMapView {
       };
     })
     .filter((marker): marker is RouteMapMarker => marker !== null);
-  const polyline = markers.map((marker) => marker.position);
+  // 真实道路 polyline 来自高德分段规划；无 legs 时回退站点直线连线。
+  const legPolyline = (route.legs ?? [])
+    .flatMap((leg) => leg.polyline)
+    .filter(
+      (point): point is LngLat =>
+        Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1])
+    )
+    .map(([lng, lat]) => [roundCoordinate(lng), roundCoordinate(lat)] as LngLat);
+  const polyline = legPolyline.length >= 2 ? legPolyline : markers.map((marker) => marker.position);
   const lngs = polyline.map(([lng]) => lng);
   const lats = polyline.map(([, lat]) => lat);
 

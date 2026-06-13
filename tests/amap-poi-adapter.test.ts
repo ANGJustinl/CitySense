@@ -6,11 +6,13 @@ test("amap poi adapter searches each keyword separately and deduplicates places"
   const previous = process.env.AMAP_API_KEY;
   process.env.AMAP_API_KEY = "test-key";
   const requestedKeywords: string[] = [];
+  const requestedExtensions: (string | null)[] = [];
   const adapter = createAmapPoiAdapter({
     async fetchFn(input) {
       const url = new URL(String(input));
       const keyword = url.searchParams.get("keywords") ?? "";
       requestedKeywords.push(keyword);
+      requestedExtensions.push(url.searchParams.get("extensions"));
       const pois =
         keyword === "咖啡"
           ? [
@@ -20,7 +22,10 @@ test("amap poi adapter searches each keyword separately and deduplicates places"
                 address: "南京西路 100 号",
                 location: "121.459,31.224",
                 type: "餐饮服务;咖啡厅;咖啡厅",
-                adname: "静安区"
+                adname: "静安区",
+                photos: [
+                  { title: "", url: "http://store.is.autonavi.com/showpic/poi-coffee-1.jpg" }
+                ]
               }
             ]
           : [
@@ -52,6 +57,7 @@ test("amap poi adapter searches each keyword separately and deduplicates places"
   });
 
   assert.deepEqual(requestedKeywords, ["咖啡", "书店"]);
+  assert.deepEqual(requestedExtensions, ["all", "all"]);
   assert.equal(venues.length, 2);
   assert.deepEqual(
     venues.map((venue) => venue.title),
@@ -61,6 +67,8 @@ test("amap poi adapter searches each keyword separately and deduplicates places"
   assert.equal(venues[0].address, "南京西路 100 号");
   assert.equal(venues[0].lat, 31.224);
   assert.equal(venues[0].lng, 121.459);
+  assert.equal(venues[0].imageUrl, "http://store.is.autonavi.com/showpic/poi-coffee-1.jpg");
+  assert.equal(venues[1].imageUrl, undefined);
 
   if (previous === undefined) {
     delete process.env.AMAP_API_KEY;

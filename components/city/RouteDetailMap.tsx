@@ -3,63 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MapPinned, Route } from "lucide-react";
 import type { RouteMapView } from "@/server/routes/route-detail";
-
-type AMapMap = {
-  add: (overlays: unknown[] | unknown) => void;
-  addControl: (control: unknown) => void;
-  setFitView: (overlays?: unknown[], immediately?: boolean, avoid?: number[]) => void;
-  destroy: () => void;
-};
-
-type AMapNamespace = {
-  Map: new (container: HTMLDivElement, options: Record<string, unknown>) => AMapMap;
-  Marker: new (options: Record<string, unknown>) => unknown;
-  Polyline: new (options: Record<string, unknown>) => unknown;
-  Scale: new () => unknown;
-  ToolBar: new () => unknown;
-};
-
-type AMapLoader = {
-  load: (options: {
-    key: string;
-    version: string;
-    plugins?: string[];
-  }) => Promise<AMapNamespace>;
-};
-
-declare global {
-  interface Window {
-    AMapLoader?: AMapLoader;
-    _AMapSecurityConfig?: {
-      securityJsCode: string;
-    };
-  }
-}
-
-let loaderPromise: Promise<void> | null = null;
-
-function ensureAmapLoader() {
-  if (typeof window === "undefined") {
-    return Promise.reject(new Error("window is unavailable"));
-  }
-
-  if (window.AMapLoader) {
-    return Promise.resolve();
-  }
-
-  if (!loaderPromise) {
-    loaderPromise = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://webapi.amap.com/loader.js";
-      script.async = true;
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error("AMap loader failed"));
-      document.head.appendChild(script);
-    });
-  }
-
-  return loaderPromise;
-}
+import { loadAmap, type AMapMap } from "@/components/city/amap-loader";
 
 export function RouteDetailMap({ map }: { map: RouteMapView }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -82,20 +26,9 @@ export function RouteDetailMap({ map }: { map: RouteMapView }) {
       setStatus("loading");
 
       try {
-        if (securityJsCode) {
-          window._AMapSecurityConfig = {
-            securityJsCode
-          };
-        }
+        const AMap = await loadAmap({ key, securityJsCode });
 
-        await ensureAmapLoader();
-        const AMap = await window.AMapLoader?.load({
-          key,
-          version: "2.0",
-          plugins: ["AMap.Scale", "AMap.ToolBar"]
-        });
-
-        if (!AMap || !containerRef.current || disposed) {
+        if (!containerRef.current || disposed) {
           return;
         }
 

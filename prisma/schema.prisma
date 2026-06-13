@@ -67,6 +67,8 @@ model Event {
   tags        String[]
   source      String?
   sourceUrl   String?
+  imageUrl    String?
+  imageSource String?
   trendScore  Float    @default(0)
   confidence  Float    @default(0)
   qualityScore Float    @default(50)
@@ -96,6 +98,8 @@ model Venue {
   popularity  Int?
   source      String?
   sourceUrl   String?
+  imageUrl    String?
+  imageSource String?
   trendScore  Float    @default(0)
   confidence  Float    @default(0)
   qualityScore Float    @default(50)

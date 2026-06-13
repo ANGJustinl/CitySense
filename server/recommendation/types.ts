@@ -49,6 +49,7 @@ export type Candidate = {
   tags: string[];
   source?: string;
   sourceUrl?: string;
+  imageUrl?: string;
   startsAt?: string;
   endsAt?: string;
   trendScore: number;
@@ -107,6 +108,28 @@ export type TrafficInfo = {
   capturedAt?: string;
 };
 
+export type RouteLegStep = {
+  instruction?: string;
+  road?: string;
+  distanceMeters?: number;
+  durationMinutes?: number;
+};
+
+export type RouteLeg = {
+  fromName: string;
+  toName: string;
+  toPlaceId?: string;
+  mode: TravelMode;
+  durationMinutes: number;
+  distanceMeters?: number;
+  congestion?: string;
+  provider: "amap" | "estimated";
+  polyline: [lng: number, lat: number][];
+  transitLines?: string[];
+  steps?: RouteLegStep[];
+  cacheHit?: boolean;
+};
+
 export type TrafficCandidate = ScoredCandidate & {
   traffic: TrafficInfo;
   adjustedScore: number;
@@ -119,6 +142,7 @@ export type RecommendedRoute = {
   totalScore: number;
   scoreBreakdown: ScoreBreakdown;
   traffic: TrafficInfo;
+  legs?: RouteLeg[];
   sourceSignals: SourceSignal[];
   places: {
     id: string;
@@ -130,6 +154,7 @@ export type RecommendedRoute = {
     tags: string[];
     source?: string;
     sourceUrl?: string;
+    imageUrl?: string;
   }[];
   reason: string;
   tips: string[];

@@ -15,6 +15,13 @@ type XiaohongshuFeed = {
   noteCard?: {
     displayTitle?: unknown;
     type?: unknown;
+    cover?: {
+      urlDefault?: unknown;
+      urlPre?: unknown;
+      infoList?: {
+        url?: unknown;
+      }[];
+    };
     user?: {
       nickname?: unknown;
       nickName?: unknown;
@@ -32,6 +39,7 @@ type XiaohongshuAiSourceNote = {
   noteId?: unknown;
   title?: unknown;
   url?: unknown;
+  cover?: unknown;
   author?: unknown;
   time?: unknown;
   likedCount?: unknown;
@@ -53,6 +61,28 @@ type XiaohongshuSearchTool = XiaohongshuSearchResult["tool"];
 
 function stringOrUndefined(value: unknown) {
   return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function httpUrlOrUndefined(value: unknown) {
+  const url = stringOrUndefined(value);
+
+  return url && /^https?:\/\//.test(url) ? url : undefined;
+}
+
+function feedCoverUrl(feed: XiaohongshuFeed) {
+  const cover = feed.noteCard?.cover;
+
+  if (!cover) {
+    return undefined;
+  }
+
+  return (
+    httpUrlOrUndefined(cover.urlDefault) ??
+    httpUrlOrUndefined(cover.urlPre) ??
+    (Array.isArray(cover.infoList)
+      ? cover.infoList.map((info) => httpUrlOrUndefined(info?.url)).find(Boolean)
+      : undefined)
+  );
 }
 
 function isNonEmptyString(value: string | undefined): value is string {
@@ -246,6 +276,7 @@ function toRawItem(input: {
     sourceUrl: sourceUrl(id, xsecToken),
     title,
     content: title,
+    imageUrl: feedCoverUrl(input.feed),
     author:
       stringOrUndefined(input.feed.noteCard?.user?.nickname) ??
       stringOrUndefined(input.feed.noteCard?.user?.nickName),
@@ -300,6 +331,7 @@ function toAiSearchRawItem(input: {
     sourceUrl: url,
     title,
     content: text ?? input.answer ?? title,
+    imageUrl: httpUrlOrUndefined(input.note.cover),
     author: stringOrUndefined(input.note.author),
     rawPayload: {
       tool: "ai_search_chat",

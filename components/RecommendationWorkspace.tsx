@@ -3,14 +3,15 @@
 import { useMemo, useState } from "react";
 import {
   Activity,
+  Database,
   Gauge,
-  LocateFixed,
+  GitBranch,
   Loader2,
-  MapPinned,
   Navigation,
   RefreshCw,
-  Route,
-  SlidersHorizontal
+  SlidersHorizontal,
+  TimerReset,
+  TriangleAlert
 } from "lucide-react";
 import type {
   Budget,
@@ -19,7 +20,9 @@ import type {
   TimeWindow
 } from "@/server/recommendation/types";
 import { CityPulsePanel } from "@/components/city/CityPulsePanel";
-import { RouteCard } from "@/components/city/RouteCard";
+import { RouteInspector } from "@/components/city/RouteInspector";
+import { RouteMapCanvas } from "@/components/city/RouteMapCanvas";
+import { RouteTimeline } from "@/components/city/RouteTimeline";
 
 type WorkspaceProps = {
   initialData: RecommendResponse;
@@ -53,9 +56,23 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
   const [timeWindow, setTimeWindow] = useState<TimeWindow>("tonight");
   const [useRealtimeTraffic, setUseRealtimeTraffic] = useState(false);
   const [data, setData] = useState<RecommendResponse>(initialData);
+  const [selectedRouteId, setSelectedRouteId] = useState<string | undefined>(
+    initialData.routes[0]?.id
+  );
   const [isLoading, setIsLoading] = useState(false);
 
   const topScore = useMemo(() => data.routes[0]?.totalScore ?? 0, [data.routes]);
+  const amapRouteCount = useMemo(
+    () => data.routes.filter((route) => route.traffic.provider === "amap").length,
+    [data.routes]
+  );
+  const cacheHitCount = useMemo(
+    () => data.routes.filter((route) => route.traffic.cacheHit).length,
+    [data.routes]
+  );
+  const selectedRoute =
+    data.routes.find((route) => route.id === selectedRouteId) ?? data.routes[0];
+  const isEstimatedTraffic = data.meta.trafficProvider === "estimated";
 
   async function submitRecommendation() {
     setIsLoading(true);
@@ -86,7 +103,10 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
         throw new Error("recommend failed");
       }
 
-      setData((await response.json()) as RecommendResponse);
+      const nextData = (await response.json()) as RecommendResponse;
+
+      setData(nextData);
+      setSelectedRouteId(nextData.routes[0]?.id);
     } finally {
       setIsLoading(false);
     }
@@ -118,7 +138,7 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
         </nav>
       </header>
 
-      <section className="workspace">
+      <section className="workspace map-first">
         <aside className="controls-panel" aria-label="recommendation controls">
           <div className="section-heading">
             <SlidersHorizontal size={18} />
@@ -218,57 +238,61 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
           </button>
         </aside>
 
-        <section className="results-panel">
-          <div className="results-head">
+        <section className="map-stage" aria-label="route map workspace">
+          <div className="map-metrics" aria-label="recommendation pipeline metrics">
             <div>
-              <p className="eyebrow">Recommendation engine</p>
-              <h2>3 条可执行城市路线</h2>
+              <Database size={16} />
+              <span>候选池</span>
+              <strong>{data.meta.candidateCount}</strong>
             </div>
-            <div className="score-meter">
-              <Gauge size={18} />
-              <span>{topScore}</span>
+            <div className={isEstimatedTraffic ? "degraded" : ""}>
+              {isEstimatedTraffic ? <TriangleAlert size={16} /> : <Navigation size={16} />}
+              <span>高德 ETA</span>
+              <strong>
+                {isEstimatedTraffic ? "估算降级" : `${amapRouteCount}/${data.routes.length}`}
+              </strong>
+            </div>
+            <div>
+              <GitBranch size={16} />
+              <span>交通重排</span>
+              <strong>{data.meta.rankerVersion ?? data.meta.ranker ?? "weighted-v1"}</strong>
+            </div>
+            <div>
+              <Gauge size={16} />
+              <span>Top 路线分</span>
+              <strong>{topScore}</strong>
+            </div>
+            <div>
+              <TimerReset size={16} />
+              <span>缓存命中</span>
+              <strong>
+                {cacheHitCount}/{data.routes.length || 0}
+              </strong>
             </div>
           </div>
 
-          <div className="metric-strip">
-            <div>
-              <Route size={17} />
-              <span>{data.routes.length} routes</span>
-            </div>
-            <div>
-              <Navigation size={17} />
-              <span>{data.meta.trafficProvider}</span>
-            </div>
-            <div>
-              <LocateFixed size={17} />
-              <span>{data.meta.candidateCount} candidates</span>
-            </div>
-          </div>
+          <RouteMapCanvas
+            isLoading={isLoading}
+            onSelectRoute={setSelectedRouteId}
+            routes={data.routes}
+            selectedRouteId={selectedRoute?.id}
+          />
 
-          <div className="route-list">
-            {data.routes.map((route) => (
-              <RouteCard
-                key={route.id}
-                recommendationId={data.meta.recommendationId}
-                route={route}
-              />
-            ))}
-          </div>
+          <RouteTimeline route={selectedRoute} />
         </section>
 
-        <aside className="pulse-panel">
-          <CityPulsePanel area={area || undefined} city={city} response={data} />
-          <div className="mini-map" aria-label="route map preview">
-            <div className="route-line" />
-            <span className="map-pin one">
-              <MapPinned size={16} />
-            </span>
-            <span className="map-pin two">
-              <MapPinned size={16} />
-            </span>
-            <span className="map-pin three">
-              <MapPinned size={16} />
-            </span>
+        <aside className="inspector-rail" aria-label="route inspector">
+          <div className="inspector-panel">
+            <RouteInspector
+              isLoading={isLoading}
+              onSelectRoute={setSelectedRouteId}
+              recommendationId={data.meta.recommendationId}
+              routes={data.routes}
+              selectedRouteId={selectedRoute?.id}
+            />
+          </div>
+          <div className="pulse-panel">
+            <CityPulsePanel area={area || undefined} city={city} response={data} />
           </div>
         </aside>
       </section>

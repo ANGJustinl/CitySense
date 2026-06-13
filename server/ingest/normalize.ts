@@ -17,6 +17,7 @@ export type NormalizedEntityInput = {
   tags: string[];
   source: string;
   sourceUrl?: string;
+  imageUrl?: string;
   trendScore: number;
   confidence: number;
   priceLevel?: number;
@@ -58,6 +59,7 @@ export function toNormalizedEntityInput(
     tags: item.tags,
     source: item.source,
     sourceUrl: item.sourceUrl,
+    imageUrl: item.imageUrl,
     trendScore: item.trendScore ?? 0,
     confidence: item.confidence ?? 60,
     priceLevel: item.priceLevel,

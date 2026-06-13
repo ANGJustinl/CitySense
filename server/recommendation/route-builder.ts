@@ -586,7 +586,8 @@ export function buildRoutes(
         lng: candidate.lng,
         tags: candidate.tags,
         source: candidate.source,
-        sourceUrl: candidate.sourceUrl
+        sourceUrl: candidate.sourceUrl,
+        imageUrl: candidate.imageUrl
       }));
       const tags = [...new Set(slice.flatMap((candidate) => candidate.tags))].slice(0, 4);
 

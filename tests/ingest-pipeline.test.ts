@@ -136,6 +136,33 @@ test("event upsert update data clears stale nullable fields", () => {
   assert.equal(data.update.address, null);
   assert.equal(data.update.startTime, null);
   assert.equal(data.update.sourceUrl, null);
+  assert.equal(data.update.imageUrl, null);
+  assert.equal(data.update.imageSource, null);
+});
+
+test("event and venue upsert data carry image url with image source attribution", () => {
+  const normalized = toNormalizedEntityInput(
+    {
+      ...sampleItem,
+      imageUrl: "https://store.is.autonavi.com/showpic/sample.jpg"
+    },
+    createSourceKey(sampleItem)
+  );
+
+  assert.ok(normalized);
+
+  const eventData = pipelineTesting.eventDataForEntity(normalized);
+
+  assert.equal(eventData.update.imageUrl, "https://store.is.autonavi.com/showpic/sample.jpg");
+  assert.equal(eventData.update.imageSource, "mock-city-signal");
+
+  const venueData = pipelineTesting.venueDataForEntity({
+    ...normalized,
+    entityType: "venue"
+  });
+
+  assert.equal(venueData.update.imageUrl, "https://store.is.autonavi.com/showpic/sample.jpg");
+  assert.equal(venueData.update.imageSource, "mock-city-signal");
 });
 
 test("ingest stats aggregate source results", () => {

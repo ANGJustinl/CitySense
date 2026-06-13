@@ -16,7 +16,25 @@ type AmapPoi = {
   pname?: string;
   cityname?: string;
   adname?: string;
+  photos?: {
+    title?: unknown;
+    url?: unknown;
+  }[];
 };
+
+function firstPhotoUrl(poi: AmapPoi) {
+  if (!Array.isArray(poi.photos)) {
+    return undefined;
+  }
+
+  for (const photo of poi.photos) {
+    if (typeof photo?.url === "string" && /^https?:\/\//.test(photo.url)) {
+      return photo.url;
+    }
+  }
+
+  return undefined;
+}
 
 function uniqueTags(tags: string[]) {
   return [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
@@ -57,6 +75,7 @@ function toPoiItem(poi: AmapPoi, city: string, keyword: string): RawSourceItemDe
     address: typeof poi.address === "string" ? poi.address : undefined,
     lat: Number.isFinite(lat) ? lat : undefined,
     lng: Number.isFinite(lng) ? lng : undefined,
+    imageUrl: firstPhotoUrl(poi),
     tags: uniqueTags([keyword, ...(poi.type ?? "城市地点").split(";")]).slice(0, 5),
     trendScore: 50,
     confidence: 68,
@@ -108,6 +127,7 @@ class AmapPoiAdapter extends BaseCitySourceAdapter {
           keywords: input.area ? `${input.area} ${searchKeyword}` : searchKeyword,
           city: input.city,
           output: "json",
+          extensions: "all",
           offset: "6",
           page: "1"
         });

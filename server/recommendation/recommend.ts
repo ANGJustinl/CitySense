@@ -8,6 +8,7 @@ import type {
 import { retrieveDatabaseCandidates } from "@/server/recommendation/candidates";
 import { enrichAndRerankByTraffic } from "@/server/recommendation/traffic-rerank";
 import { buildRoutes } from "@/server/recommendation/route-builder";
+import { planRoutesLegs } from "@/server/maps/route-legs";
 import { buildSourceContextItems, explainRoutes } from "@/server/ai/explain-route";
 import { persistRecommendationSnapshot } from "@/server/routes/route-detail";
 import { rankCandidates } from "@/server/recommendation/ranker";
@@ -63,7 +64,12 @@ export async function recommend(rawInput: unknown): Promise<RecommendResponse> {
   const rankerResult = await rankCandidates(input, candidates);
   const scored = selectTrafficCandidatesForEnrichment(rankerResult.ranked);
   const trafficRanked = await enrichAndRerankByTraffic(scored, input);
-  const routes = await explainRoutes(buildRoutes(trafficRanked, input), input, {
+  const composedRoutes = await planRoutesLegs(buildRoutes(trafficRanked, input), {
+    city: input.city,
+    origin: input.origin,
+    useRealtimeTraffic: input.useRealtimeTraffic
+  });
+  const routes = await explainRoutes(composedRoutes, input, {
     sourceContext: buildSourceContextItems(trafficRanked)
   });
   const snapshot = await persistRecommendationSnapshot(input, routes, trafficRanked);

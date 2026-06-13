@@ -32,6 +32,7 @@ export type RawSourceItemDetail = RawSourceItem & {
   lng?: number;
   startsAt?: string;
   endsAt?: string;
+  imageUrl?: string;
   tags: string[];
   trendScore?: number;
   confidence?: number;

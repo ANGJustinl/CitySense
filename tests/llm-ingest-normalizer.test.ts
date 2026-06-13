@@ -62,7 +62,9 @@ test("llm ingest normalizer applies validated model output while preserving sour
   };
 
   const result = await normalizeSourceItemForIngest({
-    item: rawItem("amap-poi"),
+    item: rawItem("amap-poi", {
+      imageUrl: "https://store.is.autonavi.com/showpic/amap-poi-1.jpg"
+    }),
     sourceKey: "amap-poi:test-1",
     client,
     enabled: true,
@@ -74,6 +76,7 @@ test("llm ingest normalizer applies validated model output while preserving sour
   assert.equal(result.entity?.sourceKey, "amap-poi:test-1");
   assert.equal(result.entity?.source, "amap-poi");
   assert.equal(result.entity?.sourceUrl, "https://example.com/amap-poi/1");
+  assert.equal(result.entity?.imageUrl, "https://store.is.autonavi.com/showpic/amap-poi-1.jpg");
   assert.equal(result.entity?.entityType, "event");
   assert.equal(result.entity?.title, "静安咖啡插画快闪");
   assert.deepEqual(result.entity?.tags, ["咖啡", "展览", "静安寺"]);

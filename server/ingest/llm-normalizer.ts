@@ -166,7 +166,7 @@ const LLM_NORMALIZE_SCHEMA = {
 const LLM_NORMALIZE_INSTRUCTIONS = [
   "你是 CitySense 的城市信息入库解析器，只把 raw item 解析成面向公众的城市 event 或 venue。",
   "只能基于 raw 和 draft 中已有事实抽取，不要新增来源、URL、平台名或不存在的地点。",
-  "source、sourceUrl、sourceKey 由系统保留，你不要改写来源身份。",
+  "source、sourceUrl、sourceKey、imageUrl 由系统保留，你不要改写来源身份。",
   "如果内容不是面向公众可参与的活动、地点、展览、市集、咖啡、店铺、演出或城市体验，返回 status=ignored 并给出 ignoreReason。",
   "如果可以入库，返回 status=normalized，并尽量补齐 city、area、address、时间、tags、trendScore、confidence。",
   "tags 使用 2 到 8 个短标签；trendScore/confidence/popularity/quietness 使用 0 到 100；priceLevel 使用 1 到 4。",
@@ -362,6 +362,7 @@ function entityFromOutput(input: {
     tags,
     source: input.item.source,
     sourceUrl: input.item.sourceUrl,
+    imageUrl: input.item.imageUrl,
     trendScore: clamp(
       parsed.trendScore,
       0,
