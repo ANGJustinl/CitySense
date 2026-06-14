@@ -344,7 +344,7 @@ test("weighted ranker v1.1 uses fused signal strength and records quality featur
     request
   );
 
-  assert.equal(scored.rankerVersion, "weighted-v1.1-signal-backed");
+  assert.equal(scored.rankerVersion, "weighted-v1.2-profile");
   assert.ok(scored.scoreBreakdown.socialTrend >= 90);
   assert.equal(scored.features.qualityScore, 95);
   assert.deepEqual(scored.features.qualityFlags, []);

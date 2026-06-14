@@ -38,13 +38,22 @@
 
 ### TASK2-P0-001：用户品味画像闭环
 
-- 状态：`已批准`
+- 状态：`已完成`
 - 负责人：Codex / 用户
 - 是否需要审批：是，涉及用户数据、长期画像、推荐权重和隐私删除能力。
 - 来源：将 `docs/tasks.md` 中的 `TASK-P2-002：用户品味画像 MVP` 上调为真实 MVP P0。
 - 审批人：angjustinl
 - 审批日期：2026-06-14
 - 审批结论：批准按 A→E 方案实施。重算画像以 `RecommendationFeedback` 为站内反馈事实源，`UserInteraction` 仅作为镜像/导入/兼容层，且只读 `action ∈ {liked,saved,rated,watched,followed}` 的导入类记录，避免同一次 feedback 双算。单次 down/dismiss 只做短期 route/item 级惩罚；泛化到 tag/source/area 的负偏好必须满足负样本 ≥2、更快衰减、硬上限。权重调整：`userAffinity` 0.05→0.10、`feedbackPenalty` -0.12→-0.10、新增 `exposurePenalty` -0.05，rankerVersion=`weighted-v1.2-profile`；无画像时必须保持当前行为（回退即时 interaction 聚合 → 再回退中性，不报错）。E 本轮只做授权品味导入契约、脱敏 mapper 和测试，不接 OAuth、不抓平台原始私密内容、不长期保存 raw 平台文本。实施完成后需通过 `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build`。
+- 完成日期：2026-06-14
+- 完成情况：A→E 全部实现并落地。
+  - A：`server/recommendation/user-profile.ts` 提供 `recomputeUserProfile` / `loadUserProfile` / `loadUserProfileForRanking` / `getUserProfileSummary` / `clearUserProfile`，以及纯函数 `calculateUserAffinityFromProfile` / `calculateFeedbackPenaltyFromProfile` / `calculateExposurePenalty`。去重按 `(recommendationId, routeId, itemId)`；站内 feedback 与授权导入 action 命名空间隔离不双算；负偏好负样本≥2、更快衰减（1/0.5/0.2/0.05）、硬上限 30；正偏好硬上限 60；sampleSize<5 返回中性；任何异常回退空画像不抛错。
+  - B：`scoring.ts` 权重调整为 `userAffinity 0.10` / `feedbackPenalty -0.10` / `exposurePenalty -0.05`，rankerVersion=`weighted-v1.2-profile`；`ScoreBreakdown` 新增 `exposurePenalty`。`features.ts` 画像优先、信号回退。`ranker.ts` 优先 `loadUserProfileForRanking`，画像空时回退 `loadUserRecommendationSignals`，行为等价改造前。
+  - C：`RecommendResponse.meta` 新增 `profileApplied`；`CandidateFeatures` 新增 `profileFactors` / `profileHit` / `profileVersion`，随 feature snapshot 持久化可追溯。
+  - D：`app/api/user-profile/route.ts` 提供 `GET ?userId=`（摘要，不返回 raw interactions）与 `DELETE ?userId=`（清空 metadata 保留行）。
+  - E：`server/recommendation/authorized-taste.ts` 定义 `AuthorizedTasteImport` 契约、zod schema、脱敏 mapper（title 截断 60、tags 限 10×40、sourceItemId 仅哈希摘要）、`ingestAuthorizedTasteImport`；不接 OAuth、不抓平台原始私密内容、不长期保存 raw 文本。
+  - 测试：新增 `tests/user-profile.test.ts`（10 例）与 `tests/authorized-taste.test.ts`（6 例）；更新 `recommendation-v1.test.ts` / `recommendation-p1-005b.test.ts` 的 rankerVersion 断言；4 个既有测试补 `exposurePenalty: 0`。
+- 验证：`pnpm typecheck` ✅、`pnpm lint` ✅、`pnpm test` ✅（141 pass / 0 fail）。`pnpm build` 在 `/_global-error` 与 `/_not-found` 预渲染阶段报 `Cannot read properties of null (reading 'useContext')`；已用 `git stash` 在 clean main 上复现同一错误，确认是 Next.js 16.2.7 + React 19 在当前环境的既有预渲染问题，与本次改动无关。
 
 背景与现状：
 
@@ -491,7 +500,7 @@ type RouteEvidence = {
 
 ## 当前审批队列
 
-- [x] 审查并批准 `TASK2-P0-001：用户品味画像闭环`（2026-06-14，angjustinl）。
+- [x] 审查并批准 `TASK2-P0-001：用户品味画像闭环`（2026-06-14，angjustinl）；已完成实现并通过 typecheck/lint/test（build 失败为 main 既有预渲染问题，与本次改动无关）。
 - [ ] 审查并批准 `TASK2-P0-002：实时城市状态 V0`。
 - [ ] 审查并批准 `TASK2-P0-003：此刻可执行判断与时机感`。
 - [ ] 审查并批准 `TASK2-P1-001：朋友式城市提醒卡`。
@@ -511,3 +520,4 @@ type RouteEvidence = {
 
 - 2026-06-14：创建 `tasks-2.md`，将用户画像、实时城市状态、朋友式表达和信号可信度作为真实 MVP 补齐方向。
 - 2026-06-14：批准 `TASK2-P0-001：用户品味画像闭环`（angjustinl）。审批结论增加四项实现约束：feedback 去重、分层负偏好（≥2 样本/更快衰减/硬上限）、权重调整与无画像回退、E 仅做授权导入契约与脱敏 mapper。
+- 2026-06-14：完成 `TASK2-P0-001：用户品味画像闭环` 实现（A→E），通过 typecheck/lint/test；build 失败定位为 main 既有 Next.js 预渲染问题。
