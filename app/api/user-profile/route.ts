@@ -1,34 +1,68 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
+import { ZodError, z } from "zod";
 import {
   getUserProfile,
   setTagPreference,
   type TagAction
 } from "@/server/recommendation/user-profile";
+import {
+  clearUserProfile,
+  getUserProfileSummary
+} from "@/server/recommendation/user-profile-v2";
 
 export const runtime = "nodejs";
 
 const tagActionSchema = z.enum(["approve", "disapprove", "skip"]);
 
+const userIdQuery = z.object({
+  userId: z
+    .string()
+    .trim()
+    .min(1, "userId is required")
+    .max(128, "userId too long")
+});
+
 /**
  * GET /api/user-profile?userId=user-001&city=上海&area=静安寺
- * Returns the user's fused interest profile (explicit + implicit + city tags).
+ *   → 返回 v1 融合画像（显式 + 隐式 + 城市标签），驱动标签表态 UI。
+ *
+ * GET /api/user-profile?userId=user-001&view=summary
+ *   → 返回 v2 画像摘要（派生标签/权重/置信度/最近更新时间），不返回 raw interactions（隐私）。
+ *     无 userId 或无画像 → degraded:true + summary:null。
  */
 export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const userId = url.searchParams.get("userId") || undefined;
-  const city = url.searchParams.get("city") || "上海";
-  const area = url.searchParams.get("area") || undefined;
+  try {
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId") ?? "";
+    const view = searchParams.get("view");
 
-  if (!userId) {
-    return NextResponse.json(
-      { error: "userId is required (e.g. /api/user-profile?userId=user-001)" },
-      { status: 400 }
-    );
+    // view=summary → v2 画像摘要（隐私边界：只返回派生标签/权重）。
+    if (view === "summary") {
+      const parsed = userIdQuery.parse({ userId });
+      const summary = await getUserProfileSummary(parsed.userId);
+      return NextResponse.json(summary);
+    }
+
+    // 默认 → v1 融合画像（兼容既有标签表态 UI）。
+    const city = searchParams.get("city") || "上海";
+    const area = searchParams.get("area") || undefined;
+    if (!userId) {
+      return NextResponse.json(
+        { error: "userId is required (e.g. /api/user-profile?userId=user-001)" },
+        { status: 400 }
+      );
+    }
+    const profile = await getUserProfile({ userId, city, area });
+    return NextResponse.json(profile);
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return NextResponse.json(
+        { error: "Invalid user profile request", issues: error.issues },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ error: "User profile read failed" }, { status: 500 });
   }
-
-  const profile = await getUserProfile({ userId, city, area });
-  return NextResponse.json(profile);
 }
 
 const preferenceSchema = z.object({
@@ -40,7 +74,7 @@ const preferenceSchema = z.object({
 /**
  * POST /api/user-profile
  * Body: { userId, tag, action: "approve"|"disapprove"|"skip" }
- * Records the user's explicit tag preference. `skip` only logs history.
+ * 记录用户的显式标签偏好。`skip` 只记历史。驱动 v1 标签表态 UI。
  */
 export async function POST(request: Request) {
   let body: unknown;
@@ -68,5 +102,28 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to save preference";
     return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/user-profile?userId=...
+ * 清空 v2 画像（UserPreference.metadata 置空，保留行）。清空后推荐回到无画像状态。
+ */
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const parsed = userIdQuery.parse({
+      userId: searchParams.get("userId") ?? ""
+    });
+    const result = await clearUserProfile(parsed.userId);
+    return NextResponse.json(result);
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return NextResponse.json(
+        { error: "Invalid user profile request", issues: error.issues },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ error: "User profile clear failed" }, { status: 500 });
   }
 }
