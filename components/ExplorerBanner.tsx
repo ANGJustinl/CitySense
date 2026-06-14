@@ -24,7 +24,7 @@ export function ExplorerBanner() {
         试试全新的探索体验？
       </span>
       <Link
-        href="/explore"
+        href="/discover"
         style={{
           background: "white",
           color: "#087f7a",

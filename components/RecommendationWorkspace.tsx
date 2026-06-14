@@ -35,6 +35,8 @@ import { RouteInspector } from "@/components/city/RouteInspector";
 import { RouteMapCanvas } from "@/components/city/RouteMapCanvas";
 import { RouteTimeline } from "@/components/city/RouteTimeline";
 import { UserProfilePanel } from "@/components/city/UserProfilePanel";
+import { ChatDock } from "@/components/assistant/ChatDock";
+import { ChatDrawer } from "@/components/assistant/ChatDrawer";
 
 type WorkspaceProps = {
   initialData: RecommendResponse;
@@ -128,6 +130,7 @@ function formatGeneratedAt(value: string) {
 }
 
 export function RecommendationWorkspace({ initialData, userId }: WorkspaceProps) {
+  const [chatOpen, setChatOpen] = useState(false);
   const [city, setCity] = useState("上海");
   const [area, setArea] = useState("");
   const [originMode, setOriginMode] = useState<OriginMode>("current");
@@ -697,6 +700,18 @@ export function RecommendationWorkspace({ initialData, userId }: WorkspaceProps)
           </div>
         </aside>
       </section>
+      <ChatDock open={chatOpen} onToggle={() => setChatOpen((v) => !v)} />
+      <ChatDrawer
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        sessionId={userId ?? getAnonymousSessionId()}
+        context={{
+          profileKey: userId,
+          recommendationId: data.meta.recommendationId,
+          city,
+          area: area || undefined
+        }}
+      />
     </main>
   );
 }

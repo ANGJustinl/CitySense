@@ -953,6 +953,78 @@
 - 日期：
 - 结论：
 
+### TASK-P2-004：AI 对话分析助手
+
+- 状态：`已完成`
+- 负责人：Codex / 用户
+- 是否需要审批：否，作为推荐工作台的辅助交互层，不涉及数据库结构、推荐算法权重或外部 API 成本变化。
+
+背景与现状：
+
+- 推荐工作台已有完整的偏好输入、路线生成、地图、画像 explain 面板，但用户无法用自然语言探索城市或追问路线细节。
+- 已有 LLM 解释层（TASK-P1-003）只在推荐链路末端改写 reason/tips，不支持多轮对话和工具调用。
+- 已有城市信号、推荐路线、路线详情、用户画像等纯 async 函数，可作为助手工具直接复用。
+
+目标：
+
+- 提供一个基于真实数据的 AI 对话助手，用户可以用自然语言问"今晚静安有什么好玩的""最近流行什么""你了解我吗"。
+- 助手通过 function calling 调用 4 个工具（recommend_routes / get_city_pulse / get_route_detail / get_user_profile），绝不编造地点或数据。
+- 流式 SSE 回复，支持多轮对话历史（Redis 持久化，24h TTL）。
+- 作为推荐工作台的浮动入口（右下角按钮 + 右侧抽屉），不破坏现有 5 列布局。
+
+方案与约束：
+
+- 使用智谱 paas/v4 chat/completions（glm-4-flash，与 explain-route 的 Responses API 隔离），stream + tools 100% 兼容 OpenAI 格式。
+- 工具直接复用现有纯 async 函数（recommend / getCityPulse / getRouteDetail / loadProfile），无 HTTP 中转。
+- 每个工具有 summarize 函数，只保留 LLM 需要的关键字段，控制 token。
+- 降级链：无 LLM key → 报错提示；无 Redis → 退化为无历史单轮；工具失败 → 错误占位给 LLM；超时 → AbortController。
+- 最多 3 轮 tool_calls，达到上限强制收尾。
+- recommend_routes 工具默认 useRealtimeTraffic: false（避免每次对话都打高德 API）。
+
+计划触达文件：
+
+- 新增：`server/ai/chat-client.ts`（流式 chat completions 客户端）、`chat-tools.ts`（4 工具定义 + handler）、`chat-session.ts` + `chat-redis.ts`（Redis 对话历史单例）。
+- 新增：`app/api/chat/route.ts`（SSE 端点，POST 流式 + DELETE 清空历史）。
+- 新增：`hooks/useChat.ts`（对话状态 + SSE 消费 hook）、`components/assistant/ChatDrawer.tsx` + `ChatDock.tsx`。
+- 修改：`components/RecommendationWorkspace.tsx`（挂载 ChatDock 浮动按钮 + ChatDrawer 抽屉，传 sessionId + context）。
+- 修改：`app/globals.css`（chat-* 样式：抽屉、气泡、工具卡片、输入栏、浮动按钮）。
+- 新增测试：`tests/chat-client.test.ts`（SSE 解析、tool_calls 累积、错误降级）、`tests/chat-tools.test.ts`（参数解析降级、未知工具、工具定义结构）。
+
+验收标准：
+
+- [x] 助手能流式回复用户问题，回复基于工具返回的真实数据，不编造地点。
+- [x] 用户问探索性问题时，助手调用 recommend_routes 生成路线。
+- [x] 用户问城市趋势时，助手调用 get_city_pulse 返回真实信号。
+- [x] 用户问自己偏好时，助手调用 get_user_profile 返回画像摘要。
+- [x] 多轮对话历史持久化到 Redis，刷新后仍可续接。
+- [x] 无 LLM key 时返回明确错误提示，不崩溃。
+- [x] 右下角浮动按钮可打开/关闭助手抽屉，不影响现有布局。
+- [x] `pnpm typecheck`、`pnpm lint`（P2-004 文件）、`pnpm test`（chat 测试 12 个）、`pnpm build` 通过。
+
+风险与降级：
+
+- Redis 抖动后单例置 null 不重连（demo 可接受，已知限制）。
+- recommend_routes 工具不走高德实时 ETA（合理默认，路线耗时为估算值）。
+- 历史消息未过滤 tool role（当前只存 user/assistant content，不触发）。
+- glm-4-flash 是免费模型，可能有速率限制；超时由 AbortController 兜底。
+
+审批记录：
+
+- 审批人：无需审批
+- 日期：2026-06-14
+- 结论：已完成。chat-client（glm-4-flash 流式 + tools）、chat-tools（4 工具复用现有纯函数）、chat-session（Redis 24h TTL 历史）、SSE 端点、useChat hook、ChatDrawer/ChatDock 组件、workspace 挂载、chat-* 样式全部实现；真实 smoke 验证流式回复 + get_city_pulse 工具调用链路通过。
+
+完成记录：
+
+- 完成日期：2026-06-14
+- 后端：`chat-client.ts` 实现 ZhipuChatClient（fetch-based，注入 fetchFn 可测），SSE 解析支持 delta/tool_calls 累积/[DONE]/错误降级；`chat-tools.ts` 4 工具（recommend_routes/get_city_pulse/get_route_detail/get_user_profile）复用现有纯 async 函数，每个有 summarize 控制 token；`chat-session.ts` Redis 历史（RPUSH + LTRIM 裁剪 20 条 + 24h TTL）；`chat-redis.ts` 模块级单例（连接错误降级 null）。
+- API：`POST /api/chat` SSE 流式（system prompt + history + 多轮 tool_calls 循环最多 3 轮 + 持久化），`DELETE` 清空历史。
+- 前端：`useChat.ts`（fetch + ReadableStream 消费 SSE，delta/tool_start/tool_end/error/done 事件处理），`ChatDrawer.tsx`（168 行，气泡/工具卡片/建议按钮/ESC 关闭/清空/停止），`ChatDock.tsx`（浮动按钮）。
+- workspace 挂载：ChatDock 固定右下角，ChatDrawer 右侧抽屉，传 sessionId（复用画像任务的 getAnonymousSessionId）+ context（profileKey/recommendationId/city/area）。
+- 测试：`chat-client.test.ts` 8 个（delta 流、tool_calls 跨 chunk 累积、finishReason、HTTP 错误、网络错误、工具定义结构、required 字段），`chat-tools.test.ts` 5 个（参数解析降级、未知工具、展示名映射、缺 routeId、匿名 profile）。
+- 真实 smoke：简单问候 → 流式自我介绍（30+ delta + done）；"最近上海流行什么" → 触发 get_city_pulse 工具调用 → 基于真实数据回复（4 个 up 趋势、80 次出行）。
+- 已知问题（非本次引入）：`recommendation-v1.test.ts` 的 "route assembler prefers fully addressed routes" 用例在 P2-002 提交（3ad63bd）即失败，与 P2-004 无关，需后续单独修复。
+
 ## 当前审批队列
 
 - [x] 审查并批准 `TASK-P0-001`。
@@ -967,6 +1039,7 @@
 - [x] 审查并批准 `TASK-P1-012`。
 - [x] 审查并批准 `TASK-P1-013`。
 - [x] 审查并批准 `TASK-P2-002`。
+- [x] TASK-P2-004 无需审批(辅助交互层)。
 
 ## 变更记录
 
@@ -992,4 +1065,5 @@
 - 2026-06-14：新增 TASK-P1-013，规划大麦作为 `/admin/sources` 可调用插件：管理员完成人工验证码，保存无登录公开搜索 cookie，worker 后续自动采集并只产出 `Event`。
 - 2026-06-14：推进 TASK-P1-013 第一阶段，新增 `damai` crawler adapter，优化多关键词搜索召回、去重和 Event-only 映射；source 页验证码/cookie 管理继续保留为后续工作。
 - 2026-06-14：扩写 TASK-P2-002 用户品味画像 MVP，规划显式偏好、隐式反馈、新鲜度惩罚、画像解释和隐私降级路径。
-- 2026-06-14：完成 TASK-P2-002 用户品味画像 MVP，新增画像服务（profile.types / user-profile-core 纯计算 / user-profile prisma 封装）、6 维度正负权重 + 新鲜度曝光惩罚、读时懒重算 + TTL、推荐链路接入（user-signals/features/ranker/recommend）、`GET/DELETE /api/user-profile`、UserProfilePanel explain 面板（工作台第 5 列）；128 个测试通过,真实 smoke 验证反馈→画像→explain→清空→回退全链路。
+- 2026-06-14：完成 TASK-P2-002 用户品味画像 MVP
+- 2026-06-14：完成 TASK-P2-004 AI 对话分析助手,新增 chat-client(glm-4-flash 流式+tools)/chat-tools(4工具)/chat-session(Redis 历史)/SSE端点/useChat hook/ChatDrawer+ChatDock,挂载到工作台右下角浮动入口;真实 smoke 验证流式回复+工具调用链路通过。，新增画像服务（profile.types / user-profile-core 纯计算 / user-profile prisma 封装）、6 维度正负权重 + 新鲜度曝光惩罚、读时懒重算 + TTL、推荐链路接入（user-signals/features/ranker/recommend）、`GET/DELETE /api/user-profile`、UserProfilePanel explain 面板（工作台第 5 列）；128 个测试通过,真实 smoke 验证反馈→画像→explain→清空→回退全链路。
