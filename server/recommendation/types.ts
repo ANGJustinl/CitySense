@@ -64,6 +64,7 @@ export type Candidate = {
   source?: string;
   sourceUrl?: string;
   imageUrl?: string;
+  venueId?: string;
   startsAt?: string;
   endsAt?: string;
   trendScore: number;

@@ -1,6 +1,7 @@
 import { isDemoModeEnabled } from "@/server/config/demo-mode";
 import { amapPoiAdapter } from "@/server/sources/adapters/amap-poi.adapter";
 import { bilibiliAdapter } from "@/server/sources/adapters/bilibili.adapter";
+import { damaiAdapter } from "@/server/sources/adapters/damai.adapter";
 import { doubanAdapter } from "@/server/sources/adapters/douban.adapter";
 import { mockAdapter } from "@/server/sources/adapters/mock.adapter";
 import { shanghaiGovAdapter } from "@/server/sources/adapters/shanghai-gov.adapter";
@@ -11,6 +12,7 @@ import type { RawSourceItemDetail, SourceSearchInput } from "@/server/sources/so
 export const allSourceAdapters = [
   mockAdapter,
   amapPoiAdapter,
+  damaiAdapter,
   xiaohongshuAdapter,
   shanghaiGovAdapter,
   trendsHubAdapter,

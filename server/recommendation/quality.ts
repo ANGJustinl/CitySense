@@ -19,6 +19,7 @@ export type CandidateQuality = {
 const GENERIC_SOCIAL_PATTERN =
   /合集|汇总|攻略|地图|清单|一览|必逛|必藏|收藏|码住|抄作业|citywalk|无法超越|\d+\D{0,4}个地方|\d+\+?个|\d+家/i;
 const SOCIAL_SIGNAL_SOURCES = new Set(["xiaohongshu", "bilibili", "trends-hub"]);
+const DIRECT_SIGNAL_ONLY_SOURCES = new Set(["xiaohongshu"]);
 
 function clampScore(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -57,6 +58,7 @@ export function assessCandidateQuality(input: CandidateQualityInput): CandidateQ
   const addressable = hasAddress(input.address);
   const hasCoords = isFiniteCoordinate(input.lat) && isFiniteCoordinate(input.lng);
   const genericSocial = isGenericSocial(input);
+  const directSignalOnly = Boolean(input.source && DIRECT_SIGNAL_ONLY_SOURCES.has(input.source));
   let score = 50;
 
   if (addressable) {
@@ -84,12 +86,17 @@ export function assessCandidateQuality(input: CandidateQualityInput): CandidateQ
     flags.unshift("generic_social");
   }
 
+  if (directSignalOnly) {
+    score = Math.min(score, 35);
+    flags.unshift("social_signal_only");
+  }
+
   const qualityScore = clampScore(score);
 
   return {
     qualityScore,
     qualityFlags: [...new Set(flags)],
-    routeEligible: !genericSocial && qualityScore >= 55 && (addressable || hasCoords)
+    routeEligible: !directSignalOnly && !genericSocial && qualityScore >= 55 && (addressable || hasCoords)
   };
 }
 
@@ -104,8 +111,16 @@ export function routeEligibilityFromQuality(input: {
   const score = input.qualityScore ?? 50;
 
   return (
+    !flags.includes("social_signal_only") &&
     !flags.includes("generic_social") &&
     score >= 55 &&
     (hasAddress(input.address) || (isFiniteCoordinate(input.lat) && isFiniteCoordinate(input.lng)))
   );
+}
+
+// ticket_noise (scenic-spot admission / guided-tour SKUs) is a soft penalty:
+// the event can still be route-eligible once a venue is matched, but ranks below
+// real shows. Used by the ranker, not the eligibility gate.
+export function hasTicketNoiseFlag(flags?: string[] | null) {
+  return Boolean(flags?.includes("ticket_noise"));
 }

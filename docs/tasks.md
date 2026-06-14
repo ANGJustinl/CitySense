@@ -1178,6 +1178,11 @@
 - 2026-06-14：完成 TASK-P1-012，小红书趋势改为经算法 Top-K 筛选和 LLM 审查后绑定高德 `Venue`；未 confirmed 的小红书内容不参与推荐。
 - 2026-06-14：新增 TASK-P1-013，规划大麦作为 `/admin/sources` 可调用插件：管理员完成人工验证码，保存无登录公开搜索 cookie，worker 后续自动采集并只产出 `Event`。
 - 2026-06-14：推进 TASK-P1-013 第一阶段，新增 `damai` crawler adapter，优化多关键词搜索召回、去重和 Event-only 映射；source 页验证码/cookie 管理继续保留为后续工作。
+- 2026-06-14 第二阶段：新增 `server/sources/plugins/damai-session.ts` 与 `/api/admin/damai-session/status|start|save`，source 页增加大麦验证面板；管理员可打开浏览器验证窗口，完成验证码后保存过滤后的匿名大麦 cookie 到 `data/damai-session/cookies.json`。
+- 安全边界：API 和 UI 只展示 cookie 状态、数量、名称、保存时间和过期时间，不返回 cookie 值；过滤逻辑只接受 `damai.cn` 域 cookie，并丢弃明显账号态 cookie（如 nick/user/login/member/tracknick 等）。
+- adapter 读取顺序更新为：显式传入 cookie → `DAMAI_COOKIE_HEADER` → 本地保存 cookie 文件；`data/damai-session/` 已加入 git/eslint ignore。
+- 新增 `tests/damai-session.test.ts` 覆盖 cookie 过滤；验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 通过。真实大麦验证码窗口仍需管理员在本机浏览器做一次 smoke。
+- 2026-06-14 修正：打开大麦验证窗口后立即返回 UI，不再等待 DevTools target 导致按钮持续 loading；读取 cookie 时再懒连接浏览器。保存的匿名 cookie 文件作为持久凭据反复复用，不因本地 expiresAt 主动判废，直到大麦接口再次要求验证码时由管理员重新保存覆盖。
 - 2026-06-14：扩写 TASK-P2-002 用户品味画像 MVP，规划显式偏好、隐式反馈、新鲜度惩罚、画像解释和隐私降级路径。
 - 2026-06-14：完成 TASK-P2-002 用户品味画像 MVP
 - 2026-06-14：完成 TASK-P2-004 AI 对话分析助手
