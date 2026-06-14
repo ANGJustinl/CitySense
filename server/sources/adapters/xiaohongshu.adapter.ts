@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { CitySourceAdapter, RawSourceItemDetail } from "@/server/sources/source.types";
 import { BaseCitySourceAdapter } from "@/server/sources/adapters/adapter-utils";
 import { callMcpTool, type McpToolCall, type McpToolResult } from "@/server/sources/mcp/mcp-client";
+import { checkTitleQuality, filterLowQualityTitles } from "@/server/sources/adapters/title-quality-filter";
 
 type XiaohongshuAdapterOptions = {
   client?: {
@@ -160,7 +161,14 @@ function aiSearchPrompt(input: Parameters<CitySourceAdapter["searchEvents"]>[0])
     `请在小红书 AI 搜索中查找 ${location || input.city} 最新且可线下前往的城市体验信息。`,
     `关注关键词：${keywords}。${timeWindow}`,
     "优先活动、展览、市集、咖啡店、书店、citywalk 和适合独处的地点。",
-    "请尽量引用真实笔记来源，来源标题要能作为 CitySense 入库候选。"
+    "请尽量引用真实笔记来源，来源标题要能作为 CitySense 入库候选。",
+    "",
+    "排除以下类型内容：",
+    "- 标题党：如'上海生活简直是看展天花板'、'这家店绝了'等纯夸张表达",
+    "- 营销内容：如'最全攻略'、'保姆级教程'、'不看后悔'等营销关键词",
+    "- 泛化推荐：如'周末好去处'、'必去清单'等无具体地点的推荐",
+    "",
+    "优先返回包含具体地点/活动名称的内容，如'浦东美术馆新展'、'静安寺某咖啡店'等。"
   ].join("\n");
 }
 
@@ -362,6 +370,7 @@ function toAiSearchRawItem(input: {
 class XiaohongshuMcpAdapter extends BaseCitySourceAdapter {
   private client: NonNullable<XiaohongshuAdapterOptions["client"]>;
   private searchRequests = new Map<string, Promise<XiaohongshuSearchResult>>();
+  private lastPreFilteredCount = 0;  // 跟踪最后一次搜索的预过滤数量
 
   constructor(options: XiaohongshuAdapterOptions = {}) {
     super({
@@ -374,6 +383,20 @@ class XiaohongshuMcpAdapter extends BaseCitySourceAdapter {
     this.client = options.client ?? {
       callTool: callMcpTool
     };
+  }
+
+  /**
+   * 获取最后一次搜索的预过滤统计
+   */
+  getLastPreFilteredCount(): number {
+    return this.lastPreFilteredCount;
+  }
+
+  /**
+   * 重置预过滤统计
+   */
+  private resetPreFilteredCount() {
+    this.lastPreFilteredCount = 0;
   }
 
   private searchRequestKey(input: Parameters<CitySourceAdapter["searchEvents"]>[0]) {
@@ -469,6 +492,7 @@ class XiaohongshuMcpAdapter extends BaseCitySourceAdapter {
     input: Parameters<CitySourceAdapter["searchEvents"]>[0],
     itemType: RawSourceItemDetail["itemType"]
   ) {
+    this.resetPreFilteredCount();  // 重置统计
     const result = await this.searchResult(input);
     const tags = [
       ...new Set(
@@ -481,7 +505,29 @@ class XiaohongshuMcpAdapter extends BaseCitySourceAdapter {
       )
     ];
 
-    return result.items
+    // 预过滤：提前过滤低质量标题，减少后续处理
+    const originalCount = result.items.length;
+    const preFilteredItems = result.items.filter((rawItem) => {
+      // AI搜索结果通常已经过筛选，优先保留
+      if (result.tool === "ai_search_chat") {
+        const note = rawItem as XiaohongshuAiSourceNote;
+        const title = String(note.title || "").trim();
+        const content = String(note.text || result.answer || "").trim();
+        // AI搜索内容放宽一些标准，只需要有基本内容
+        return title.length > 0;
+      }
+
+      // 传统feed搜索，严格过滤标题党
+      const feed = rawItem as XiaohongshuFeed;
+      const title = String(feed.noteCard?.displayTitle || "").trim();
+      const quality = checkTitleQuality(title);
+      return quality.pass;
+    });
+
+    // 记录过滤数量
+    this.lastPreFilteredCount = originalCount - preFilteredItems.length;
+
+    return preFilteredItems
       .map((item) =>
         result.tool === "ai_search_chat"
           ? toAiSearchRawItem({

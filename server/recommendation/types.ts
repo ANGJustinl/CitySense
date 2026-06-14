@@ -7,6 +7,8 @@ export type OriginSource = "browser" | "manual" | "default";
 
 export type RecommendInput = {
   userId?: string;
+  /** 匿名会话 ID（AI 助手分支），用于匿名画像曝光记录。 */
+  sessionId?: string;
   city: string;
   area?: string;
   originAddress?: string;

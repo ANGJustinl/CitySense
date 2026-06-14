@@ -35,6 +35,7 @@ const optionalTrimmedString = (maxLength: number) =>
 
 export const recommendRequestSchema = z.object({
   userId: z.string().optional(),
+  sessionId: z.string().max(128).optional(),
   city: z.string().min(1).default("上海"),
   area: optionalTrimmedString(60),
   originAddress: optionalTrimmedString(ORIGIN_ADDRESS_MAX_LENGTH),

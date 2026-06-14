@@ -82,8 +82,15 @@ async function collectAdapterItems(run: IngestRunRecord, source: string) {
     })
   ]);
 
+  // 尝试获取预过滤统计（仅支持此功能的适配器，如小红书）
+  let preFilteredCount = 0;
+  if ('getLastPreFilteredCount' in adapter && typeof adapter.getLastPreFilteredCount === 'function') {
+    preFilteredCount = (adapter as any).getLastPreFilteredCount();
+  }
+
   return {
-    items: [...events, ...venues]
+    items: [...events, ...venues],
+    preFilteredCount
   };
 }
 
@@ -683,6 +690,7 @@ async function ingestSource(run: IngestRunRecord, source: string): Promise<Sourc
       source,
       status: "completed",
       fetched,
+      preFilteredCount: collected.preFilteredCount,
       rawUpserted,
       normalized: 0,
       citySignalsCreated: 0
