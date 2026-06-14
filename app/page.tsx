@@ -8,7 +8,10 @@ export default async function Home() {
     city: "上海",
     origin: {
       lat: 31.224,
-      lng: 121.459
+      lng: 121.459,
+      label: "默认起点",
+      source: "default",
+      provider: "default"
     },
     interests: ["咖啡", "展览", "书店", "漫画", "独立音乐"],
     mood: "solo",

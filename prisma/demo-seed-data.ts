@@ -6,7 +6,7 @@ function event(input: Omit<DemoSeedItem, "status" | "itemType" | "city" | "publi
   return {
     ...input,
     city: "上海",
-    publishedAt: "2026-06-13T10:00:00.000+08:00",
+    publishedAt: "2026-06-08T10:00:00.000+08:00",
     status: "new",
     itemType: "event"
   };
@@ -16,7 +16,7 @@ function venue(input: Omit<DemoSeedItem, "status" | "itemType" | "city" | "publi
   return {
     ...input,
     city: "上海",
-    publishedAt: "2026-06-13T10:00:00.000+08:00",
+    publishedAt: "2026-06-08T10:00:00.000+08:00",
     status: "new",
     itemType: "venue"
   };
@@ -249,7 +249,7 @@ export const demoSeedCatalog: DemoSeedItem[] = [
     address: "凯旋路 851 号",
     lat: 31.216,
     lng: 121.424,
-    startsAt: "2026-06-13T20:30:00.000+08:00",
+    startsAt: "2026-06-12T20:30:00.000+08:00",
     tags: ["独立音乐", "livehouse", "夜生活", "lively"],
     trendScore: 83,
     confidence: 79,
