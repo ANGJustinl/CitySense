@@ -11,7 +11,9 @@ import {
   Play,
   QrCode,
   RefreshCw,
-  ShieldCheck
+  Save,
+  ShieldCheck,
+  Ticket
 } from "lucide-react";
 import type { IngestStatusResponse } from "@/server/ingest/status";
 
@@ -42,8 +44,46 @@ type XhsVerificationCodeResponse = {
   username?: string;
 };
 
-function formatDate(value?: string) {
-  if (!value) {
+type DamaiSessionStatus = {
+  status: "ready" | "active_session" | "not_configured";
+  message: string;
+  cookieSource?: "env" | "file";
+  cookieCount?: number;
+  cookieNames?: string[];
+  savedAt?: string;
+  expiresAt?: string;
+  checkedAt?: string;
+  activeSession?: {
+    id: string;
+    city: string;
+    keyword: string;
+    startedAt: string;
+  };
+};
+
+type DamaiSessionStartResponse = {
+  status: "ok" | "browser_error";
+  message?: string;
+  error?: string;
+  sessionId?: string;
+  city?: string;
+  keyword?: string;
+  searchUrl?: string;
+  startedAt?: string;
+};
+
+type DamaiSessionSaveResponse = {
+  status: "ok" | "not_started" | "requires_verification" | "invalid_payload" | "browser_error";
+  message?: string;
+  error?: string;
+  cookieCount?: number;
+  cookieNames?: string[];
+  savedAt?: string;
+  expiresAt?: string;
+};
+
+function formatDate(value?: string, mounted = true) {
+  if (!value || !mounted) {
     return "-";
   }
 
@@ -68,11 +108,45 @@ function xhsStatusText(status?: XhsLoginStatus["status"]) {
   return "未知";
 }
 
+function damaiStatusText(status?: DamaiSessionStatus["status"]) {
+  if (status === "ready") {
+    return "可采集";
+  }
+
+  if (status === "active_session") {
+    return "验证中";
+  }
+
+  return "未配置";
+}
+
+function damaiStatusClass(status?: DamaiSessionStatus["status"]) {
+  if (status === "ready") {
+    return "logged_in";
+  }
+
+  if (status === "active_session") {
+    return "not_logged_in";
+  }
+
+  return "unknown";
+}
+
+function damaiVerificationKeyword(keywords: string[]) {
+  return keywords.find((keyword) => /演出|演唱会|音乐|livehouse|话剧|音乐剧|脱口秀|展览|亲子|动漫/i.test(keyword)) ?? "演出";
+}
+
 export function SourceIngestConsole({ initialStatus }: SourceIngestConsoleProps) {
   const [status, setStatus] = useState<IngestStatusResponse>(initialStatus);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const [xhsStatus, setXhsStatus] = useState<XhsLoginStatus | null>(null);
   const [xhsQrcode, setXhsQrcode] = useState<XhsLoginQrcode | null>(null);
   const [xhsVerificationCode, setXhsVerificationCode] = useState("");
+  const [damaiStatus, setDamaiStatus] = useState<DamaiSessionStatus | null>(null);
   const [city, setCity] = useState("上海");
   const [area, setArea] = useState("静安寺");
   const [keywords, setKeywords] = useState("咖啡,展览,书店");
@@ -83,11 +157,16 @@ export function SourceIngestConsole({ initialStatus }: SourceIngestConsoleProps)
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [xhsError, setXhsError] = useState<string | null>(null);
+  const [damaiError, setDamaiError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingXhsQr, setIsLoadingXhsQr] = useState(false);
   const [isCheckingXhs, setIsCheckingXhs] = useState(false);
   const [isSubmittingXhsCode, setIsSubmittingXhsCode] = useState(false);
+  const [isStartingDamai, setIsStartingDamai] = useState(false);
+  const [isSavingDamai, setIsSavingDamai] = useState(false);
+  const [isCheckingDamai, setIsCheckingDamai] = useState(false);
   const isRefreshingXhsStatusRef = useRef(false);
+  const isRefreshingDamaiStatusRef = useRef(false);
 
   const activeRun = status.run ?? status.recentRuns.find((run) => run.id === activeRunId);
   const isRunning =
@@ -95,6 +174,10 @@ export function SourceIngestConsole({ initialStatus }: SourceIngestConsoleProps)
   const isXhsBusy = isLoadingXhsQr || isCheckingXhs || isSubmittingXhsCode;
   const canSubmitXhsVerificationCode = Boolean(
     xhsQrcode?.imageDataUrl && xhsStatus?.status !== "logged_in"
+  );
+  const hasDamaiConnector = useMemo(
+    () => status.connectors.some((connector) => connector.source === "damai"),
+    [status.connectors]
   );
   const keywordList = useMemo(
     () =>
@@ -104,6 +187,7 @@ export function SourceIngestConsole({ initialStatus }: SourceIngestConsoleProps)
         .filter(Boolean),
     [keywords]
   );
+  const damaiKeyword = useMemo(() => damaiVerificationKeyword(keywordList), [keywordList]);
 
   const refresh = useCallback(async (runId = activeRunId) => {
     const response = await fetch(runId ? `/api/ingest/status?runId=${runId}` : "/api/ingest/status");
@@ -135,6 +219,111 @@ export function SourceIngestConsole({ initialStatus }: SourceIngestConsoleProps)
       setIsCheckingXhs(false);
     }
   }, []);
+
+  const refreshDamaiStatus = useCallback(async () => {
+    if (!hasDamaiConnector || isRefreshingDamaiStatusRef.current) {
+      return;
+    }
+
+    isRefreshingDamaiStatusRef.current = true;
+    setIsCheckingDamai(true);
+    setDamaiError(null);
+
+    try {
+      const response = await fetch("/api/admin/damai-session/status");
+      const payload = (await response.json()) as DamaiSessionStatus;
+
+      if (!response.ok) {
+        throw new Error(payload.message ?? "大麦验证状态检查失败");
+      }
+
+      setDamaiStatus(payload);
+    } catch (statusError) {
+      setDamaiError(statusError instanceof Error ? statusError.message : "大麦验证状态检查失败");
+    } finally {
+      isRefreshingDamaiStatusRef.current = false;
+      setIsCheckingDamai(false);
+    }
+  }, [hasDamaiConnector]);
+
+  async function startDamaiSession() {
+    setIsStartingDamai(true);
+    setDamaiError(null);
+
+    try {
+      const response = await fetch("/api/admin/damai-session/start", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          city,
+          keyword: damaiKeyword
+        })
+      });
+      const payload = (await response.json()) as DamaiSessionStartResponse;
+
+      if (!response.ok || payload.status !== "ok") {
+        throw new Error(payload.error ?? payload.message ?? "大麦验证窗口启动失败");
+      }
+
+      setDamaiStatus({
+        status: "active_session",
+        message: payload.message ?? "大麦验证窗口已打开。",
+        activeSession: payload.sessionId
+          ? {
+              id: payload.sessionId,
+              city: payload.city ?? city,
+              keyword: payload.keyword ?? damaiKeyword,
+              startedAt: payload.startedAt ?? new Date().toISOString()
+            }
+          : undefined
+      });
+    } catch (startError) {
+      setDamaiError(startError instanceof Error ? startError.message : "大麦验证窗口启动失败");
+    } finally {
+      setIsStartingDamai(false);
+    }
+  }
+
+  async function saveDamaiCookies() {
+    setIsSavingDamai(true);
+    setDamaiError(null);
+
+    try {
+      const response = await fetch("/api/admin/damai-session/save", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          city,
+          keyword: damaiKeyword
+        })
+      });
+      const payload = (await response.json()) as DamaiSessionSaveResponse;
+
+      if (!response.ok || payload.status !== "ok") {
+        throw new Error(payload.error ?? payload.message ?? "大麦 cookie 保存失败");
+      }
+
+      setDamaiStatus({
+        status: "ready",
+        message: payload.message ?? "大麦匿名搜索 cookie 已保存。",
+        cookieSource: "file",
+        cookieCount: payload.cookieCount,
+        cookieNames: payload.cookieNames,
+        savedAt: payload.savedAt,
+        expiresAt: payload.expiresAt
+      });
+      await refreshDamaiStatus();
+      await refresh();
+    } catch (saveError) {
+      setDamaiError(saveError instanceof Error ? saveError.message : "大麦 cookie 保存失败");
+    } finally {
+      setIsSavingDamai(false);
+    }
+  }
 
   async function requestXhsQrcode() {
     setIsLoadingXhsQr(true);
@@ -271,6 +460,18 @@ export function SourceIngestConsole({ initialStatus }: SourceIngestConsoleProps)
     return () => window.clearInterval(interval);
   }, [refreshXhsStatus, xhsQrcode?.expiresAt, xhsQrcode?.imageDataUrl, xhsStatus?.status]);
 
+  useEffect(() => {
+    if (!hasDamaiConnector || damaiStatus?.status !== "active_session") {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void refreshDamaiStatus();
+    }, 15_000);
+
+    return () => window.clearInterval(interval);
+  }, [damaiStatus?.status, hasDamaiConnector, refreshDamaiStatus]);
+
   return (
     <div className="source-console">
       <div className="source-control-bar">
@@ -351,6 +552,62 @@ export function SourceIngestConsole({ initialStatus }: SourceIngestConsoleProps)
         {xhsError ? <p className="inline-error">{xhsError}</p> : null}
       </div>
 
+      {hasDamaiConnector ? (
+        <div className="xhs-login-panel">
+          <div className="xhs-login-copy">
+            <p className="eyebrow">Damai crawler</p>
+            <h3>大麦验证</h3>
+            <span className={`xhs-login-pill ${damaiStatusClass(damaiStatus?.status)}`}>
+              <ShieldCheck size={15} />
+              {damaiStatusText(damaiStatus?.status)}
+            </span>
+          </div>
+          <div className="xhs-login-actions">
+            <button
+              className="secondary-button"
+              disabled={isStartingDamai}
+              onClick={startDamaiSession}
+              type="button"
+            >
+              {isStartingDamai ? <Loader2 className="spin" size={16} /> : <Ticket size={16} />}
+              打开验证窗口
+            </button>
+            <button
+              className="secondary-button"
+              disabled={isSavingDamai}
+              onClick={saveDamaiCookies}
+              type="button"
+            >
+              {isSavingDamai ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
+              保存匿名 Cookie
+            </button>
+            <button
+              className="secondary-button"
+              disabled={isCheckingDamai}
+              onClick={() => void refreshDamaiStatus()}
+              type="button"
+            >
+              {isCheckingDamai ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
+              检查状态
+            </button>
+          </div>
+          <p className="muted-copy xhs-login-message">
+            {[
+              damaiStatus?.message ?? "尚未检查大麦验证状态。",
+              damaiStatus?.savedAt ? `保存时间：${formatDate(damaiStatus.savedAt, mounted)}` : "",
+              damaiStatus?.expiresAt ? `过期时间：${formatDate(damaiStatus.expiresAt, mounted)}` : "",
+              damaiStatus?.cookieCount ? `已保存 ${damaiStatus.cookieCount} 个 cookie` : "",
+              damaiStatus?.activeSession
+                ? `当前窗口：${damaiStatus.activeSession.city} / ${damaiStatus.activeSession.keyword}`
+                : ""
+            ]
+              .filter(Boolean)
+              .join("\n")}
+          </p>
+          {damaiError ? <p className="inline-error">{damaiError}</p> : null}
+        </div>
+      ) : null}
+
       <div className="ingest-form">
         <label className="field">
           <span>城市</span>
@@ -417,7 +674,7 @@ export function SourceIngestConsole({ initialStatus }: SourceIngestConsoleProps)
               {connectorIcon(connector.status)}
               {connector.enabled ? connector.status : "disabled"}
             </span>
-            <span>{formatDate(connector.lastSuccessAt)}</span>
+            <span>{formatDate(connector.lastSuccessAt, mounted)}</span>
             <span>{connector.lastError ?? "-"}</span>
           </div>
         ))}
@@ -436,7 +693,7 @@ export function SourceIngestConsole({ initialStatus }: SourceIngestConsoleProps)
               <strong>{run.status}</strong>
               <span>{run.city}</span>
               <span>{run.sources.join(", ")}</span>
-              <span>{formatDate(run.createdAt)}</span>
+              <span>{formatDate(run.createdAt, mounted)}</span>
             </div>
           ))
         )}

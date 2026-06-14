@@ -28,6 +28,7 @@ prisma/dev.db-journal
 # local docker service state
 docker/xiaohongshu-mcp/data
 docker/xiaohongshu-mcp/images
+data/damai-session
 
 # system
 .DS_Store

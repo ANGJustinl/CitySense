@@ -217,6 +217,7 @@ export async function recommend(rawInput: unknown): Promise<RecommendResponse> {
       ranker: rankerResult.ranker,
       rankerVersion: rankerResult.rankerVersion,
       recallChannels,
+      profileApplied: rankerResult.profileApplied,
       generatedAt: new Date().toISOString()
     }
   };

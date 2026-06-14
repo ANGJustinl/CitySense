@@ -1,0 +1,18 @@
+services:
+  citysense-mcp:
+    build:
+      context: .
+      dockerfile: dockerfiles/citysense-mcp.Dockerfile
+    image: citysense/mcp:0.1.0
+    container_name: citysense-mcp
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      # Override bind to all interfaces inside the container.
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "18070"
+      # MCP_API_TOKEN, DATABASE_URL, AMAP_API_KEY come from .env.
+    ports:
+      - "18070:18070"

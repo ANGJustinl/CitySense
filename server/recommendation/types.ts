@@ -56,6 +56,7 @@ export type Candidate = {
   source?: string;
   sourceUrl?: string;
   imageUrl?: string;
+  venueId?: string;
   startsAt?: string;
   endsAt?: string;
   trendScore: number;
@@ -85,6 +86,14 @@ export type ScoreBreakdown = {
   actionability: number;
   userAffinity: number;
   feedbackPenalty: number;
+  exposurePenalty: number;
+};
+
+// TASK2-P0-001：画像归因，写入 CandidateFeatures.profileFactors 供追溯。
+export type ProfileFactor = {
+  dimension: "tag" | "source" | "area" | "budget" | "quietness" | "mood";
+  key: string;
+  delta: number;
 };
 
 export type CandidateFeatures = ScoreBreakdown & {
@@ -94,6 +103,9 @@ export type CandidateFeatures = ScoreBreakdown & {
   qualityFlags?: string[];
   signalStrength?: number;
   routeEligible?: boolean;
+  profileFactors?: ProfileFactor[];
+  profileHit?: boolean;
+  profileVersion?: number;
 };
 
 export type ScoredCandidate = Candidate & {
@@ -184,6 +196,13 @@ export type RecommendResponse = {
     ranker?: string;
     rankerVersion?: string;
     recallChannels?: RecallChannel[];
+    profileApplied?: {
+      version: number;
+      topFactors: string[];
+      sampleSize: number;
+      confidence: "low" | "medium" | "high";
+      degraded: boolean;
+    };
     generatedAt: string;
   };
 };

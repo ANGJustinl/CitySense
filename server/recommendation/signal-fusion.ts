@@ -11,12 +11,14 @@ import type {
 } from "@/server/recommendation/types";
 
 export type CitySignalContextRow = {
+  id?: string;
   city: string;
   area?: string | null;
   tag: string;
   heatScore: number;
   source: string;
   metadata?: unknown;
+  matchedVenueIds?: string[];
 };
 
 function metadataTitle(metadata: unknown) {
@@ -40,6 +42,10 @@ function signalMatchesCandidate(
 
   if (!areasMatch(signal.area, candidate.area) && !areasMatch(signal.area, input.area)) {
     return false;
+  }
+
+  if (MATCH_GATED_SIGNAL_SOURCES.has(signal.source)) {
+    return Boolean(signal.matchedVenueIds?.includes(candidate.id));
   }
 
   return candidate.tags.some((tag) => tagsMatch(tag, signal.tag));
@@ -77,9 +83,17 @@ function sourceSignalFor(signal: CitySignalContextRow): SourceSignal {
 }
 
 const SOCIAL_SIGNAL_SOURCES = new Set(["xiaohongshu", "bilibili", "trends-hub"]);
+// Sources that require a confirmed venue match before their signals can attach
+// to a candidate (mirrors xiaohongshu). damai signals are only meaningful once
+// the event's venueName is bound to a real AMap Venue.
+const MATCH_GATED_SIGNAL_SOURCES = new Set(["xiaohongshu", "damai"]);
 
 function isUsableSignal(signal: CitySignalContextRow) {
   const title = metadataTitle(signal.metadata);
+
+  if (MATCH_GATED_SIGNAL_SOURCES.has(signal.source) && !signal.matchedVenueIds?.length) {
+    return false;
+  }
 
   if (
     SOCIAL_SIGNAL_SOURCES.has(signal.source) &&

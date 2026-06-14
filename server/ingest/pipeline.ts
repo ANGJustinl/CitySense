@@ -9,6 +9,7 @@ import {
   type LlmIngestNormalizeResult
 } from "@/server/ingest/llm-normalizer";
 import { createSourceKey } from "@/server/ingest/source-key";
+import { matchXiaohongshuSignalsToAmapVenues } from "@/server/ingest/social-place-matcher";
 import {
   applySourceResult,
   createEmptyIngestStats,
@@ -21,6 +22,22 @@ import { getSourceAdapters } from "@/server/sources/source-registry";
 import type { RawSourceItemDetail } from "@/server/sources/source.types";
 
 type IngestRunRecord = NonNullable<Awaited<ReturnType<typeof prisma.ingestRun.findUnique>>>;
+type RawSourceItemRecord = NonNullable<Awaited<ReturnType<typeof prisma.rawSourceItem.findUnique>>>;
+
+export type NormalizePendingRawSourceItemsInput = {
+  source?: string;
+  ingestRunId?: string;
+  limit?: number;
+};
+
+export type NormalizePendingRawSourceItemsResult = {
+  scanned: number;
+  normalized: number;
+  ignored: number;
+  failed: number;
+  citySignalsCreated: number;
+  errors: string[];
+};
 
 function toJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -114,6 +131,8 @@ async function upsertRawSourceItem(input: {
       status: "new",
       itemType: input.item.itemType,
       ingestRunId: input.runId,
+      normalizedEntityType: null,
+      normalizedEntityId: null,
       lastSeenAt: new Date()
     }
   });
@@ -129,6 +148,9 @@ function eventDataForEntity(entity: NormalizedEntityInput) {
     lng: entity.lng,
     tags: entity.tags
   });
+  // Preserve adapter-level quality flags (e.g. damai ticket_noise) alongside
+  // the recomputed address/coords flags.
+  const qualityFlags = [...new Set([...(entity.qualityFlags ?? []), ...quality.qualityFlags])];
   const values = {
     title: entity.title,
     description: entity.description ?? null,
@@ -147,7 +169,7 @@ function eventDataForEntity(entity: NormalizedEntityInput) {
     trendScore: entity.trendScore,
     confidence: entity.confidence,
     qualityScore: quality.qualityScore,
-    qualityFlags: quality.qualityFlags
+    qualityFlags
   };
 
   return {
@@ -236,6 +258,83 @@ async function upsertNormalizedEntity(entity: NormalizedEntityInput | null) {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean)
+    : [];
+}
+
+function sourceSignals(value: unknown): RawSourceItemDetail["sourceSignals"] {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is NonNullable<RawSourceItemDetail["sourceSignals"]>[number] => {
+          if (!isRecord(item)) {
+            return false;
+          }
+
+          return (
+            typeof item.source === "string" &&
+            typeof item.label === "string" &&
+            typeof item.score === "number"
+          );
+        })
+        .map((item) => ({
+          source: item.source,
+          label: item.label,
+          score: item.score,
+          evidence: typeof item.evidence === "string" ? item.evidence : undefined
+        }))
+    : undefined;
+}
+
+function rawSourceItemDetailFromRecord(row: RawSourceItemRecord): RawSourceItemDetail | null {
+  const parsed = isRecord(row.parsedPayload) ? row.parsedPayload : {};
+  const title = typeof parsed.title === "string" ? parsed.title : row.title;
+  const city = typeof parsed.city === "string" ? parsed.city : row.city;
+  const itemType = typeof parsed.itemType === "string" ? parsed.itemType : row.itemType;
+
+  if (!title || !city || (itemType !== "event" && itemType !== "venue")) {
+    return null;
+  }
+
+  return {
+    id: typeof parsed.id === "string" ? parsed.id : row.sourceKey,
+    source: row.source,
+    sourceId: typeof parsed.sourceId === "string" ? parsed.sourceId : row.sourceId ?? undefined,
+    sourceUrl: typeof parsed.sourceUrl === "string" ? parsed.sourceUrl : row.sourceUrl ?? undefined,
+    title,
+    content: typeof parsed.content === "string" ? parsed.content : row.content ?? undefined,
+    author: typeof parsed.author === "string" ? parsed.author : row.author ?? undefined,
+    rawPayload: parsed.rawPayload ?? row.rawPayload ?? undefined,
+    city,
+    area: typeof parsed.area === "string" ? parsed.area : row.area ?? undefined,
+    publishedAt:
+      typeof parsed.publishedAt === "string"
+        ? parsed.publishedAt
+        : row.publishedAt?.toISOString(),
+    status: "new",
+    itemType,
+    address: typeof parsed.address === "string" ? parsed.address : undefined,
+    lat: typeof parsed.lat === "number" ? parsed.lat : undefined,
+    lng: typeof parsed.lng === "number" ? parsed.lng : undefined,
+    startsAt: typeof parsed.startsAt === "string" ? parsed.startsAt : undefined,
+    endsAt: typeof parsed.endsAt === "string" ? parsed.endsAt : undefined,
+    imageUrl: typeof parsed.imageUrl === "string" ? parsed.imageUrl : undefined,
+    tags: stringArray(parsed.tags),
+    trendScore: typeof parsed.trendScore === "number" ? parsed.trendScore : undefined,
+    confidence: typeof parsed.confidence === "number" ? parsed.confidence : undefined,
+    priceLevel: typeof parsed.priceLevel === "number" ? parsed.priceLevel : undefined,
+    quietness: typeof parsed.quietness === "number" ? parsed.quietness : undefined,
+    popularity: typeof parsed.popularity === "number" ? parsed.popularity : undefined,
+    qualityFlags: stringArray(parsed.qualityFlags),
+    sourceSignals: sourceSignals(parsed.sourceSignals)
+  };
+}
+
 function parsedPayloadFor(
   item: RawSourceItemDetail,
   normalized: LlmIngestNormalizeResult
@@ -253,22 +352,43 @@ function parsedPayloadFor(
   });
 }
 
-async function normalizeItem(input: {
+async function clearExistingSignalsForRawItem(input: {
   item: RawSourceItemDetail;
   sourceKey: string;
-  runId: string;
+  rawSourceItemId: string;
 }) {
-  await upsertRawSourceItem(input);
+  await prisma.citySignalPlaceMatch.deleteMany({
+    where: {
+      source: input.item.source,
+      rawSourceItemId: input.rawSourceItemId
+    }
+  });
+  await prisma.$executeRaw`
+    DELETE FROM "CitySignal"
+    WHERE "source" = ${input.item.source}
+      AND "metadata"->>'sourceKey' = ${input.sourceKey}
+  `;
+}
+
+async function normalizeRawSourceItemRecord(input: {
+  rawSourceItem: RawSourceItemRecord;
+  item: RawSourceItemDetail;
+}) {
+  await clearExistingSignalsForRawItem({
+    item: input.item,
+    sourceKey: input.rawSourceItem.sourceKey,
+    rawSourceItemId: input.rawSourceItem.id
+  });
   const normalizedInput = await normalizeSourceItemForIngest({
     item: input.item,
-    sourceKey: input.sourceKey
+    sourceKey: input.rawSourceItem.sourceKey
   });
   const normalized = await upsertNormalizedEntity(normalizedInput.entity);
 
   if (!normalized) {
     await prisma.rawSourceItem.update({
       where: {
-        sourceKey: input.sourceKey
+        id: input.rawSourceItem.id
       },
       data: {
         status: "ignored",
@@ -286,23 +406,46 @@ async function normalizeItem(input: {
 
   const signals = buildCitySignalRows(
     input.item,
-    input.sourceKey,
+    input.rawSourceItem.sourceKey,
     normalized.entityId,
     normalizedInput.entity ?? undefined
   );
 
   if (signals.length > 0) {
-    await prisma.citySignal.createMany({
-      data: signals.map((signal) => ({
-        ...signal,
-        metadata: toJson(signal.metadata)
-      }))
-    });
+    if (input.item.source === "xiaohongshu" || input.item.source === "damai") {
+      const createdSignals = [];
+
+      for (const signal of signals) {
+        createdSignals.push(
+          await prisma.citySignal.create({
+            data: {
+              ...signal,
+              metadata: toJson(signal.metadata)
+            }
+          })
+        );
+      }
+
+      await matchXiaohongshuSignalsToAmapVenues({
+        item: input.item,
+        sourceKey: input.rawSourceItem.sourceKey,
+        rawSourceItemId: input.rawSourceItem.id,
+        normalizedEntity: normalizedInput.entity,
+        citySignals: createdSignals
+      });
+    } else {
+      await prisma.citySignal.createMany({
+        data: signals.map((signal) => ({
+          ...signal,
+          metadata: toJson(signal.metadata)
+        }))
+      });
+    }
   }
 
   await prisma.rawSourceItem.update({
     where: {
-      sourceKey: input.sourceKey
+      id: input.rawSourceItem.id
     },
     data: {
       status: "normalized",
@@ -316,6 +459,108 @@ async function normalizeItem(input: {
     normalized: true,
     citySignalsCreated: signals.length
   };
+}
+
+export async function normalizeRawSourceItemById(rawSourceItemId: string) {
+  const rawSourceItem = await prisma.rawSourceItem.findUnique({
+    where: {
+      id: rawSourceItemId
+    }
+  });
+
+  if (!rawSourceItem) {
+    throw new Error(`Raw source item not found: ${rawSourceItemId}`);
+  }
+
+  const item = rawSourceItemDetailFromRecord(rawSourceItem);
+
+  if (!item) {
+    await prisma.rawSourceItem.update({
+      where: {
+        id: rawSourceItem.id
+      },
+      data: {
+        status: "error",
+        parsedPayload: toJson({
+          rawSourceItem,
+          normalizeError: "invalid_raw_source_item_payload"
+        })
+      }
+    });
+
+    return {
+      normalized: false,
+      ignored: false,
+      citySignalsCreated: 0
+    };
+  }
+
+  try {
+    const result = await normalizeRawSourceItemRecord({
+      rawSourceItem,
+      item
+    });
+
+    return {
+      normalized: result.normalized,
+      ignored: !result.normalized,
+      citySignalsCreated: result.citySignalsCreated
+    };
+  } catch (error) {
+    await prisma.rawSourceItem.update({
+      where: {
+        id: rawSourceItem.id
+      },
+      data: {
+        status: "error",
+        parsedPayload: toJson({
+          ...item,
+          normalizeError: error instanceof Error ? error.message : String(error)
+        })
+      }
+    });
+
+    throw error;
+  }
+}
+
+export async function processPendingRawSourceItems(
+  input: NormalizePendingRawSourceItemsInput = {}
+): Promise<NormalizePendingRawSourceItemsResult> {
+  const rows = await prisma.rawSourceItem.findMany({
+    where: {
+      status: "new",
+      ...(input.source ? { source: input.source } : {}),
+      ...(input.ingestRunId ? { ingestRunId: input.ingestRunId } : {})
+    },
+    orderBy: {
+      lastSeenAt: "desc"
+    },
+    take: input.limit ?? 50
+  });
+  const result: NormalizePendingRawSourceItemsResult = {
+    scanned: rows.length,
+    normalized: 0,
+    ignored: 0,
+    failed: 0,
+    citySignalsCreated: 0,
+    errors: []
+  };
+
+  for (const row of rows) {
+    try {
+      const itemResult = await normalizeRawSourceItemById(row.id);
+
+      result.normalized += itemResult.normalized ? 1 : 0;
+      result.ignored += itemResult.ignored ? 1 : 0;
+      result.citySignalsCreated += itemResult.citySignalsCreated;
+    } catch (error) {
+      result.failed += 1;
+      result.errors.push(`${row.sourceKey}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return result;
 }
 
 async function ingestSource(run: IngestRunRecord, source: string): Promise<SourceIngestResult> {
@@ -410,20 +655,16 @@ async function ingestSource(run: IngestRunRecord, source: string): Promise<Sourc
     const collected = await collectAdapterItems(run, source);
     fetched = collected.items.length;
     let rawUpserted = 0;
-    let normalized = 0;
-    let citySignalsCreated = 0;
 
     for (const item of collected.items) {
       const sourceKey = createSourceKey(item);
-      const result = await normalizeItem({
+      await upsertRawSourceItem({
         item,
         sourceKey,
         runId: run.id
       });
 
       rawUpserted += 1;
-      normalized += result.normalized ? 1 : 0;
-      citySignalsCreated += result.citySignalsCreated;
     }
 
     await prisma.sourceConnector.update({
@@ -443,8 +684,8 @@ async function ingestSource(run: IngestRunRecord, source: string): Promise<Sourc
       status: "completed",
       fetched,
       rawUpserted,
-      normalized,
-      citySignalsCreated
+      normalized: 0,
+      citySignalsCreated: 0
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown source error";
@@ -531,5 +772,6 @@ export async function executeIngestRun(runId: string) {
 
 export const __testing = {
   eventDataForEntity,
-  venueDataForEntity
+  venueDataForEntity,
+  rawSourceItemDetailFromRecord
 };

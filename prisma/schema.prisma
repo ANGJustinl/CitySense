@@ -69,6 +69,8 @@ model Event {
   sourceUrl   String?
   imageUrl    String?
   imageSource String?
+  venueId     String?
+  venue       Venue?   @relation("EventVenue", fields: [venueId], references: [id], onDelete: SetNull)
   trendScore  Float    @default(0)
   confidence  Float    @default(0)
   qualityScore Float    @default(50)
@@ -80,6 +82,7 @@ model Event {
   @@index([area])
   @@index([startTime])
   @@index([qualityScore])
+  @@index([venueId])
 }
 
 model Venue {
@@ -104,6 +107,7 @@ model Venue {
   confidence  Float    @default(0)
   qualityScore Float    @default(50)
   qualityFlags String[] @default([])
+  events      Event[]  @relation("EventVenue")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -126,6 +130,31 @@ model CitySignal {
   @@index([area])
   @@index([tag])
   @@index([capturedAt])
+}
+
+model CitySignalPlaceMatch {
+  id              String   @id @default(cuid())
+  source          String
+  rawSourceItemId String?
+  citySignalId    String?
+  venueId         String?
+  status          String
+  algorithmScore  Float    @default(0)
+  llmConfidence   Float?
+  matchedFields   String[] @default([])
+  reason          String?
+  metadata        Json?
+  reviewedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([source])
+  @@index([status])
+  @@index([rawSourceItemId])
+  @@index([citySignalId])
+  @@index([venueId])
+  @@index([source, status])
+  @@index([venueId, status])
 }
 
 model IngestRun {

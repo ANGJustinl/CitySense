@@ -27,7 +27,11 @@ function hasCoordinates(candidate: TrafficCandidate) {
 }
 
 function normalizedAddress(candidate: TrafficCandidate) {
-  return candidate.address?.replace(/\([^)]*\)|（[^）]*）/g, "").replace(/\s+/g, "").trim().toLowerCase();
+  return candidate.address
+    ?.replace(/\([^)]*\)|（[^）]*）/g, "")
+    .replace(/[^\p{Script=Han}a-z0-9]/giu, "")
+    .trim()
+    .toLowerCase();
 }
 
 function addressStreetNumber(address: string | undefined) {
@@ -49,8 +53,24 @@ function commonPrefixLength(a: string, b: string) {
 }
 
 function samePlaceCluster(a: TrafficCandidate, b: TrafficCandidate) {
+  const aVenueId = a.venueId ?? (a.type === "venue" ? a.id : undefined);
+  const bVenueId = b.venueId ?? (b.type === "venue" ? b.id : undefined);
+
+  if (aVenueId && bVenueId && aVenueId === bVenueId) {
+    return true;
+  }
+
   const aAddress = normalizedAddress(a);
   const bAddress = normalizedAddress(b);
+  const aName = normalizedName(a);
+  const bName = normalizedName(b);
+
+  if (
+    (aAddress && bName.length >= 5 && (aAddress.includes(bName) || bName.includes(aAddress))) ||
+    (bAddress && aName.length >= 5 && (bAddress.includes(aName) || aName.includes(bAddress)))
+  ) {
+    return true;
+  }
 
   if (aAddress && bAddress && aAddress === bAddress) {
     return true;
@@ -58,8 +78,6 @@ function samePlaceCluster(a: TrafficCandidate, b: TrafficCandidate) {
 
   const aStreet = addressStreetNumber(aAddress);
   const bStreet = addressStreetNumber(bAddress);
-  const aName = normalizedName(a);
-  const bName = normalizedName(b);
 
   if (aStreet && bStreet && aStreet === bStreet && commonPrefixLength(aName, bName) >= 5) {
     return true;

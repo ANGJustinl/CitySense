@@ -3,16 +3,19 @@ import {
   toNormalizedEntityInput,
   type NormalizedEntityInput
 } from "@/server/ingest/normalize";
-import { resolveOpenAiBaseUrl } from "@/server/ai/openai-config";
+import {
+  createLlmClient,
+  llmTimeoutMs,
+  OpenAiCompatibleClient,
+  withLlmTimeout
+} from "@/server/ai/llm-client";
 import { canonicalizeArea, textMentionsArea } from "@/server/geo/area-normalizer";
 import type { CandidateType } from "@/server/recommendation/types";
 import type { RawSourceItemDetail } from "@/server/sources/source.types";
 
-const DEFAULT_OPENAI_MODEL = "gpt-5.5";
+const DEFAULT_OPENAI_MODEL = "glm-4.6";
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_TAGS = 8;
-
-type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
 export type LlmIngestNormalizeStatus =
   | "disabled"
@@ -211,12 +214,6 @@ function normalizeTags(value: unknown, fallback: string[]) {
   return (unique.length > 0 ? unique : fallback).slice(0, MAX_TAGS);
 }
 
-function numberFromEnv(name: string, fallback: number) {
-  const parsed = Number(process.env[name]);
-
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
 function isFlagDisabled(value?: string) {
   const normalized = value?.trim().toLowerCase();
 
@@ -383,7 +380,9 @@ function entityFromOutput(input: {
       : input.draft?.quietness ?? input.item.quietness,
     popularity: parsed.popularity
       ? clamp(parsed.popularity, 0, 100, input.draft?.popularity ?? input.item.popularity ?? 50)
-      : input.draft?.popularity ?? input.item.popularity
+      : input.draft?.popularity ?? input.item.popularity,
+    // qualityFlags is a system-reserved field: LLM cannot rewrite it.
+    qualityFlags: input.draft?.qualityFlags ?? input.item.qualityFlags
   };
 
   return {
@@ -393,136 +392,24 @@ function entityFromOutput(input: {
 }
 
 function createDefaultClient(): LlmIngestNormalizerClient | undefined {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-
-  if (!apiKey) {
-    return undefined;
-  }
-
-  return new OpenAIIngestNormalizerClient({
-    apiKey,
-    baseUrl: resolveOpenAiBaseUrl(),
-    model: process.env.OPENAI_MODEL?.trim() || DEFAULT_OPENAI_MODEL,
-    fetchFn: fetch
-  });
+  const shared = createLlmClient({ defaultModel: DEFAULT_OPENAI_MODEL });
+  return shared ? adaptSharedClient(shared) : undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function extractOutputText(value: unknown) {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  if (typeof value.output_text === "string" && value.output_text.trim()) {
-    return value.output_text.trim();
-  }
-
-  const chunks: string[] = [];
-
-  if (Array.isArray(value.output)) {
-    for (const output of value.output) {
-      if (!isRecord(output) || !Array.isArray(output.content)) {
-        continue;
-      }
-
-      for (const content of output.content) {
-        if (isRecord(content) && typeof content.text === "string") {
-          chunks.push(content.text);
-        }
-      }
-    }
-  }
-
-  return chunks.join("").trim() || null;
-}
-
-class OpenAIIngestNormalizerClient implements LlmIngestNormalizerClient {
-  private readonly apiKey: string;
-  private readonly baseUrl: string;
-  private readonly model: string;
-  private readonly fetchFn: FetchLike;
-
-  constructor(input: {
-    apiKey: string;
-    baseUrl: string;
-    model: string;
-    fetchFn: FetchLike;
-  }) {
-    this.apiKey = input.apiKey;
-    this.baseUrl = input.baseUrl.replace(/\/$/, "");
-    this.model = input.model;
-    this.fetchFn = input.fetchFn;
-  }
-
-  async normalize(
-    request: LlmIngestNormalizerRequest,
-    signal?: AbortSignal
-  ): Promise<LlmIngestNormalizerOutput | null> {
-    const response = await this.fetchFn(`${this.baseUrl}/responses`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json"
-      },
-      signal,
-      body: JSON.stringify({
-        model: this.model,
+/** Adapts the shared OpenAI-compatible client to the normalizer's interface. */
+function adaptSharedClient(client: OpenAiCompatibleClient): LlmIngestNormalizerClient {
+  return {
+    async normalize(request, signal) {
+      const text = await client.completeJsonOrNull({
         instructions: LLM_NORMALIZE_INSTRUCTIONS,
-        input: JSON.stringify(request),
-        text: {
-          format: {
-            type: "json_schema",
-            name: "citysense_ingest_normalization",
-            strict: true,
-            schema: LLM_NORMALIZE_SCHEMA
-          }
-        },
-        store: false,
-        max_output_tokens: 1_000
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI ingest normalization failed: ${response.status}`);
+        schema: LLM_NORMALIZE_SCHEMA,
+        userPayload: request,
+        maxTokens: 1_000,
+        signal
+      });
+      return text ? llmOutputSchema.parse(JSON.parse(text)) : null;
     }
-
-    const data: unknown = await response.json();
-    const text = extractOutputText(data);
-
-    if (!text) {
-      return null;
-    }
-
-    return llmOutputSchema.parse(JSON.parse(text));
-  }
-}
-
-async function normalizeWithTimeout(
-  client: LlmIngestNormalizerClient,
-  request: LlmIngestNormalizerRequest,
-  timeoutMs: number
-) {
-  const controller = new AbortController();
-  let timeout: NodeJS.Timeout | undefined;
-
-  try {
-    return await Promise.race([
-      client.normalize(request, controller.signal),
-      new Promise<null>((_, reject) => {
-        timeout = setTimeout(() => {
-          controller.abort();
-          reject(new Error("LLM ingest normalization timed out"));
-        }, timeoutMs);
-      })
-    ]);
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-  }
+  };
 }
 
 function errorStatus(error: unknown): Extract<LlmIngestNormalizeStatus, "timeout" | "tool_error"> {
@@ -561,11 +448,11 @@ export async function normalizeSourceItemForIngest(
   }
 
   try {
-    const output = await normalizeWithTimeout(
-      client,
-      createRequest(input.item, draft),
-      input.timeoutMs ?? numberFromEnv("CITYSENSE_LLM_NORMALIZE_TIMEOUT_MS", DEFAULT_TIMEOUT_MS)
-    );
+    const request = createRequest(input.item, draft);
+    const output = await withLlmTimeout({
+      timeoutMs: input.timeoutMs ?? llmTimeoutMs("CITYSENSE_LLM_NORMALIZE_TIMEOUT_MS", DEFAULT_TIMEOUT_MS),
+      task: (signal) => client.normalize(request, signal)
+    });
 
     if (!output) {
       return {
