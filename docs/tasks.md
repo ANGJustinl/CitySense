@@ -1025,11 +1025,11 @@
 - 真实 smoke：简单问候 → 流式自我介绍（30+ delta + done）；"最近上海流行什么" → 触发 get_city_pulse 工具调用 → 基于真实数据回复（4 个 up 趋势、80 次出行）。
 - 已知问题（非本次引入）：`recommendation-v1.test.ts` 的 "route assembler prefers fully addressed routes" 用例在 P2-002 提交（3ad63bd）即失败，与 P2-004 无关，需后续单独修复。
 
-### TASK-P2-005：首页清新化重构（地图优先 + 情绪化输入）
+### TASK-P2-005：首页清新化重构（地图优先 + 情绪化输入 + 画像精细化）
 
 - 状态：`待审批`
 - 负责人：Codex / 用户
-- 是否需要审批：是，作为 demo 主界面的视觉重构，涉及首页布局结构和 CSS 变量契约变化。
+- 是否需要审批：是，作为 demo 主界面的视觉重构，涉及首页布局结构、CSS 变量契约变化和多个面板视觉改造。
 
 背景与现状：
 
@@ -1037,18 +1037,20 @@
 - demo 方向已确认：**面向用户的清新实用 UI**，而非评委导向的高信息密度展示。
 - 项目里已有情绪化视觉组件（`components/explorer/MoodOrbSelector`、`GiftRouteCard`、`CityPulseLoader`），目前在 `/explore` `/demo` 页面用 mock 数据展示，和真实推荐系统割裂。
 - MoodOrbSelector 的数据契约（`{value: MoodType, onChange}`）和现有 mood state 完全兼容，可直接接入。
+- 用户画像面板（P2-002）功能完整但视觉朴素：偏好/反感因子是纯文字标签云（`tag:咖啡 +8`），像调试面板而非"用户档案"。
 
 目标：
 
 - 将首页从"工具感工作台"重构为"清新实用的产品界面"，同时保留地图为视觉中心。
-- 左侧偏好输入情绪化：心情选择用 MoodOrbSelector（球体选择器）替代干巴巴的分段按钮；兴趣标签放大、加 emoji。
-- 右侧面板精简：城市脉冲 + 用户画像合并为一个可折叠的"推荐透视"区，默认折叠；路线 inspector 保留但加来源徽章。
-- 中间地图区降噪：指标条默认折叠，点击"为什么推荐？"展开。
+- **左侧偏好输入情绪化**：心情选择用 MoodOrbSelector（球体选择器）替代干巴巴的分段按钮；兴趣标签放大、加 emoji。
+- **右侧面板精简**：城市脉冲 + 用户画像合并为一个可折叠的"推荐透视"区，默认折叠；路线 inspector 保留但加来源徽章。
+- **中间地图区降噪**：指标条默认折叠，点击"为什么推荐？"展开。
+- **用户画像面板精细化**：偏好/反感因子用 emoji + 色块卡片网格展示，强偏好卡片更大/更亮；空状态引导式占位。
 - 保留轻量来源徽章（让用户感知推荐真实性），但完整技术面板不默认暴露。
 
 方案与约束：
 
-- **不重写整个工作台**，分层改造现有 `RecommendationWorkspace`：输入栏情绪化 → 右侧面板精简 → 中间地图降噪。
+- **不重写整个工作台**，分层改造现有 `RecommendationWorkspace`：输入栏情绪化 → 右侧面板精简 → 中间地图降噪 → 画像面板精细化。
 - **不改推荐算法/数据契约**：推荐接口、路线组装、画像逻辑都不动。
 - **不改 AI 助手**：ChatDock/ChatDrawer 继续作为浮动入口。
 - **不改路线详情页**：`/routes/[id]` 保持现状。
@@ -1056,61 +1058,17 @@
 - MoodOrbSelector 自注入 `<style>` 标签（运行时），使用 `.mood-orb-*` 命名空间，不依赖 globals.css，不和现有样式冲突。
 - 折叠区用原生 `<details>/<summary>`（无 JS、无 a11y 问题）或 useState + CSS transition。
 - 数据映射（如需接 GiftRouteCard）：duration/distance/score/tags/image 字段格式化，复用 `components/city/route-display.ts` 的 formatDistance。
+- 画像卡片：emoji 映射（tag/source/area 各有默认 emoji，未映射用通用 emoji）；卡片大小映射权重（≥6 大卡、3-5 中卡、1-2 小卡）；偏好用 teal 系，反感用弱化 coral 系；不改 `UserProfileMeta` 数据结构。
 
-计划触达文件：
+实施阶段：
 
-- 修改：`components/RecommendationWorkspace.tsx`（左侧输入情绪化 + 右侧面板精简 + 指标条折叠 + grid 列数调整 + CSS 变量契约）
-- 修改：`components/city/RouteInspector.tsx`（路线选项卡片加来源徽章和推荐分）
-- 修改：`app/globals.css`（`.workspace.map-first` grid-template 从 5 列改 3 列；折叠区样式；情绪化标签样式）
-- 复用：`components/explorer/MoodOrbSelector`（直接接入，零适配）
-- 可选修改：`components/city/SourceSignalBadge` / `TrafficBadge`（如需在路线选项卡片复用）
-- 清理：删除孤立的 `app/explorer.css`（628 行，无人 import）
+1. **左侧输入栏情绪化**：MoodOrbSelector 替换心情分段按钮；兴趣标签放大加 emoji。
+2. **右侧面板精简**：3 列（inspector + pulse + profile）合并为 inspector + 可折叠"推荐透视"区。
+3. **中间地图降噪**：指标条包进 `<details>` 默认折叠，收起时显示一行摘要。
+4. **用户画像面板精细化**：偏好/反感用 emoji 色块卡片网格；强偏好更大更亮；空状态引导式占位；权重视觉强度替代裸露数字。
+5. **清理 + 验证**：删除孤立的 `app/explorer.css`；typecheck/lint/build/smoke。
 
-验收标准：
-
-- [ ] 左侧心情选择是情绪化球体（MoodOrbSelector），不是干巴巴的分段按钮。
-- [ ] 兴趣标签是大尺寸带 emoji 的，不是小 chip。
-- [ ] 右侧只有 1 个路线 inspector 列 + 1 个可折叠"推荐透视"区（不再是 3 列）。
-- [ ] 路线选项卡片显示来源徽章和推荐分。
-- [ ] 指标条默认折叠，可展开。
-- [ ] 生成路线、AI 助手、反馈按钮仍正常工作。
-- [ ] 桌面端和移动端布局都不出现溢出或重叠。
-- [ ] `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 通过。
-
-风险与降级：
-
-- MoodOrbSelector 自注入样式如和 globals.css 冲突：可提取其 `<style>` 到 globals.css 统一管理。
-- grid 列数变化导致 resize handle 失效：resize handle 是成对的（left+right），删列要同步删对应 handle，WorkspacePanel 类型同步调整。
-- 折叠区交互定制：原生 `<details>` 样式定制有限，如需更精细控制用 useState + CSS transition。
-
-审批记录：
-
-- 审批人：
-- 日期：
-- 结论：
-
-### TASK-P2-007：用户画像面板视觉精细化（卡片网格 + emoji 色块）
-
-- 状态：`待审批`
-- 负责人：Codex / 用户
-- 是否需要审批：否，纯前端组件视觉改造，不涉及数据契约、推荐算法或外部 API。
-
-背景与现状：
-
-- 用户画像面板（`components/city/UserProfilePanel.tsx`）功能完整（P2-002），但视觉朴素：偏好/反感因子用纯文字标签云（`tag:咖啡 +8`）、来源/样本/曝光是干巴巴的键值对、空状态是一段灰字。
-- 当前视觉问题：权重数字裸露用户无法感知强弱；tag/source/area/price 维度混合无分组；整体像调试面板而非"用户档案"。
-- 决策已确认：视觉风格为**卡片网格（emoji + 色块）**，强偏好卡片更大/更亮；范围**只改 UserProfilePanel 组件 + 其 CSS**。
-
-目标：
-
-- 把画像面板从"调试信息"重构为"用户档案"——让用户一眼看到自己被系统理解成什么样。
-- 偏好因子用 emoji + 色块卡片展示，强偏好（高权重）卡片视觉更突出（更大/更饱和/带光晕）。
-- 反感因子用弱化的 coral 色块卡片，视觉权重低于偏好。
-- 维度分组：tag/source/area 各为一组，组内有 emoji 图标和维度标签。
-- 空状态从灰字改为有引导感的插画式占位（emoji 大图标 + 引导文案 + 示例反馈按钮）。
-- 权重用视觉强度（色块大小/饱和度/条形）而非裸露数字表达。
-
-视觉设计（卡片网格方案）：
+画像面板视觉设计（卡片网格方案）：
 
 ```
 ┌─────────────────────────────────┐
@@ -1140,38 +1098,39 @@
 └─────────────────────────────────┘
 ```
 
-方案与约束：
-
-- **只改 UserProfilePanel 组件 + 其 CSS**（globals.css 的 `.profile-*` 规则），不动其他面板。
-- 不改数据契约：`UserProfileMeta`（topPositive/topNegative/recentExposureHits/source）结构不变。
-- emoji 映射：tag/source/area 维度各有默认 emoji（如 tag:咖啡→☕、source:amap-poi→📍、area:静安→🏙）；未映射的用通用 emoji（✨/⚠）。
-- 卡片大小映射权重：weight ≥ 6 大卡、3-5 中卡、1-2 小卡；色块饱和度随权重递增。
-- 偏好卡片用 teal 系（`--accent`），反感卡片用 coral 系（`--coral`），弱化处理。
-- 空状态：大 emoji 图标 + "还没有画像数据" + 引导（"给路线点'有帮助'，系统会更懂你"）+ 3 个示例反馈引导。
-- 沿用现有 8px 圆角、轻边框、shadow 风格。
-
 计划触达文件：
 
-- 修改：`components/city/UserProfilePanel.tsx`（卡片网格布局 + emoji 映射 + 权重视觉强度）
-- 修改：`app/globals.css`（`.profile-stack` 内的偏好/反感卡片网格样式、空状态、响应式）
-- 不改：`server/recommendation/profile.types.ts`、`server/recommendation/user-profile.ts`、API 路由
+- 修改：`components/RecommendationWorkspace.tsx`（左侧输入情绪化 + 右侧面板精简 + 指标条折叠 + grid 列数调整 + CSS 变量契约）
+- 修改：`components/city/RouteInspector.tsx`（路线选项卡片加来源徽章和推荐分）
+- 修改：`components/city/UserProfilePanel.tsx`（卡片网格布局 + emoji 映射 + 权重视觉强度 + 空状态）
+- 修改：`app/globals.css`（`.workspace.map-first` grid 从 5 列改 3 列；折叠区样式；情绪化标签样式；画像卡片网格 `.profile-*` 样式）
+- 复用：`components/explorer/MoodOrbSelector`（直接接入，零适配）
+- 可选修改：`components/city/SourceSignalBadge` / `TrafficBadge`（如需在路线选项卡片复用）
+- 清理：删除孤立的 `app/explorer.css`（628 行，无人 import）
+- 不改：推荐算法、数据契约、API 路由、AI 助手、路线详情页
 
 验收标准：
 
+- [ ] 左侧心情选择是情绪化球体（MoodOrbSelector），不是干巴巴的分段按钮。
+- [ ] 兴趣标签是大尺寸带 emoji 的，不是小 chip。
+- [ ] 右侧只有 1 个路线 inspector 列 + 1 个可折叠"推荐透视"区（不再是 3 列）。
+- [ ] 路线选项卡片显示来源徽章和推荐分。
+- [ ] 指标条默认折叠，可展开。
 - [ ] 偏好因子以 emoji + 色块卡片展示，不再是纯文字标签。
 - [ ] 强偏好（高权重）卡片视觉更突出（更大/更饱和）。
 - [ ] 反感因子用弱化 coral 色块，视觉权重低于偏好。
 - [ ] 空状态有引导感的插画式占位（大 emoji + 引导文案）。
-- [ ] 权重用视觉强度表达，不裸露数字（或数字弱化为辅助）。
-- [ ] 清空画像按钮仍正常工作。
-- [ ] 不改数据契约和 API。
-- [ ] `pnpm typecheck`、`pnpm lint`、`pnpm build` 通过。
+- [ ] 生成路线、AI 助手、反馈按钮仍正常工作。
+- [ ] 桌面端和移动端布局都不出现溢出或重叠。
+- [ ] `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 通过。
 
 风险与降级：
 
-- emoji 映射不全：未映射维度用通用 emoji 兜底，不报错。
-- 卡片数量过多：限制 topPositive 显示数量（如 6 个），超出可折叠。
-- 响应式：窄屏下列数降级（3列→2列→1列）。
+- MoodOrbSelector 自注入样式如和 globals.css 冲突：可提取其 `<style>` 到 globals.css 统一管理。
+- grid 列数变化导致 resize handle 失效：resize handle 是成对的（left+right），删列要同步删对应 handle，WorkspacePanel 类型同步调整。
+- 折叠区交互定制：原生 `<details>` 样式定制有限，如需更精细控制用 useState + CSS transition。
+- 画像 emoji 映射不全：未映射维度用通用 emoji 兜底，不报错。
+- 画像卡片数量过多：限制 topPositive 显示数量（如 6 个），超出可折叠。
 
 审批记录：
 
@@ -1195,7 +1154,6 @@
 - [x] 审查并批准 `TASK-P2-002`。
 - [x] TASK-P2-004 无需审批(辅助交互层)。
 - [ ] 审查并批准 `TASK-P2-005`。
-- [ ] TASK-P2-007 无需审批(纯前端视觉改造)。
 
 ## 变更记录
 
@@ -1224,4 +1182,4 @@
 - 2026-06-14：完成 TASK-P2-002 用户品味画像 MVP
 - 2026-06-14：完成 TASK-P2-004 AI 对话分析助手
 - 2026-06-14：新增 TASK-P2-005 首页清新化重构
-- 2026-06-14：新增 TASK-P2-007 用户画像面板视觉精细化,规划卡片网格(emoji+色块)替代纯文字标签云,强偏好卡片更突出,空状态引导式占位。,规划地图优先+情绪化输入(MoodOrbSelector 复用、grid 5列→3列、技术面板折叠、来源徽章保留)。,新增 chat-client(glm-4-flash 流式+tools)/chat-tools(4工具)/chat-session(Redis 历史)/SSE端点/useChat hook/ChatDrawer+ChatDock,挂载到工作台右下角浮动入口;真实 smoke 验证流式回复+工具调用链路通过。，新增画像服务（profile.types / user-profile-core 纯计算 / user-profile prisma 封装）、6 维度正负权重 + 新鲜度曝光惩罚、读时懒重算 + TTL、推荐链路接入（user-signals/features/ranker/recommend）、`GET/DELETE /api/user-profile`、UserProfilePanel explain 面板（工作台第 5 列）；128 个测试通过,真实 smoke 验证反馈→画像→explain→清空→回退全链路。
+- 2026-06-14：合并 TASK-P2-005 与 P2-007 为统一的首页清新化重构 task(地图优先+情绪化输入+画像面板卡片网格精细化)。,规划地图优先+情绪化输入(MoodOrbSelector 复用、grid 5列→3列、技术面板折叠、来源徽章保留)。,新增 chat-client(glm-4-flash 流式+tools)/chat-tools(4工具)/chat-session(Redis 历史)/SSE端点/useChat hook/ChatDrawer+ChatDock,挂载到工作台右下角浮动入口;真实 smoke 验证流式回复+工具调用链路通过。，新增画像服务（profile.types / user-profile-core 纯计算 / user-profile prisma 封装）、6 维度正负权重 + 新鲜度曝光惩罚、读时懒重算 + TTL、推荐链路接入（user-signals/features/ranker/recommend）、`GET/DELETE /api/user-profile`、UserProfilePanel explain 面板（工作台第 5 列）；128 个测试通过,真实 smoke 验证反馈→画像→explain→清空→回退全链路。
