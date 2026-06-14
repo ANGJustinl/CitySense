@@ -211,7 +211,14 @@ function readMetadata(raw: unknown): PreferenceMetadata {
     return emptyMetadata();
   }
 
-  const value = raw as Partial<PreferenceMetadata>;
+  // v1 数据存放在 metadata.tags 子键下（与 v2 的 metadata.profile 分离）。
+  // 向后兼容：若没有 tags 子键但顶层是 v1 结构（approvedTags 等），按扁平 v1 读取。
+  const root = raw as Record<string, unknown>;
+  const value =
+    (root.tags && typeof root.tags === "object"
+      ? (root.tags as Partial<PreferenceMetadata>)
+      : (root as Partial<PreferenceMetadata>));
+
   return {
     approvedTags:
       value.approvedTags && typeof value.approvedTags === "object"
@@ -394,6 +401,12 @@ export async function setTagPreference(input: {
     .findUnique({ where: { userId } })
     .catch(() => null);
 
+  // read-modify-write：保留 metadata 中其他子键（如 v2 的 metadata.profile），
+  // 只更新 metadata.tags 子键。旧数据（扁平结构）会被迁移到 tags 子键。
+  const storedRoot =
+    existing?.metadata && typeof existing.metadata === "object"
+      ? (existing.metadata as Record<string, unknown>)
+      : {};
   const metadata = readMetadata(existing?.metadata);
   metadata.tagHistory.push({ tag: trimmedTag, action, at: new Date().toISOString() });
   // Cap history to avoid unbounded growth.
@@ -417,10 +430,12 @@ export async function setTagPreference(input: {
   // skip: status stays pending, only history updated.
 
   const approvedTags = Object.keys(metadata.approvedTags);
+  // 合并：保留其他子键，覆盖 tags 子键。
+  const mergedMetadata = { ...storedRoot, tags: toJson(metadata) };
   const data = {
     userId,
     interests: approvedTags,
-    metadata: toJson(metadata)
+    metadata: toJson(mergedMetadata)
   };
 
   await prisma.userPreference.upsert({

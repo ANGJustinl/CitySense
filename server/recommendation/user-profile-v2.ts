@@ -416,15 +416,27 @@ export async function recomputeUserProfile(userId: string): Promise<UserProfileS
     };
 
     try {
+      // read-modify-write：保留 metadata 中其他子键（如 v1 的 metadata.tags），
+      // 只更新 metadata.profile 子键。
+      const stored = await prisma.userPreference.findUnique({
+        where: { userId },
+        select: { metadata: true }
+      });
+      const storedRoot =
+        stored?.metadata && typeof stored.metadata === "object"
+          ? (stored.metadata as Record<string, unknown>)
+          : {};
+      const mergedMetadata = { ...storedRoot, profile: toJson(snapshot) };
+
       await prisma.userPreference.upsert({
         where: { userId },
         create: {
           userId,
           interests: [],
-          metadata: toJson(snapshot)
+          metadata: toJson(mergedMetadata)
         },
         update: {
-          metadata: toJson(snapshot)
+          metadata: toJson(mergedMetadata)
         }
       });
     } catch {
@@ -449,7 +461,13 @@ function parseStoredMetadata(metadata: unknown): UserProfileSnapshot | null {
   if (!metadata || typeof metadata !== "object") {
     return null;
   }
-  const value = metadata as Partial<UserProfileSnapshot>;
+  // v2 数据存放在 metadata.profile 子键下（与 v1 的 metadata.tags 分离）。
+  // 向后兼容：若没有 profile 子键但顶层有 profileVersion，按扁平结构读取。
+  const root = metadata as Record<string, unknown>;
+  const value =
+    (root.profile && typeof root.profile === "object"
+      ? (root.profile as Partial<UserProfileSnapshot>)
+      : (metadata as Partial<UserProfileSnapshot>));
   if (value.profileVersion !== PROFILE_VERSION) {
     return null;
   }
@@ -679,8 +697,8 @@ export async function getUserProfileSummary(userId: string | undefined) {
 }
 
 /**
- * 清空画像：清空 UserPreference.metadata，保留行（interests 等不动）。
- * 清空后推荐回到无画像状态（验收要求）。
+ * 清空 v2 画像：清空 UserPreference.metadata.profile，保留 metadata.tags（v1 标签表态）
+ * 和行本身（interests 等不动）。清空后推荐回到无画像状态（验收要求）。
  */
 export async function clearUserProfile(userId: string): Promise<{ ok: boolean; clearedAt: string }> {
   const clearedAt = new Date().toISOString();
@@ -689,9 +707,15 @@ export async function clearUserProfile(userId: string): Promise<{ ok: boolean; c
     if (!existing) {
       return { ok: true, clearedAt };
     }
+    // 只移除 profile 子键，保留 tags 子键和其他数据。
+    const root =
+      existing.metadata && typeof existing.metadata === "object"
+        ? (existing.metadata as Record<string, unknown>)
+        : {};
+    const { profile: _, ...rest } = root;
     await prisma.userPreference.update({
       where: { userId },
-      data: { metadata: Prisma.JsonNull }
+      data: { metadata: toJson(rest) }
     });
     return { ok: true, clearedAt };
   } catch {
