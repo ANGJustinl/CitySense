@@ -670,6 +670,149 @@
 - 2026-06-13 优化记录：推荐输入支持默认浏览器定位起点与手动地址起点；手动地址通过高德 geocode 解析后参与距离分、ETA、路线组合顺序和分段 leg 规划，解析失败时降级为城市级推荐。首页地图、时间轴和详情页地图新增起点 marker/名称，路线选择器补充时长、站点和信号摘要，提升路线推荐页面的信息层次。
 - 2026-06-13 交互层级优化：首页右侧改为完整路线选择卡片，首屏优先比较路线时长、站点、信号、推荐分与首尾地点；中间指标条降噪为起点、ETA、路线候选和生成时间；详情页改为决策摘要 + 起点/分段 leg/站点的完整行程列表，来源信号和出行建议后置并补空状态。
 - 2026-06-13 地图主题性格增强：新增展示层 `RoutePersona`，根据地点标签、图片、来源信号推导夜生活能量线、安静文化线、咖啡美食线、热度探索线和城市探索线；首页地图加入主题 chip、双层选中路线、代表地点图片 marker、底部 story card，详情页同步主题摘要和增强 marker；移动端顺序调整为输入 → 路线选择 → 地图/时间轴 → 证据详情。
+
+### TASK-P1-012：小红书趋势到高德 POI 的审查匹配流水线
+
+- 状态：`已完成`
+- 负责人：Codex / 用户
+- 是否需要审批：是，涉及 LLM 审查、MCP/高德 API 调用策略、推荐参与规则和可能的数据库结构。
+
+背景与现状：
+
+- 当前 `xiaohongshu` 已经被限制为城市信号和证据层，泛化社交内容不直接进入路线地点。
+- 当前城市信号叠加主要依赖同城、同区和标签匹配，缺少“小红书热度趋势对应哪个高德地点”的可审查产物。
+- `amap-poi` adapter 当前只产出 `Venue`，不产出 `Event`；高德 POI 是路线 marker 和可达性计算的地点权威来源。
+
+目标：
+
+- 将小红书从地图标记和地点权威职责中彻底移出，只作为热度趋势、图片、标题和来源证据。
+- 推荐路线中的地点必须来自已确认的高德 `Venue` 或其他可执行地点源；小红书内容只有绑定到确认的高德 `Venue` 后才允许影响推荐。
+- 当库内没有现成高德 POI 候选时，ingest 阶段可先用 LLM 从小红书内容解析地点线索，再触发受限高德 POI 搜索补库并进入同一套匹配审查；若仍无法确认高德地点，则该小红书内容不参与推荐。
+
+方案与约束：
+
+- 新增“算法筛选 → LLM 审查”的匹配层：算法先从高德 `Venue` 中按城市、区域、名称相似、地址线索、标签/类型和热度上下文筛 Top-K；LLM 只在 Top-K 候选内做确认、拒绝或标记 ambiguous，不得编造新地点。
+- 建议新增可审计匹配产物，如 `CitySignalPlaceMatch` / `SocialPlaceMatch`：记录 `rawSourceItemId`、`citySignalId`、`venueId`、`algorithmScore`、`llmConfidence`、`status`、`matchedFields`、`reason` 和 `reviewedAt`。
+- 没有 confirmed match 的小红书内容不得进入 `/api/recommend` 的路线候选、`sourceSignals`、ranker boost 或地图 marker；可保留在 raw ingest / admin 排查视图。
+- 泛化合集、攻略、清单类内容只能作为 topic-only 趋势处理，不绑定单个高德 marker，除非 LLM 和算法都确认其中某个具体地点。
+- 推荐接口仍不实时调用小红书、MCP 或高德 POI 搜索；补库与匹配发生在 ingest/worker 链路中，并需要限流、缓存和失败降级。
+
+计划触达文件：
+
+- 修改：`prisma/schema.prisma` + 新增 migration（如采用匹配表）。
+- 新增：`server/ingest/social-place-matcher.ts` 或同等匹配服务。
+- 修改：`server/ingest/pipeline.ts`、`server/ingest/normalize.ts`，在 city signal 写入后触发小红书到高德地点匹配。
+- 修改：`server/sources/adapters/xiaohongshu.adapter.ts`，保留笔记事实、封面和热度，不把小红书作为地点权威。
+- 修改：`server/sources/adapters/amap-poi.adapter.ts` 或新增受限补库方法，用于 ingest 阶段按 LLM 解析出的地点线索补搜高德 POI。
+- 修改：`server/recommendation/signal-fusion.ts`、`server/recommendation/candidates.ts`，只应用 confirmed match 的小红书信号。
+- 新增测试：算法 Top-K 筛选、LLM confirmed/rejected/ambiguous 审查、无高德匹配不参与推荐、补库限流和降级。
+
+验收标准：
+
+- [x] 小红书 raw item 不再直接生成推荐地点、路线 marker 或可执行候选。
+- [x] 已确认匹配的小红书趋势可以作为对应高德 `Venue` 的 `sourceSignals` 和趋势加分证据展示。
+- [x] 库内已有高德 POI 时，先通过算法筛 Top-K，再由 LLM 审查确认匹配。
+- [x] 库内没有高德 POI 候选时，ingest 阶段可用 LLM 解析地点线索并受限补搜高德；补搜后仍未确认则不参与推荐。
+- [x] LLM 不能返回 Top-K 之外的地点 id，不能改写高德坐标、地址或 `sourceUrl`。
+- [x] 泛化小红书合集/攻略不会绑定单个 marker，除非明确确认具体高德地点。
+- [x] 推荐接口不实时调用小红书 MCP 或高德 POI 搜索。
+- [x] 匹配状态、理由和置信度可在数据库或 admin 排查路径中追溯。
+- [x] `pnpm typecheck`、`pnpm lint`、`pnpm test` 和 `pnpm build` 通过。
+
+风险与降级：
+
+- 高德补搜会增加 API 成本和限流风险：必须只在 ingest 阶段触发，并设置每轮上限、缓存和 connector cooldown。
+- LLM 审查可能误配同名店或连锁店：算法筛选需要使用区域、地址 token、类型和坐标距离，LLM 低置信度输出必须视为 ambiguous。
+- 小红书标题可能是泛化热词：默认不参与推荐，宁可少用信号，也不让不可执行地点污染路线。
+
+审批记录：
+
+- 审批人：用户
+- 日期：2026-06-14
+- 结论：用户要求开始推进 P1-012，批准实施小红书趋势到高德 `Venue` 的算法筛选与 LLM 审查匹配流水线。
+
+完成记录：
+
+- 完成日期：2026-06-14
+- 新增 migration `20260613090007_city_signal_place_matches` 并已对当前 Supabase 执行 `pnpm prisma migrate deploy`；新增 `CitySignalPlaceMatch`，记录 `rawSourceItemId`、`citySignalId`、`venueId`、`status`、`algorithmScore`、`llmConfidence`、`matchedFields`、`reason` 和审查 metadata。
+- 新增 `server/ingest/social-place-matcher.ts`：小红书 signal 先按城市、区域、名称相似、地址、标签和高德来源筛选 Top-K 高德 `Venue`；LLM reviewer 只能在 Top-K 中确认地点，低置信度、候选外 venueId、泛化合集和证据不足均降级为 `ambiguous` / `topic_only` / `no_candidate` / `not_configured` / `tool_error`。
+- `amap-poi` adapter 抽出 `searchAmapPoiVenueItems`，供 ingest 阶段按 LLM normalized 地点线索受限补搜高德 POI；补库仍只生成 `Venue`，推荐接口不实时调用小红书 MCP 或高德 POI 搜索。
+- 推荐召回改为排除直接来源为 `xiaohongshu` 的 normalized candidate；`xiaohongshu` 城市信号只有存在 confirmed `CitySignalPlaceMatch.venueId` 时，才会叠加到对应高德 `Venue` 的 `sourceSignals` 和 `signalStrength`。
+- 质量层新增 `social_signal_only`，即使小红书 normalized entity 带地址/坐标，也不会成为 route-eligible 可执行候选。
+- 验证：`pnpm prisma:generate`、`pnpm typecheck`、`pnpm test`（104 个测试）、`pnpm lint`、`pnpm build` 均通过；数据库 smoke 验证 confirmed 小红书信号可叠加到高德 `Venue`，且直接小红书 `Venue` 不进入召回候选。
+- 2026-06-14 实际推荐 smoke：quiet culture、date weekend、nightlife livehouse、low budget market food 四组真实推荐均返回 3 条路线、真实高德 ETA、可执行高德地点，且无直接小红书地点或未匹配小红书信号泄漏；测试中发现旧库存高德 POI 的默认 `qualityScore=50` 会压掉“市集”候选，已在召回层对旧默认质量分实时重算，low budget market food 首条路线恢复包含 `万有集市(静安店)`。
+
+### TASK-P1-013：大麦 source 插件化采集与活动入库
+
+- 状态：`进行中`
+- 负责人：Codex / 用户
+- 是否需要审批：是，涉及外站采集、浏览器验证码、cookie 存储、worker 自动任务和推荐候选来源。
+
+背景与现状：
+
+- `tools/damai-search/` 当前是独立浏览器辅助导出工具：打开 Edge/Chrome，遇到验证码由用户在浏览器中完成，再把搜索结果写入本地 JSON。
+- 目标使用方式不是长期手工导出文件，而是作为 `/admin/sources` 页面可调用的 source 插件：管理员点击抓取，大麦弹出验证码/风控页面，验证后保存仅用于匿名公开搜索的安全 cookie，供 worker 后续自动任务复用。
+- 大麦内容本质是演出/活动信号，应进入 `Event`，不应直接承担地图 marker 或地点权威职责。
+
+目标：
+
+- 将大麦接入为 `damai` source adapter，并在 source 管理页提供受控采集入口。
+- 管理员可从 `/admin/sources` 启动一次浏览器验证会话；验证码由管理员在弹窗/浏览器中完成，系统只保存可用于无登录公开搜索的最小 cookie 状态。
+- worker 自动采集时使用已保存的匿名 cookie 调用大麦搜索接口，产出 `Event` raw item 并进入现有 LLM normalization / ingest pipeline。
+- 大麦 `venueName` 只作为地点线索；若后续推荐需要路线可执行地点，必须通过高德 POI 匹配/补库确认地点，不用大麦 venue 文本直接生成地图 marker。
+
+方案与约束：
+
+- 拆分为“管理插件会话”和“worker adapter”两层：管理插件负责打开浏览器、处理验证码、提取并保存允许的匿名 cookie；worker adapter 只读取 cookie/配置并执行搜索采集。
+- cookie 存储必须最小化：只保存搜索接口必需的非登录 cookie，不保存账号态、手机号、用户名、localStorage 登录 token 或完整浏览器 profile；不得在日志、API 响应和 raw payload 中打印 cookie。
+- cookie 应有过期时间、来源域名白名单和状态检查；失效、被风控或返回 captcha 时，`damai` connector 标记为需要人工验证/paused，不让 worker 自动反复重试。
+- 大麦 adapter 只实现 `searchEvents`，`searchVenues` 返回空数组；推荐接口仍不实时调用大麦或浏览器工具。
+- 首版可复用 `tools/damai-search` 的搜索 URL、CDP/browser fetch、blocked/captcha 判断和 item normalization，但需要改造成可被 app/server 调用的模块，而不是只靠 CLI stdin。
+- 大麦活动入库后的地点执行性由后续匹配负责：可复用小红书到高德 POI 的“算法筛选 → LLM 审查”思想，但 source 类型是活动，匹配目标仍是高德 `Venue`。
+
+计划触达文件：
+
+- 修改：`tools/damai-search/`，抽出可复用 Damai search/session 模块，保留 CLI 作为调试入口。
+- 新增：`server/sources/plugins/damai-session.ts` 或同等服务，管理浏览器验证会话、cookie 过滤、状态检查和并发锁。
+- 新增：`app/api/admin/damai-session/*`，提供开始验证、检查状态、触发一次采集/保存 cookie 的 API。
+- 修改：`components/city/SourceIngestConsole.tsx`，在 source 页增加大麦验证/抓取控制区，展示 cookie 状态、最近验证时间和错误。
+- 新增：`server/sources/adapters/damai.adapter.ts`，按 `CitySourceAdapter` 实现 `searchEvents`，映射 title、showTime、priceText、category、imageUrl、sourceUrl 和 source signals。
+- 修改：`server/sources/source-registry.ts`，注册 `damai` adapter。
+- 可选修改：`prisma/schema.prisma` + migration，如需要独立存储 source secret/cookie metadata，而不是仅依赖本地加密文件或环境配置。
+- 新增测试：cookie 过滤、captcha/blocked 状态、Damai item 到 `RawSourceItemDetail` 映射、只产出 Event、不产出 Venue、cookie 失效降级和推荐接口不实时调用。
+
+验收标准：
+
+- [ ] `/admin/sources` 可以看到 `damai` connector，并能由管理员启动一次受控验证/抓取会话。
+- [ ] 验证通过后，只保存无登录公开搜索所需的最小 cookie；日志、API 响应和 raw payload 均不包含 cookie。
+- [ ] worker 可用已保存 cookie 自动采集大麦搜索结果；cookie 失效或被风控时 source 状态可见并要求人工重新验证。
+- [ ] `damai` adapter 只产出 `Event`，`searchVenues` 返回空数组。
+- [ ] 大麦活动保留 `sourceUrl`、演出时间、票价文本、类别、图片和 venueName 线索，进入现有 LLM normalization 与 raw traceability。
+- [ ] 大麦 venueName 不直接成为推荐路线 marker；只有匹配到高德 `Venue` 后才可参与路线可执行地点或地点级 source signal。
+- [ ] 推荐接口不实时启动浏览器、不实时调用大麦搜索。
+- [ ] `pnpm typecheck`、`pnpm lint`、`pnpm test` 和 `pnpm build` 通过。
+
+风险与降级：
+
+- 大麦风控策略可能变化：失败时 connector 进入人工验证状态，保留已有入库数据，推荐接口继续读取数据库。
+- cookie 合规边界需要严格控制：默认拒绝保存疑似登录态 cookie；如页面要求账号登录，本任务不处理登录采集。
+- 浏览器会话在服务端环境可能不可用：本地/admin 插件模式优先，生产 worker 仅依赖已保存 cookie；无 cookie 时 `damai` 保持 `not_configured` 或 paused。
+- 演出 venueName 可能是模糊场馆名：不得绕过高德 POI 匹配直接当地址或坐标使用。
+
+审批记录：
+
+- 审批人：用户
+- 日期：2026-06-14
+- 结论：批准将大麦作为 `crawler` source 推进；第一阶段先优化大麦 adapter 的搜索召回、去重和 Event 映射，source 页验证码/cookie 管理后续继续拆分实现。
+
+阶段记录：
+
+- 2026-06-14 第一阶段：新增 `server/sources/adapters/damai.adapter.ts` 并注册到 source registry；`damai` 作为 `crawler`，在配置 `DAMAI_COOKIE_HEADER` 前保持 `not_configured`。
+- 搜索优化：将 CitySense 兴趣词扩展为大麦更有效的演出 query，并按用户关键词轮询取词，避免“夜生活”等多扩展词挤掉“展览”等后续兴趣；支持多 query、多页、去重和排序。
+- 映射优化：大麦结果只产出 `Event`，保留 `sourceUrl`、演出时间、票价、类别、图片、售票状态和 `venueName` 场馆线索；`searchVenues` 明确返回空数组。
+- 降级：大麦返回 captcha / punish / `FAIL_SYS_USER_VALIDATE` 时抛出 `damai_requires_manual_verification`，供后续 source 页提示管理员重新验证。
+- 验证：新增 `tests/damai-adapter.test.ts` 覆盖 query 扩展、时间解析、未配置 cookie 降级、Event-only 映射和验证码阻断；`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 均通过。
+
 ## P2：黑客松后的产品化打磨
 
 ### TASK-P2-001：MCP Connector 抽象
@@ -697,24 +840,69 @@
 - 日期：
 - 结论：
 
-### TASK-P2-002：用户品味画像
+### TASK-P2-002：用户品味画像 MVP
 
 - 状态：`待审批`
-- 负责人：待定
-- 是否需要审批：是
+- 负责人：Codex / 用户
+- 是否需要审批：是，涉及用户数据、推荐算法权重、持久化画像和隐私/删除能力。
 
-待办：
+背景与现状：
 
-- [ ] 持久化用户偏好。
-- [ ] 根据用户反馈更新偏好。
-- [ ] 对重复标签和重复地点加入新鲜度惩罚。
-- [ ] 在确定性打分稳定后，再考虑 pgvector。
+- 当前推荐请求已支持 `userId`，反馈链路会把路线级反馈写入 `recommendation_feedbacks`，并镜像为 `UserInteraction`。
+- 当前 ranker 已有 `userAffinity` 和 `feedbackPenalty` 特征，但只从近期 interaction 即时聚合，缺少可审计、可解释、可重算的用户画像产物。
+- Prisma 已存在 `UserPreference` 占位表，包含 `interests`、`mood`、`budget` 和 `metadata`，但尚未形成完整的画像更新和推荐接入闭环。
+
+目标：
+
+- 建立轻量、可解释的用户画像 MVP：先用确定性权重聚合，不引入 pgvector 或黑盒 embedding。
+- 同时刻画正偏好、负偏好和新鲜度：喜欢什么 tag/source/area/价格/氛围，也要知道用户最近反感或看腻了什么。
+- 让推荐结果对老用户、匿名会话和无画像用户具备清晰差异，并在响应/日志中保留画像影响证据。
+- 画像只增强排序，不替代城市信号、可执行地点、高德交通和 LLM 审查约束。
+
+画像内容建议：
+
+- 显式偏好：用户请求中的 `interests`、`mood`、`budget`、`timeWindow`、常用城市/区域。
+- 隐式反馈：`up/save/down/dismiss` 对路线地点、标签、source、area、priceLevel、quietness/popularity 区间的加权影响。
+- 新鲜度：近期曝光过的地点、路线主题、重复 tag/source/area 的衰减或惩罚。
+- 画像快照：在 `UserPreference.metadata` 中保存 `profileVersion`、`updatedFrom`、`positiveWeights`、`negativeWeights`、`recentExposure`、`topReasons` 和 `decayWindowDays`。
+- 隐私边界：不保存精确浏览器坐标；如需位置偏好，仅保存城市/区级粒度；支持清空画像。
+
+方案与约束：
+
+- 第一阶段用 `UserPreference` 承载画像快照，不新增复杂用户系统；`userId` 优先，匿名场景可继续使用稳定 `sessionId` 作为画像 key。
+- 新增画像服务：从 `RecommendationLog`、`RecommendationFeedback`、`UserInteraction` 重算最近 90 天偏好，使用时间衰减和动作权重生成 profile。
+- 反馈写入后可异步或 best-effort 更新画像；推荐请求也可在读取画像失败时回退到当前即时 interaction 聚合。
+- ranker 接入画像时只更新 `userAffinity`、`feedbackPenalty` 和新鲜度惩罚，不改变地点可执行性、城市信号匹配和交通重排原则。
+- 画像影响必须可解释：feature snapshot 或 recommendation meta 中能看到命中的 top profile factors，例如 `tag:展览 +8`、`source:damai +3`、`recentlySeen:venue -6`。
+- 暂不引入 pgvector；只有当确定性画像稳定、且需要语义泛化时，再单独规划 embedding/向量相似度任务。
+
+计划触达文件：
+
+- 修改：`prisma/schema.prisma`（如现有 `UserPreference.metadata` 不够表达，再新增字段或 profile history 表）。
+- 新增：`server/recommendation/user-profile.ts`，负责画像重算、读取、清空和 explain factors。
+- 修改：`server/recommendation/user-signals.ts`，从即时 interaction 聚合升级为优先读取画像快照，失败时回退原逻辑。
+- 修改：`server/recommendation/features.ts` / `ranker.ts` / `scoring.ts`，接入画像版 `userAffinity`、`feedbackPenalty` 和 repeated exposure penalty。
+- 修改：`server/recommendation/feedback.ts`，反馈写入后 best-effort 更新对应画像。
+- 可选新增：`app/api/user-profile/route.ts`，支持查看画像摘要和清空画像。
+- 新增测试：画像聚合、时间衰减、正负反馈权重、新鲜度惩罚、无画像降级、隐私字段不落库、推荐排序差异。
 
 验收标准：
 
-- [ ] 老用户与匿名用户会得到不同推荐。
-- [ ] 负反馈会影响后续排序。
-- [ ] 个性化能力具备明确降级路径。
+- [ ] 有历史正反馈的用户，会更容易看到相同 tag/source/area/预算风格的候选，但仍受可执行性和交通约束限制。
+- [ ] 有历史负反馈或 dismiss 的用户，相同地点、相同主题或相同 source 的候选会被降权。
+- [ ] 最近多次曝光过的地点或路线主题会受到新鲜度惩罚，避免连续重复推荐。
+- [ ] 无 `userId/sessionId`、画像为空或画像读取失败时，推荐接口回退到当前通用推荐，不报错。
+- [ ] `RecommendationFeatureSnapshot` 或推荐 meta 能追溯画像命中的 top factors。
+- [ ] 用户可以清空画像；清空后推荐恢复到无画像状态。
+- [ ] 不保存精确浏览器坐标、原始自由文本敏感信息或不可解释的 LLM 画像判断。
+- [ ] `pnpm typecheck`、`pnpm lint`、`pnpm test` 和 `pnpm build` 通过。
+
+风险与降级：
+
+- 数据稀疏导致画像过拟合：需要最小样本阈值和权重上限，不能因为一次反馈把排序锁死。
+- 负反馈可能表达“此路线组合不合适”，不一定是地点本身差：负权重要分散到 route/theme/source/tag，地点级惩罚需更短半衰期。
+- 匿名 session 不稳定：匿名画像只做轻量增强，不作为长期用户资产；未来接入账号系统后再迁移。
+- 画像可能与城市实时热度冲突：画像只做排序特征，不能让低质量、不可达或未确认地点进入路线。
 
 审批记录：
 
@@ -759,6 +947,9 @@
 - [x] 审查并批准 `TASK-P1-006`。
 - [x] 审查并批准 `TASK-P1-010`。
 - [x] 审查并批准 `TASK-P1-011`。
+- [x] 审查并批准 `TASK-P1-012`。
+- [x] 审查并批准 `TASK-P1-013`。
+- [ ] 审查并批准 `TASK-P2-002`。
 
 ## 变更记录
 
@@ -779,3 +970,8 @@
 - 2026-06-13：完成 TASK-P1-011 候选地点图片接入（高德 POI extensions=all + 小红书封面，imageUrl 系统保留字段，真实采集回填 18 个带图 venue）。
 - 2026-06-13：完成 TASK-P1-010 高德分段路径规划（route legs、分段耗时与公交线路名时间轴、道路级 polyline、traffic_snapshots 分段缓存、估算降级）。
 - 2026-06-13：调研并新增 TASK-P1-010（高德分段路径规划）与 TASK-P1-011（候选地点图片接入），进入审批队列。
+- 2026-06-13：新增 TASK-P1-012，规划“小红书趋势先算法筛选高德 Venue、后 LLM 审查匹配；无确认高德地点则不参与推荐”的优化任务。
+- 2026-06-14：完成 TASK-P1-012，小红书趋势改为经算法 Top-K 筛选和 LLM 审查后绑定高德 `Venue`；未 confirmed 的小红书内容不参与推荐。
+- 2026-06-14：新增 TASK-P1-013，规划大麦作为 `/admin/sources` 可调用插件：管理员完成人工验证码，保存无登录公开搜索 cookie，worker 后续自动采集并只产出 `Event`。
+- 2026-06-14：推进 TASK-P1-013 第一阶段，新增 `damai` crawler adapter，优化多关键词搜索召回、去重和 Event-only 映射；source 页验证码/cookie 管理继续保留为后续工作。
+- 2026-06-14：扩写 TASK-P2-002 用户品味画像 MVP，规划显式偏好、隐式反馈、新鲜度惩罚、画像解释和隐私降级路径。
