@@ -10,6 +10,7 @@
     "test": "node --import tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "worker:ingest": "tsx workers/ingest-worker.ts",
+    "mcp:server": "node --env-file=.env --import tsx server/mcp/server.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed"
