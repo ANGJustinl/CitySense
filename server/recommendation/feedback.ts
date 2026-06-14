@@ -99,9 +99,15 @@ async function writeInteractionMirror(input: FeedbackInput, route: RecommendedRo
         itemType: place.type,
         action: input.value,
         weight,
+        // TASK-P2-002:扩展 context 写入 area/priceLevel/quietness/popularity,
+        // 作为画像聚合维度来源;旧数据缺这些字段时画像计算按"字段缺失跳过该维度"处理。
         context: toJson({
           tags: place.tags,
           source: place.source,
+          area: place.area,
+          priceLevel: place.priceLevel,
+          quietness: place.quietness,
+          popularity: place.popularity,
           reason: input.reason,
           routeTitle: route.title
         })

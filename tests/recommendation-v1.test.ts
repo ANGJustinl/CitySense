@@ -106,7 +106,13 @@ test("negative user signals create feedback penalty", () => {
   const penalty = calculateFeedbackPenalty(candidate("venue-a", ["咖啡"], 31.22, 121.45), {
     itemWeights: new Map([["venue-a", -1.5]]),
     tagWeights: new Map([["咖啡", -1.2]]),
-    sourceWeights: new Map([["mock-city-signal", -0.8]])
+    sourceWeights: new Map([["mock-city-signal", -0.8]]),
+    areaWeights: new Map(),
+    priceWeights: new Map(),
+    quietnessWeights: new Map(),
+    popularityWeights: new Map(),
+    snapshot: null,
+    source: "fallback"
   });
 
   assert.ok(penalty > 0);

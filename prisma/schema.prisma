@@ -167,14 +167,18 @@ model TrafficSnapshot {
 }
 
 model UserPreference {
-  id        String   @id @default(cuid())
-  userId    String   @unique
-  interests String[]
-  mood      String?
-  budget    String?
-  metadata  Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  interests      String[]
+  mood           String?
+  budget         String?
+  metadata       Json?
+  // 画像 MVP 快照元数据,便于 SQL 排查画像版本与稀疏度。
+  // 完整画像快照(profileVersion/weights/recentExposure/topReasons)写在 metadata Json 列。
+  profileVersion Int?
+  signalCount    Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model RecommendationLog {

@@ -613,12 +613,18 @@ export function buildRoutes(
         name: candidate.name,
         type: candidate.type,
         address: candidate.address,
+        // TASK-P2-002:透传 area/priceLevel/quietness/popularity 到 places,
+        // 供 feedback 写入 interaction context,作为画像聚合维度来源。
+        area: candidate.area,
         lat: candidate.lat,
         lng: candidate.lng,
         tags: candidate.tags,
         source: candidate.source,
         sourceUrl: candidate.sourceUrl,
-        imageUrl: candidate.imageUrl
+        imageUrl: candidate.imageUrl,
+        priceLevel: candidate.priceLevel,
+        quietness: candidate.quietness,
+        popularity: candidate.popularity
       }));
       const tags = [...new Set(slice.flatMap((candidate) => candidate.tags))].slice(0, 4);
 

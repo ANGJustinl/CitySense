@@ -5,8 +5,15 @@ export type TravelMode = "walking" | "transit" | "driving";
 export type CandidateType = "venue" | "event";
 export type OriginSource = "browser" | "manual" | "default";
 
+import type { ProfileFactor, UserProfileMeta } from "@/server/recommendation/profile.types";
+
 export type RecommendInput = {
   userId?: string;
+  /**
+   * 匿名会话标识。TASK-P2-002:与 feedback 链路对齐,
+   * profileKey = userId ?? sessionId,用于匿名用户画像。
+   */
+  sessionId?: string;
   city: string;
   area?: string;
   originAddress?: string;
@@ -95,6 +102,8 @@ export type CandidateFeatures = ScoreBreakdown & {
   qualityFlags?: string[];
   signalStrength?: number;
   routeEligible?: boolean;
+  /** TASK-P2-002:候选命中的画像因子,用于 explain 与打分。 */
+  profileFactors?: ProfileFactor[];
 };
 
 export type ScoredCandidate = Candidate & {
@@ -156,12 +165,16 @@ export type RecommendedRoute = {
     name: string;
     type: CandidateType;
     address?: string;
+    area?: string;
     lat?: number;
     lng?: number;
     tags: string[];
     source?: string;
     sourceUrl?: string;
     imageUrl?: string;
+    priceLevel?: number;
+    quietness?: number;
+    popularity?: number;
   }[];
   reason: string;
   tips: string[];
@@ -185,6 +198,8 @@ export type RecommendResponse = {
     ranker?: string;
     rankerVersion?: string;
     recallChannels?: RecallChannel[];
+    /** TASK-P2-002:画像摘要,供 UI explain。 */
+    userProfile?: UserProfileMeta;
     generatedAt: string;
   };
 };

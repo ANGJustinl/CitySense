@@ -9,12 +9,22 @@ import {
   WEIGHTED_RANKER_VERSION
 } from "@/server/recommendation/scoring";
 import { buildCandidateFeatures } from "@/server/recommendation/features";
-import { loadUserRecommendationSignals } from "@/server/recommendation/user-signals";
+import { loadUserRecommendationSignals, type UserRecommendationSignals } from "@/server/recommendation/user-signals";
+
+/**
+ * ranker 内部返回:ranked 候选 + 加载的 signals(供 recommend.ts 构建 meta.userProfile)。
+ */
+export type RankOutput = {
+  ranked: ScoredCandidate[];
+  signals?: UserRecommendationSignals;
+};
 
 export type RankerResult = {
   ranked: ScoredCandidate[];
   ranker: string;
   rankerVersion: string;
+  /** TASK-P2-002:暴露加载的用户信号,用于构建 meta.userProfile。 */
+  signals?: UserRecommendationSignals;
 };
 
 export interface CandidateRanker {
@@ -23,16 +33,18 @@ export interface CandidateRanker {
   rank(input: {
     request: RecommendInput;
     candidates: Candidate[];
-  }): Promise<ScoredCandidate[]>;
+  }): Promise<RankOutput>;
 }
 
 export const weightedRanker: CandidateRanker = {
   name: WEIGHTED_RANKER_NAME,
   version: WEIGHTED_RANKER_VERSION,
-  async rank({ request, candidates }) {
-    const signals = await loadUserRecommendationSignals(request.userId);
+  async rank({ request, candidates }): Promise<RankOutput> {
+    // TASK-P2-002:profileKey = userId ?? sessionId,与 feedback 链路对齐。
+    const profileKey = request.userId ?? request.sessionId;
+    const signals = await loadUserRecommendationSignals(profileKey);
 
-    return candidates
+    const ranked = candidates
       .map((candidate) => {
         const features = buildCandidateFeatures(candidate, request, signals);
         const scoreBreakdown = {
@@ -59,6 +71,8 @@ export const weightedRanker: CandidateRanker = {
         };
       })
       .sort((a, b) => b.baseScore - a.baseScore);
+
+    return { ranked, signals };
   }
 };
 
@@ -67,9 +81,12 @@ export async function rankCandidates(
   candidates: Candidate[],
   ranker: CandidateRanker = weightedRanker
 ): Promise<RankerResult> {
+  const output = await ranker.rank({ request, candidates });
+
   return {
-    ranked: await ranker.rank({ request, candidates }),
+    ranked: output.ranked,
     ranker: ranker.name,
-    rankerVersion: ranker.version
+    rankerVersion: ranker.version,
+    signals: output.signals
   };
 }

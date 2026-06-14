@@ -9,16 +9,20 @@ import {
   calculateUserAffinity,
   type UserRecommendationSignals
 } from "@/server/recommendation/user-signals";
+import { extractProfileFactors } from "@/server/recommendation/user-profile-core";
 
 export function buildCandidateFeatures(
   candidate: Candidate,
   request: RecommendInput,
   signals: UserRecommendationSignals
 ): CandidateFeatures {
+  const profileFactors = extractProfileFactors(candidate, signals.snapshot);
+
   return {
     ...createDefaultFeatures(candidate, request),
     userAffinity: calculateUserAffinity(candidate, signals),
-    feedbackPenalty: calculateFeedbackPenalty(candidate, signals)
+    feedbackPenalty: calculateFeedbackPenalty(candidate, signals),
+    profileFactors
   };
 }
 

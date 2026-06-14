@@ -2004,7 +2004,9 @@ p {
     8px
     var(--inspector-col, 560px)
     8px
-    var(--pulse-col, 360px);
+    var(--pulse-col, 320px)
+    8px
+    var(--profile-col, 300px);
   justify-content: center;
   margin: 0 auto;
   max-width: none;
@@ -2063,6 +2065,75 @@ p {
 .pulse-rail {
   align-self: start;
   min-width: 0;
+}
+
+/* TASK-P2-002 用户画像面板:复用 pulse-rail 视觉语言。 */
+.profile-rail {
+  align-self: start;
+  min-width: 0;
+}
+
+.profile-rail .pulse-panel,
+.pulse-rail .pulse-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.profile-stack {
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.profile-stack .pulse-token-row.positive span {
+  background: rgba(8, 127, 122, 0.12);
+  border-color: rgba(8, 127, 122, 0.28);
+  color: var(--teal, #087f7a);
+}
+
+.profile-stack .pulse-token-row.negative span {
+  background: rgba(235, 87, 87, 0.12);
+  border-color: rgba(235, 87, 87, 0.28);
+  color: var(--coral, #eb5757);
+}
+
+.profile-clear-btn {
+  align-items: center;
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--coral, #eb5757);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+  padding: 6px 12px;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.profile-clear-btn:hover:not(:disabled) {
+  background: rgba(235, 87, 87, 0.08);
+  border-color: rgba(235, 87, 87, 0.4);
+}
+
+.profile-clear-btn:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.7;
+}
+
+.profile-hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
 }
 
 .map-metrics {
@@ -3267,7 +3338,8 @@ p {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
-  .pulse-rail {
+  .pulse-rail,
+  .profile-rail {
     grid-column: 1 / -1;
   }
 
@@ -3304,7 +3376,8 @@ p {
   }
 
   .inspector-rail,
-  .pulse-rail {
+  .pulse-rail,
+  .profile-rail {
     display: contents;
   }
 

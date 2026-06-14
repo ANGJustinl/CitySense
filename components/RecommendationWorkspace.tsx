@@ -34,12 +34,14 @@ import { CityPulsePanel } from "@/components/city/CityPulsePanel";
 import { RouteInspector } from "@/components/city/RouteInspector";
 import { RouteMapCanvas } from "@/components/city/RouteMapCanvas";
 import { RouteTimeline } from "@/components/city/RouteTimeline";
+import { UserProfilePanel } from "@/components/city/UserProfilePanel";
 
 type WorkspaceProps = {
   initialData: RecommendResponse;
+  userId?: string;
 };
 
-type WorkspacePanel = "controls" | "map" | "inspector" | "pulse";
+type WorkspacePanel = "controls" | "map" | "inspector" | "pulse" | "profile";
 type WorkspacePanelWidths = Record<WorkspacePanel, number>;
 
 const interestOptions = ["咖啡", "展览", "书店", "漫画", "独立音乐", "夜生活"];
@@ -64,16 +66,33 @@ const defaultPanelWidths: WorkspacePanelWidths = {
   controls: 300,
   map: 960,
   inspector: 560,
-  pulse: 360
+  pulse: 320,
+  profile: 300
 };
 const minPanelWidths: WorkspacePanelWidths = {
   controls: 260,
   map: 720,
   inspector: 460,
-  pulse: 300
+  pulse: 280,
+  profile: 260
 };
 type OriginMode = "current" | "manual";
 type LocationStatus = "idle" | "locating" | "located" | "unavailable" | "blocked";
+
+/**
+ * TASK-P2-002:稳定匿名 sessionId 生成器(模块级外部状态)。
+ * 仅在事件处理器/请求体内调用,不参与 render,避免 React 纯净规则与 hydration 不匹配。
+ * 同一客户端模块实例内复用同一 sessionId,作为匿名画像 key。
+ */
+let cachedAnonymousSessionId: string | undefined;
+
+function getAnonymousSessionId() {
+  if (!cachedAnonymousSessionId) {
+    cachedAnonymousSessionId = `anon-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+  }
+
+  return cachedAnonymousSessionId;
+}
 type WorkspaceOrigin = {
   lat: number;
   lng: number;
@@ -108,7 +127,7 @@ function formatGeneratedAt(value: string) {
   });
 }
 
-export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
+export function RecommendationWorkspace({ initialData, userId }: WorkspaceProps) {
   const [city, setCity] = useState("上海");
   const [area, setArea] = useState("");
   const [originMode, setOriginMode] = useState<OriginMode>("current");
@@ -222,6 +241,8 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
       const requestBody =
         originMode === "manual"
           ? {
+              userId,
+              sessionId: userId ? undefined : getAnonymousSessionId(),
               city,
               area: area || undefined,
               originAddress: manualAddress,
@@ -233,6 +254,8 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
               useSocialSignals: true
             }
           : {
+              userId,
+              sessionId: userId ? undefined : getAnonymousSessionId(),
               city,
               area: area || undefined,
               origin: {
@@ -365,7 +388,8 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
     "--control-col": `${panelWidths.controls}px`,
     "--map-col": `${panelWidths.map}px`,
     "--inspector-col": `${panelWidths.inspector}px`,
-    "--pulse-col": `${panelWidths.pulse}px`
+    "--pulse-col": `${panelWidths.pulse}px`,
+    "--profile-col": `${panelWidths.profile}px`
   } as CSSProperties;
 
   function renderColumnResizeHandle({
@@ -658,6 +682,18 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
         <aside className="pulse-rail resizable-panel" aria-label="city pulse">
           <div className="pulse-panel">
             <CityPulsePanel area={area || undefined} city={city} response={data} />
+          </div>
+        </aside>
+
+        {renderColumnResizeHandle({
+          label: "调整城市信号和用户画像宽度",
+          left: "pulse",
+          right: "profile"
+        })}
+
+        <aside className="profile-rail resizable-panel" aria-label="user profile">
+          <div className="pulse-panel">
+            <UserProfilePanel profileKey={userId} response={data} />
           </div>
         </aside>
       </section>
