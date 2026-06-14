@@ -744,7 +744,7 @@
 
 ### TASK-P1-013：大麦 source 插件化采集与活动入库
 
-- 状态：`进行中`
+- 状态：`已完成`
 - 负责人：Codex / 用户
 - 是否需要审批：是，涉及外站采集、浏览器验证码、cookie 存储、worker 自动任务和推荐候选来源。
 
@@ -758,7 +758,7 @@
 
 - 将大麦接入为 `damai` source adapter，并在 source 管理页提供受控采集入口。
 - 管理员可从 `/admin/sources` 启动一次浏览器验证会话；验证码由管理员在弹窗/浏览器中完成，系统只保存可用于无登录公开搜索的最小 cookie 状态。
-- worker 自动采集时使用已保存的匿名 cookie 调用大麦搜索接口，产出 `Event` raw item 并进入现有 LLM normalization / ingest pipeline。
+- worker 自动采集时使用已保存的匿名 cookie 调用大麦搜索接口，先产出 `Event` raw item 并写入 `RawSourceItem`；LLM normalization、`Event` upsert、city signal 和高德 `Venue` 匹配由后续 normalize worker 处理。
 - 大麦 `venueName` 只作为地点线索；若后续推荐需要路线可执行地点，必须通过高德 POI 匹配/补库确认地点，不用大麦 venue 文本直接生成地图 marker。
 
 方案与约束：
@@ -767,6 +767,7 @@
 - cookie 存储必须最小化：只保存搜索接口必需的非登录 cookie，不保存账号态、手机号、用户名、localStorage 登录 token 或完整浏览器 profile；不得在日志、API 响应和 raw payload 中打印 cookie。
 - cookie 应有过期时间、来源域名白名单和状态检查；失效、被风控或返回 captcha 时，`damai` connector 标记为需要人工验证/paused，不让 worker 自动反复重试。
 - 大麦 adapter 只实现 `searchEvents`，`searchVenues` 返回空数组；推荐接口仍不实时调用大麦或浏览器工具。
+- 采集 run 不等待 LLM normalization 或地点匹配，避免外部模型、POI 审查或单条异常阻塞 raw 入库；`RawSourceItem.status="new"` 表示待解析，normalize worker 可按 `source`、`ingestRunId` 和 `limit` 后处理。
 - 首版可复用 `tools/damai-search` 的搜索 URL、CDP/browser fetch、blocked/captcha 判断和 item normalization，但需要改造成可被 app/server 调用的模块，而不是只靠 CLI stdin。
 - 大麦活动入库后的地点执行性由后续匹配负责：可复用小红书到高德 POI 的“算法筛选 → LLM 审查”思想，但 source 类型是活动，匹配目标仍是高德 `Venue`。
 
@@ -783,14 +784,14 @@
 
 验收标准：
 
-- [ ] `/admin/sources` 可以看到 `damai` connector，并能由管理员启动一次受控验证/抓取会话。
-- [ ] 验证通过后，只保存无登录公开搜索所需的最小 cookie；日志、API 响应和 raw payload 均不包含 cookie。
-- [ ] worker 可用已保存 cookie 自动采集大麦搜索结果；cookie 失效或被风控时 source 状态可见并要求人工重新验证。
-- [ ] `damai` adapter 只产出 `Event`，`searchVenues` 返回空数组。
-- [ ] 大麦活动保留 `sourceUrl`、演出时间、票价文本、类别、图片和 venueName 线索，进入现有 LLM normalization 与 raw traceability。
-- [ ] 大麦 venueName 不直接成为推荐路线 marker；只有匹配到高德 `Venue` 后才可参与路线可执行地点或地点级 source signal。
-- [ ] 推荐接口不实时启动浏览器、不实时调用大麦搜索。
-- [ ] `pnpm typecheck`、`pnpm lint`、`pnpm test` 和 `pnpm build` 通过。
+- [x] `/admin/sources` 可以看到 `damai` connector，并能由管理员启动一次受控验证/抓取会话。
+- [x] 验证通过后，只保存无登录公开搜索所需的最小 cookie；日志、API 响应和 raw payload 均不包含 cookie。
+- [x] worker 可用已保存或配置的 cookie 自动采集大麦搜索结果；cookie 失效或被风控时 source 状态可见并要求人工重新验证。
+- [x] `damai` adapter 只产出 `Event`，`searchVenues` 返回空数组。
+- [x] 大麦活动保留 `sourceUrl`、演出时间、票价文本、类别、图片和 venueName 线索，先进入 raw traceability，再由 normalize worker 后处理。
+- [x] 大麦 venueName 不直接成为推荐路线 marker；只有匹配到高德 `Venue` 后才可参与路线可执行地点或地点级 source signal。
+- [x] 推荐接口不实时启动浏览器、不实时调用大麦搜索。
+- [x] `pnpm typecheck`、`pnpm lint`、`pnpm test` 和 `pnpm build` 通过。
 
 风险与降级：
 
@@ -805,6 +806,11 @@
 - 日期：2026-06-14
 - 结论：批准将大麦作为 `crawler` source 推进；第一阶段先优化大麦 adapter 的搜索召回、去重和 Event 映射，source 页验证码/cookie 管理后续继续拆分实现。
 
+完成记录：
+
+- 完成日期：2026-06-14
+- 结论：已形成真实可验收闭环。`damai` 已作为 `/admin/sources` 可见 crawler source 接入，支持管理员打开验证窗口、保存过滤后的匿名 cookie 元数据、worker 使用 cookie 采集 raw item、normalize worker 后处理、按高德 `Venue` 审查绑定场馆，并由推荐接口只读数据库返回大麦活动路线。P2-002 未开始实施。
+
 阶段记录：
 
 - 2026-06-14 第一阶段：新增 `server/sources/adapters/damai.adapter.ts` 并注册到 source registry；`damai` 作为 `crawler`，在配置 `DAMAI_COOKIE_HEADER` 前保持 `not_configured`。
@@ -817,6 +823,16 @@
 - adapter 读取顺序更新为：显式传入 cookie → `DAMAI_COOKIE_HEADER` → 本地保存 cookie 文件；`data/damai-session/` 已加入 git/eslint ignore。
 - 新增 `tests/damai-session.test.ts` 覆盖 cookie 过滤；验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 通过。真实大麦验证码窗口仍需管理员在本机浏览器做一次 smoke。
 - 2026-06-14 修正：打开大麦验证窗口后立即返回 UI，不再等待 DevTools target 导致按钮持续 loading；读取 cookie 时再懒连接浏览器。保存的匿名 cookie 文件作为持久凭据反复复用，不因本地 `expiresAt` 主动判废，直到大麦接口再次要求验证码时由管理员重新保存覆盖。
+- 2026-06-14 第三阶段：按“先采集入库，后解析”拆分 ingest pipeline；`executeIngestRun` 现在只执行 adapter 搜索与 `RawSourceItem` upsert，run stats 中 `normalized` / `citySignalsCreated` 在采集阶段保持 0，避免 LLM normalization、地点匹配或单条解析失败阻塞 raw 入库。
+- 新增 `processPendingRawSourceItems`、`normalizeRawSourceItemById` 与 `pnpm worker:normalize`，支持通过 `NORMALIZE_WORKER_SOURCE`、`NORMALIZE_WORKER_INGEST_RUN_ID`、`NORMALIZE_WORKER_LIMIT` 分批处理 `status="new"` 的 raw item；normalize 阶段负责 LLM normalized entity、`Event`/`Venue` upsert、city signal 写入与高德场馆匹配。
+- 大麦场馆匹配质量修正：算法候选过滤票务中心、售票点、购物广场、管理公司等非演出 POI；大麦 `venueName` 增加确定性兼容校验，LLM 不能确认与大麦场馆名冲突的候选，未确认时清空 `Event.venueId`，避免 stale 错配继续进入路线。
+- 推荐路线去重修正：路线组装把已匹配 `Event.venueId` 与对应高德 `Venue.id` 视为同一地点簇，并对场馆名/地址做标点归一，避免同一演出场馆和场馆 POI 被拼进同一条路线。
+- 实测记录：已有成功大麦 run `cmqddnv6u0001ojycdrpud4qd` 入库 `fetched=40`、`rawUpserted=40`、`normalized=40`、`citySignalsCreated=167`；推荐 smoke `cmqdmmjp900oqojw0ffkqvj1a` 返回 3 条路线，7 个大麦活动均有来源 URL、已确认高德场馆与坐标，路线内未发现重复场馆。
+- 历史阻断记录：旧 cookie / 浏览器会话曾返回 `damai_requires_manual_verification`；后续管理员重新验证并提供短效匿名搜索 cookie 后，live raw-only 采集已成功。此类 x5sec cookie 约 30 分钟过期，过期后仍按人工重验降级。
+- 2026-06-14 live cookie 复测：管理员重新验证后，raw-only ingest run `cmqdoakr90000ojwgw69fzr9h` 在约 19 秒内完成，`fetched=120`、`rawUpserted=120`、`normalized=0`、`citySignalsCreated=0`，120 条均保持 `status=new`，证明采集入库不再等待解析/匹配。
+- 同一 cookie 窗口内追加“只新增不覆盖”扩展采集：run `cmqdoph7y0000ojj0kri1cluw` 抓到 360 个唯一项目、新增 240 条 raw；run `cmqdors4w0000oj4stpq4hrg0` 使用另一排序抓到 360 个唯一项目、新增 123 条 raw。当前大麦 raw 总量 484 条，其中未解析 raw 安全排队。
+- 后处理 smoke：`pnpm worker:normalize` 先处理 20 条完整 LLM normalization，再以 `CITYSENSE_LLM_NORMALIZE_ENABLED=false` 处理 40 条 adapter draft + 高德场馆 LLM 审查，合计 61 条 raw normalized；库内大麦 `Event` 100 条，`sourceUrl` / `imageUrl` / `startTime` 覆盖 100/100，29 条已绑定高德 `Venue` 坐标。
+- 推荐 smoke `cmqdp6y500119ojw0vmgts29q` 返回 3 条路线，包含《芝加哥·欲望牢笼》、音乐剧《锦衣卫之刀与花》、陈昊宇主演话剧《初步举证》、BADBADNOTGOOD 上海站等大麦活动；活动均携带 sourceUrl、图片和高德坐标化场馆，推荐接口仍只读数据库。
 
 ## P2：黑客松后的产品化打磨
 

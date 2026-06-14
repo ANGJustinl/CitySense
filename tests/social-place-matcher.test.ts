@@ -206,6 +206,49 @@ test("damai venueName matches a same-name AMap venue in algorithm Top-K", () => 
   assert.ok(ranked[0].matchedFields.includes("name"));
 });
 
+test("damai venueName rejects loose partial names and non-performance POIs", () => {
+  const trend = buildSocialTrendForPlaceMatch({
+    item: damaiItem({
+      sourceId: "1004",
+      title: "step.jad依加《Nightstep夜奔·巡城礼》",
+      venue: "上海保利大剧院-大剧场"
+    }),
+    sourceKey: "damai:1004",
+    normalizedEntity: null
+  });
+
+  const ranked = rankAmapVenueCandidates({
+    trend: trend!,
+    venues: [
+      venue({
+        id: "venue-grand-theatre",
+        name: "上海大剧院",
+        area: "黄浦",
+        address: "人民大道300号",
+        tags: ["演出", "剧院"]
+      }),
+      venue({
+        id: "venue-poly",
+        name: "上海保利大剧院(白银路店)",
+        area: "嘉定",
+        address: "白银路159号",
+        tags: ["剧院"]
+      }),
+      venue({
+        id: "venue-poly-company",
+        name: "上海保利大剧院管理有限公司",
+        area: "嘉定",
+        address: "白银路159号",
+        tags: ["公司"]
+      })
+    ]
+  });
+
+  assert.equal(ranked[0]?.id, "venue-poly");
+  assert.ok(!ranked.some((candidate) => candidate.id === "venue-grand-theatre"));
+  assert.ok(!ranked.some((candidate) => candidate.id === "venue-poly-company"));
+});
+
 test("damai venueName is used as the primary AMap supplement search keyword", () => {
   const keywords = buildAmapSupplementSearchKeywords({
     source: "damai",
@@ -240,6 +283,45 @@ test("LLM confirm outside damai Top-K is downgraded to ambiguous", () => {
       reason: "模型编造"
     },
     ranked
+  );
+
+  assert.equal(review.status, "ambiguous");
+  assert.equal(review.venueId, undefined);
+});
+
+test("LLM cannot confirm a damai candidate whose name conflicts with venueName", () => {
+  const trend = buildSocialTrendForPlaceMatch({
+    item: damaiItem({
+      sourceId: "1004",
+      title: "step.jad依加《Nightstep夜奔·巡城礼》",
+      venue: "上海保利大剧院-大剧场"
+    }),
+    sourceKey: "damai:1004",
+    normalizedEntity: null
+  });
+  const ranked = [
+    {
+      ...venue({
+        id: "venue-grand-theatre",
+        name: "上海大剧院",
+        area: "黄浦",
+        address: "人民大道300号"
+      }),
+      algorithmScore: 36,
+      matchedFields: ["name", "source", "coords"]
+    }
+  ];
+
+  const review = normalizePlaceMatchReview(
+    {
+      status: "confirmed",
+      venueId: "venue-grand-theatre",
+      confidence: 88,
+      matchedFields: ["name"],
+      reason: "模型误判为同一剧院"
+    },
+    ranked,
+    trend!
   );
 
   assert.equal(review.status, "ambiguous");

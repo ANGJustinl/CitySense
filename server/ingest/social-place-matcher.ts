@@ -273,6 +273,29 @@ function hasCoordinates(candidate: AmapVenueMatchCandidate) {
   );
 }
 
+function isNonPerformanceVenuePoi(name: string) {
+  return /票务|售票处|售票点|票务中心|商场店$|购物广场|管理有限公司|演出经纪|火车站|地铁站|停车场|(?:站|机场)$/.test(
+    name
+  );
+}
+
+function normalizeVenueIdentity(value?: string | null) {
+  return normalizeText(value)
+    .replace(/(?:主剧场|大剧场|小剧场|中剧场|实验剧场|音乐厅|体育馆|剧场)$/g, "")
+    .replace(/(?:白银路店|旗舰店|暂停营业)$/g, "");
+}
+
+function venueIdentityMatches(venueName?: string | null, candidateName?: string | null) {
+  const left = normalizeVenueIdentity(venueName);
+  const right = normalizeVenueIdentity(candidateName);
+
+  if (!left || !right || left.length < 4 || right.length < 4) {
+    return false;
+  }
+
+  return left === right || left.includes(right) || right.includes(left);
+}
+
 function isTopicOnlyTrend(trend: SocialTrendForPlaceMatch) {
   return isGenericSocialContent({
     source: trend.source,
@@ -311,8 +334,10 @@ export function rankAmapVenueCandidates(input: {
   const trendText = textForTrend(input.trend);
   const venueName = input.trend.venueName?.trim();
   const normalizedVenueName = venueName ? normalizeText(venueName) : "";
+  const isDamaiVenueMatch = input.trend.source === DAMAI_SOURCE && Boolean(venueName);
   const ranked = input.venues
     .filter((venue) => venue.city === input.trend.city && venue.source === "amap-poi")
+    .filter((venue) => !(isDamaiVenueMatch && isNonPerformanceVenuePoi(venue.name)))
     .map((venue) => {
       const matchedFields = new Set<string>();
       let score = 0;
@@ -328,19 +353,24 @@ export function rankAmapVenueCandidates(input: {
       // dominates loose token overlaps (e.g. "上海站" matching anything starting
       // with "上海"). Ticket-office / sales-counter POIs that merely share the
       // venue name as a prefix are explicitly excluded — they are not the stage.
-      const isAncillaryPoi = /票务|售票处|售票点|票务中心|商场店$/.test(venue.name);
+      const venueNameCompatible = venueIdentityMatches(venueName, venue.name);
       const normalizedName = normalizeText(venue.name);
       let venueNameExact = false;
-      if (normalizedVenueName && normalizedName && !isAncillaryPoi) {
+      if (normalizedVenueName && normalizedName) {
         if (normalizedName === normalizedVenueName) {
           score += 45;
           venueNameExact = true;
           matchedFields.add("name");
+        } else if (isDamaiVenueMatch && venueNameCompatible) {
+          score += 40;
+          matchedFields.add("name");
         } else if (normalizedName.includes(normalizedVenueName) || normalizedVenueName.includes(normalizedName)) {
           // Containment: e.g. venueName "梅赛德斯-奔驰文化中心" vs name
           // "梅赛德斯-奔驰文化中心购物广场" — still a strong match.
-          score += 30;
-          matchedFields.add("name");
+          if (!isDamaiVenueMatch) {
+            score += 30;
+            matchedFields.add("name");
+          }
         }
       }
 
@@ -348,7 +378,8 @@ export function rankAmapVenueCandidates(input: {
         textSimilarity(trendText, venue.name),
         venueName ? textSimilarity(venueName, venue.name) : 0
       );
-      if (!venueNameExact && nameScore >= 18) {
+      const canUseLooseNameScore = !isDamaiVenueMatch || venueNameCompatible;
+      if (!venueNameExact && canUseLooseNameScore && nameScore >= 18) {
         score += Math.min(38, nameScore * 0.38);
         matchedFields.add("name");
       }
@@ -373,7 +404,7 @@ export function rankAmapVenueCandidates(input: {
       // parking, mall shops) that share tokens with the show venue name. These
       // are not performance venues. "上海站" (Shanghai Railway Station) is a
       // common false positive because "上海" overlaps with many venue names.
-      if (/票务|售票处|售票点|火车站|地铁站|停车场|商场店$|(?:站|机场)$/.test(venue.name)) {
+      if (isNonPerformanceVenuePoi(venue.name)) {
         score -= 30;
       }
 
@@ -393,7 +424,11 @@ export function rankAmapVenueCandidates(input: {
         matchedFields: [...matchedFields]
       };
     })
-    .filter((venue) => venue.algorithmScore >= 28)
+    .filter(
+      (venue) =>
+        venue.algorithmScore >= 28 &&
+        (!isDamaiVenueMatch || venue.matchedFields.includes("name"))
+    )
     .sort((a, b) => b.algorithmScore - a.algorithmScore || b.name.length - a.name.length);
 
   return ranked.slice(0, input.topK ?? DEFAULT_TOP_K);
@@ -401,7 +436,8 @@ export function rankAmapVenueCandidates(input: {
 
 export function normalizePlaceMatchReview(
   output: PlaceMatchReviewOutput | null,
-  candidates: RankedAmapVenueCandidate[]
+  candidates: RankedAmapVenueCandidate[],
+  trend?: SocialTrendForPlaceMatch
 ): NormalizedPlaceMatchReview {
   if (!output) {
     return {
@@ -450,6 +486,22 @@ export function normalizePlaceMatchReview(
       llmConfidence: confidence,
       matchedFields,
       reason: reason ?? "LLM confidence is below the confirmed match threshold"
+    };
+  }
+
+  const candidate = candidates.find((item) => item.id === venueId);
+  if (
+    trend?.source === DAMAI_SOURCE &&
+    trend.venueName &&
+    (!candidate ||
+      isNonPerformanceVenuePoi(candidate.name) ||
+      !venueIdentityMatches(trend.venueName, candidate.name))
+  ) {
+    return {
+      status: "ambiguous",
+      llmConfidence: confidence,
+      matchedFields,
+      reason: reason ?? "LLM selected a venue that does not match the Damai venueName"
     };
   }
 
@@ -793,6 +845,13 @@ async function replaceSignalMatches(input: {
         data: { venueId: input.review.venueId }
       })
       .catch(() => undefined);
+  } else if (source === DAMAI_SOURCE) {
+    await prisma.event
+      .updateMany({
+        where: { sourceKey: input.trend.sourceKey },
+        data: { venueId: null }
+      })
+      .catch(() => undefined);
   }
 }
 
@@ -890,7 +949,7 @@ export async function matchXiaohongshuSignalsToAmapVenues(input: MatchXiaohongsh
       timeoutMs: llmTimeoutMs("CITYSENSE_PLACE_MATCH_TIMEOUT_MS", DEFAULT_TIMEOUT_MS),
       task: (signal) => client.review(reviewRequest, signal)
     });
-    const review = normalizePlaceMatchReview(output, ranked);
+    const review = normalizePlaceMatchReview(output, ranked, trend);
 
     await replaceSignalMatches({
       trend,

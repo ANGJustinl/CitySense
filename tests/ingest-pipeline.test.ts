@@ -165,6 +165,87 @@ test("event and venue upsert data carry image url with image source attribution"
   assert.equal(venueData.update.imageSource, "mock-city-signal");
 });
 
+test("raw source item record can be restored for deferred normalization", () => {
+  const rawRecord = {
+    id: "raw-1",
+    source: "damai",
+    sourceKey: "damai:event-1",
+    sourceId: "event-1",
+    sourceUrl: "https://detail.damai.cn/item.htm?id=event-1",
+    title: "东方风云榜",
+    content: "演出时间 2026-06-20",
+    author: null,
+    rawPayload: { sourceId: "event-1" },
+    parsedPayload: {
+      id: "event-1",
+      source: "damai",
+      sourceId: "event-1",
+      sourceUrl: "https://detail.damai.cn/item.htm?id=event-1",
+      title: "东方风云榜",
+      content: "演出时间 2026-06-20",
+      city: "上海",
+      area: "浦东",
+      publishedAt: "2026-06-14T00:00:00.000Z",
+      status: "new",
+      itemType: "event",
+      startsAt: "2026-06-20T11:30:00.000Z",
+      imageUrl: "https://img.alicdn.com/event.jpg",
+      tags: ["演唱会", "演出"],
+      trendScore: 86,
+      confidence: 82,
+      rawPayload: {
+        venueName: "梅赛德斯-奔驰文化中心",
+        priceText: "380-1280元"
+      },
+      sourceSignals: [
+        {
+          source: "damai",
+          label: "大麦热度",
+          score: 86,
+          evidence: "售票中"
+        }
+      ]
+    },
+    city: "上海",
+    area: "浦东",
+    publishedAt: new Date("2026-06-14T00:00:00.000Z"),
+    status: "new",
+    itemType: "event",
+    normalizedEntityType: null,
+    normalizedEntityId: null,
+    ingestRunId: "run-1",
+    firstSeenAt: new Date("2026-06-14T00:00:00.000Z"),
+    lastSeenAt: new Date("2026-06-14T00:00:00.000Z"),
+    createdAt: new Date("2026-06-14T00:00:00.000Z")
+  };
+
+  const restored = pipelineTesting.rawSourceItemDetailFromRecord(rawRecord);
+
+  assert.ok(restored);
+  assert.equal(restored.source, "damai");
+  assert.equal(restored.itemType, "event");
+  assert.equal(restored.startsAt, "2026-06-20T11:30:00.000Z");
+  assert.equal(restored.imageUrl, "https://img.alicdn.com/event.jpg");
+  assert.deepEqual(restored.tags, ["演唱会", "演出"]);
+  assert.equal(restored.sourceSignals?.[0]?.label, "大麦热度");
+});
+
+test("raw ingest stats can finish before deferred normalization", () => {
+  const stats = applySourceResult(createEmptyIngestStats(1), {
+    source: "damai",
+    status: "completed",
+    fetched: 6,
+    rawUpserted: 6,
+    normalized: 0,
+    citySignalsCreated: 0
+  });
+
+  assert.equal(stats.sourcesCompleted, 1);
+  assert.equal(stats.rawUpserted, 6);
+  assert.equal(stats.normalized, 0);
+  assert.equal(stats.citySignalsCreated, 0);
+});
+
 test("ingest stats aggregate source results", () => {
   const stats = createEmptyIngestStats(2);
   const afterSuccess = applySourceResult(stats, {

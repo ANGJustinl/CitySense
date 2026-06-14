@@ -679,6 +679,65 @@ test("route assembler avoids same-address venue variants when alternatives exist
   assert.equal(sameAddressRoute, undefined);
 });
 
+test("route assembler treats matched event venueId as the same place cluster", () => {
+  const routes = buildRoutes(
+    [
+      trafficCandidate(
+        candidate({
+          id: "event-damai-show",
+          name: "谭晶演唱会",
+          type: "event",
+          source: "damai",
+          venueId: "venue-mercedes",
+          address: "梅赛德斯-奔驰文化中心",
+          tags: ["演唱会", "音乐", "演出"]
+        }),
+        96
+      ),
+      trafficCandidate(
+        candidate({
+          id: "venue-mercedes",
+          name: "梅赛德斯-奔驰文化中心",
+          type: "venue",
+          source: "amap-poi",
+          address: "浦东新区世博大道1200号",
+          tags: ["演出", "场馆", "音乐"]
+        }),
+        95
+      ),
+      trafficCandidate(
+        candidate({
+          id: "event-damai-show-duplicate-poi",
+          name: "东方风云榜新势力之夜",
+          type: "event",
+          source: "damai",
+          venueId: "venue-mercedes-v2",
+          address: "梅赛德斯-奔驰文化中心",
+          tags: ["演唱会", "音乐", "演出"]
+        }),
+        94
+      ),
+      trafficCandidate(candidate({ id: "venue-cafe", name: "安静咖啡", tags: ["咖啡"] }), 90),
+      trafficCandidate(candidate({ id: "venue-book", name: "独立书店", tags: ["书店"] }), 89)
+    ],
+    request
+  );
+
+  const duplicatedVenueRoute = routes.find((route) => {
+    const ids = route.places.map((place) => place.id);
+
+    return ids.includes("event-damai-show") && ids.includes("venue-mercedes");
+  });
+  const duplicatedPoiRoute = routes.find((route) => {
+    const ids = route.places.map((place) => place.id);
+
+    return ids.includes("event-damai-show-duplicate-poi") && ids.includes("venue-mercedes");
+  });
+
+  assert.equal(duplicatedVenueRoute, undefined);
+  assert.equal(duplicatedPoiRoute, undefined);
+});
+
 test("route assembler avoids reusing same place clusters across returned routes", () => {
   const routes = buildRoutes(
     [

@@ -10,6 +10,7 @@
     "test": "node --import tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "worker:ingest": "tsx workers/ingest-worker.ts",
+    "worker:normalize": "tsx workers/normalize-worker.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed"
