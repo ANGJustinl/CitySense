@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/server/db/prisma";
-import { recomputeUserProfile } from "@/server/recommendation/user-profile";
+import { recomputeUserProfile } from "@/server/recommendation/user-profile-v2";
 
 /**
  * TASK2-P0-001E：授权平台品味导入契约（草案）。

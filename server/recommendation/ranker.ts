@@ -10,7 +10,7 @@ import {
 } from "@/server/recommendation/scoring";
 import { buildCandidateFeatures } from "@/server/recommendation/features";
 import { loadUserRecommendationSignals } from "@/server/recommendation/user-signals";
-import { loadUserProfileForRanking, type UserProfileSnapshot } from "@/server/recommendation/user-profile";
+import { loadUserProfileForRanking, type UserProfileSnapshot } from "@/server/recommendation/user-profile-v2";
 
 export type RankerResult = {
   ranked: ScoredCandidate[];

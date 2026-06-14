@@ -6,8 +6,8 @@ import type {
 } from "@/server/recommendation/types";
 import { createDefaultFeatures } from "@/server/recommendation/scoring";
 import {
-  calculateFeedbackPenalty,
   calculateUserAffinity,
+  calculateFeedbackPenalty,
   type UserRecommendationSignals
 } from "@/server/recommendation/user-signals";
 import {
@@ -16,7 +16,7 @@ import {
   calculateUserAffinityFromProfile,
   PROFILE_VERSION,
   type UserProfileSnapshot
-} from "@/server/recommendation/user-profile";
+} from "@/server/recommendation/user-profile-v2";
 
 export type FeatureBuildSources = {
   signals?: UserRecommendationSignals;

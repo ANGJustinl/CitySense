@@ -37,8 +37,8 @@ function topMetrics(map: Map<string, number>, limit: number): PulseMetric[] {
     }));
 }
 
-function formatTime(value?: string) {
-  if (!value) {
+function formatTime(value?: string, mounted = true) {
+  if (!value || !mounted) {
     return "未缓存";
   }
 
@@ -48,8 +48,8 @@ function formatTime(value?: string) {
   }).format(new Date(value));
 }
 
-function ageMinutes(value?: string) {
-  if (!value) {
+function ageMinutes(value?: string, mounted = true) {
+  if (!value || !mounted) {
     return undefined;
   }
 
@@ -90,6 +90,12 @@ function MetricBars({ metrics, empty }: { metrics: PulseMetric[]; empty: string 
 
 export function CityPulsePanel({ response, city, area }: CityPulsePanelProps) {
   const [pulse, setPulse] = useState<CityPulseResponse | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const topRoute = response.routes[0];
   const signalCount = response.routes.reduce((sum, route) => sum + route.sourceSignals.length, 0);
   const trafficCapturedAt = response.routes
@@ -122,7 +128,7 @@ export function CityPulsePanel({ response, city, area }: CityPulsePanelProps) {
   const sourceMix = pulse?.sourceMix.length ? pulse.sourceMix : derived.sourceMix;
   const trafficCache = pulse?.trafficCache;
   const trafficProviderMix = trafficCache?.providerMix ?? [];
-  const trafficAge = trafficCache?.latestAgeMinutes ?? ageMinutes(trafficCapturedAt);
+  const trafficAge = trafficCache?.latestAgeMinutes ?? ageMinutes(trafficCapturedAt, mounted);
 
   useEffect(() => {
     const params = new URLSearchParams({
@@ -227,7 +233,7 @@ export function CityPulsePanel({ response, city, area }: CityPulsePanelProps) {
           </div>
           <div>
             <span>刷新</span>
-            <strong>{formatTime(trafficCache?.latestCapturedAt ?? trafficCapturedAt ?? pulse?.generatedAt)}</strong>
+            <strong>{formatTime(trafficCache?.latestCapturedAt ?? trafficCapturedAt ?? pulse?.generatedAt, mounted)}</strong>
           </div>
         </div>
         {trafficProviderMix.length ? (
@@ -235,7 +241,7 @@ export function CityPulsePanel({ response, city, area }: CityPulsePanelProps) {
             {trafficProviderMix.map((metric) => (
               <span key={metric.label}>{metric.label}: {metric.value}</span>
             ))}
-            <span>{formatTime(trafficCache?.latestCapturedAt ?? trafficCapturedAt)}</span>
+            <span>{formatTime(trafficCache?.latestCapturedAt ?? trafficCapturedAt, mounted)}</span>
           </div>
         ) : null}
         {pulse?.feedbackTrend.length ? (

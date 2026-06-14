@@ -89,7 +89,7 @@ export type ScoreBreakdown = {
   exposurePenalty: number;
 };
 
-// TASK2-P0-001：画像归因，写入 RecommendationFeatureSnapshot.features 供追溯。
+// TASK2-P0-001：画像归因，写入 CandidateFeatures.profileFactors 供追溯。
 export type ProfileFactor = {
   dimension: "tag" | "source" | "area" | "budget" | "quietness" | "mood";
   key: string;

@@ -1,302 +1,235 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db/prisma";
-import type { Candidate } from "@/server/recommendation/types";
+import { loadUserRecommendationSignals } from "@/server/recommendation/user-signals";
+import { getCityProfile } from "@/server/recommendation/city-profile";
 
 /**
- * TASK2-P0-001：用户品味画像闭环。
+ * Per-user interest profile, built from three fused sources:
+ *   1. explicit approvals/disapprovals (this module writes them)
+ *   2. implicit signals from feedback (reuses loadUserRecommendationSignals)
+ *   3. city-wide hot tags from 小红书 CitySignal (reuses getCityProfile) as a
+ *      candidate pool for new users with no history yet.
  *
- * 设计约束（见 docs/tasks-2.md 审批结论 2026-06-14 angjustinl）：
- *
- * 1. RecommendationFeedback 是站内反馈事实源，UserInteraction 是镜像/导入/兼容层。
- *    重算画像时必须去重，不能把同一次 feedback 双算。实现上 recompute 以 UserInteraction
- *    为读取入口（它携带 tags/source 等维度上下文），但按 (recommendationId, routeId, itemId)
- *    去重，一次反馈对一个 item 只计一次。
- * 2. 授权导入类 interaction（action ∈ {liked,saved,rated,watched,followed}）走单独累加通道，
- *    与站内反馈 action（up/down/save/dismiss）命名空间隔离，天然不双算。
- * 3. 单次 down/dismiss 只做短期 route/item 级惩罚；泛化到 tag/source/area 的负偏好必须满足
- *    负样本 >=2、更快衰减、硬上限。
- * 4. 无画像 / 读取失败 / 匿名用户 → 回退空画像，不抛错，保持推荐接口可用。
+ * All preference state lives in `UserPreference.metadata` (zero schema migration).
  */
 
-export const PROFILE_VERSION = 1;
-export const PROFILE_DECAY_WINDOW_DAYS = 90;
-export const PROFILE_REFRESH_TTL_MS = 24 * 60 * 60 * 1000;
-export const PROFILE_EXPOSURE_WINDOW_DAYS = 14;
+export type TagSource = "explicit" | "implicit" | "city";
+export type TagStatus = "approved" | "disapproved" | "pending";
+export type TagAction = "approve" | "disapprove" | "skip";
 
-// 分层负偏好约束（约束 3）。
-export const NEGATIVE_PREFERENCE_MIN_SAMPLES = 2;
-export const NEGATIVE_PREFERENCE_HARD_CAP = 30;
-// 正偏好单项硬上限，防止单一信号主导。
-export const POSITIVE_PREFERENCE_HARD_CAP = 60;
-// affinity 归一化：50 为中性，正偏好上探，负偏好下探。
-export const AFFINITY_NEUTRAL = 50;
-
-const FEEDBACK_ACTIONS = new Set(["up", "down", "save", "dismiss"]);
-const IMPORT_ACTIONS = new Set(["liked", "saved", "rated", "watched", "followed"]);
-
-// 站内反馈到维度权重的映射（方向与 feedback.ts feedbackToInteractionWeight 对齐）。
-const FEEDBACK_ACTION_WEIGHT: Record<string, number> = {
-  up: 1,
-  save: 1.5,
-  down: -1.5,
-  dismiss: -0.8
+export type TagCandidate = {
+  tag: string;
+  /** Where this tag surfaced from. A tag can appear from multiple sources;
+   * we report the strongest one (explicit > implicit > city). */
+  source: TagSource;
+  /** Normalized 0-100 relevance signal used for ordering. */
+  score: number;
+  status: TagStatus;
+  /** Raw context for display, e.g. "城市热度 79" or "隐式反馈 +0.3". */
+  context: string;
 };
 
-// 授权导入到维度权重的映射（E：AuthorizedTasteImport 用）。
-const IMPORT_ACTION_WEIGHT: Record<string, number> = {
-  liked: 1,
-  saved: 1.4,
-  rated: 1.2,
-  watched: 0.8,
-  followed: 1
+export type UserProfileStats = {
+  approvedCount: number;
+  disapprovedCount: number;
+  pendingCount: number;
+  implicitTagCount: number;
+  hasHistory: boolean;
 };
 
-// 时间衰减：正反馈 1/7/30/90 天 → 1/0.72/0.42/0.18。
-function positiveDecay(ageDays: number) {
-  if (ageDays <= 1) return 1;
-  if (ageDays <= 7) return 0.72;
-  if (ageDays <= 30) return 0.42;
-  return 0.18;
-}
-
-// 时间衰减：负反馈更快衰减（约束 3）→ 1/0.5/0.2/0.05。
-function negativeDecay(ageDays: number) {
-  if (ageDays <= 1) return 1;
-  if (ageDays <= 7) return 0.5;
-  if (ageDays <= 30) return 0.2;
-  return 0.05;
-}
-
-export type PreferenceDimension = "tag" | "source" | "area" | "budget" | "quietness" | "mood";
-
-export type PreferenceWeight = {
-  dimension: PreferenceDimension;
-  key: string;
-  // 正偏好：[0, POSITIVE_PREFERENCE_HARD_CAP]，幅度表达。
-  // 负偏好：[0, NEGATIVE_PREFERENCE_HARD_CAP]，幅度表达（sign 在惩罚计算时还原）。
-  weight: number;
-  sampleSize: number;
-};
-
-export type UserProfileSnapshot = {
-  profileVersion: number;
-  updatedFrom: string;
+export type UserProfileResponse = {
+  userId: string;
+  city: string;
+  area?: string;
+  candidateTags: TagCandidate[];
+  approvedTags: string[];
+  disapprovedTags: string[];
+  dimensions: DimensionScore[];
+  stats: UserProfileStats;
   generatedAt: string;
-  sampleSize: number;
-  decayWindowDays: number;
-  confidence: "low" | "medium" | "high";
-  positiveWeights: PreferenceWeight[];
-  negativeWeights: PreferenceWeight[];
-  sourceAffinity: number;
-  areaAffinity: number;
-  budgetAffinity: number;
-  quietnessAffinity: number;
-  moodAffinity: Record<string, number>;
-  recentExposure: {
-    itemIds: string[];
-    routeTitles: string[];
-    windowDays: number;
-    capturedAt: string;
-  };
-  topReasons: string[];
 };
 
-export const EMPTY_USER_PROFILE: UserProfileSnapshot = {
-  profileVersion: PROFILE_VERSION,
-  updatedFrom: "empty",
-  generatedAt: new Date(0).toISOString(),
-  sampleSize: 0,
-  decayWindowDays: PROFILE_DECAY_WINDOW_DAYS,
-  confidence: "low",
-  positiveWeights: [],
-  negativeWeights: [],
-  sourceAffinity: AFFINITY_NEUTRAL,
-  areaAffinity: AFFINITY_NEUTRAL,
-  budgetAffinity: AFFINITY_NEUTRAL,
-  quietnessAffinity: AFFINITY_NEUTRAL,
-  moodAffinity: {},
-  recentExposure: {
-    itemIds: [],
-    routeTitles: [],
-    windowDays: PROFILE_EXPOSURE_WINDOW_DAYS,
-    capturedAt: new Date(0).toISOString()
+/**
+ * Six taste dimensions for the radar chart. Each dimension aggregates a set of
+ * related tags. Aligned with the THEME_TAGS classification in route-builder.ts
+ * so the chart reflects the same interest taxonomy the recommender uses.
+ */
+export type DimensionKey =
+  | "culture"
+  | "coffee"
+  | "nightlife"
+  | "marketFood"
+  | "trend"
+  | "quiet";
+
+export type DimensionScore = {
+  key: DimensionKey;
+  label: string;
+  /** Normalized 0-100 strength. */
+  value: number;
+  /** The tags that contributed to this dimension's score (for tooltips). */
+  topTags: string[];
+};
+
+export const DIMENSIONS: { key: DimensionKey; label: string; tags: string[] }[] = [
+  {
+    key: "culture",
+    label: "文化静思",
+    tags: ["书店", "展览", "艺术", "文化", "漫画", "美术馆", "画廊"]
   },
-  topReasons: []
-};
-
-type WeightedDimensionRow = {
-  dimension: PreferenceDimension;
-  key: string;
-  rawWeight: number;
-  sampleSize: number;
-};
-
-type AffinityBucket = {
-  tag: Record<string, number>;
-  source: Record<string, number>;
-  area: Record<string, number>;
-};
-
-function readContext(value: unknown): Record<string, unknown> {
-  return (value ?? {}) as Record<string, unknown>;
-}
-
-function contextTags(context: unknown): string[] {
-  const value = readContext(context);
-  if (!Array.isArray(value.tags)) {
-    return [];
+  {
+    key: "coffee",
+    label: "咖啡生活",
+    tags: ["咖啡", "咖啡厅", "咖啡馆", "咖啡品鉴"]
+  },
+  {
+    key: "nightlife",
+    label: "夜生活",
+    tags: ["独立音乐", "livehouse", "Livehouse", "酒吧", "演出", "音乐", "夜生活"]
+  },
+  {
+    key: "marketFood",
+    label: "市集美食",
+    tags: ["市集", "快闪", "美食", "餐饮", "烘焙", "甜点", "小吃"]
+  },
+  {
+    key: "trend",
+    label: "热门潮流",
+    tags: ["热门", "热度", "潮流", "活动", "体育休闲", "购物", "同城"]
+  },
+  {
+    key: "quiet",
+    label: "安静独处",
+    tags: ["安静", "solo", "书店", "漫画"]
   }
-  return value.tags.filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0);
-}
+];
 
-function contextSource(context: unknown): string | undefined {
-  const value = readContext(context);
-  return typeof value.source === "string" && value.source.trim().length > 0
-    ? value.source
-    : undefined;
-}
+const NEUTRAL_SCORE = 50;
 
-function clamp(value: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function bucketFor(bucket: Record<string, number>, key: string, weight: number) {
-  bucket[key] = (bucket[key] ?? 0) + weight;
-}
-
-function addDimension(
-  rows: Map<string, WeightedDimensionRow>,
-  dimension: PreferenceDimension,
-  key: string | undefined,
-  rawWeight: number
-) {
-  if (!key || rawWeight === 0) {
-    return;
-  }
-  const mapKey = `${dimension}:${key}`;
-  const existing = rows.get(mapKey);
-  if (existing) {
-    existing.rawWeight += rawWeight;
-    existing.sampleSize += 1;
-  } else {
-    rows.set(mapKey, { dimension, key, rawWeight, sampleSize: 1 });
-  }
-}
-
-function confidenceFor(sampleSize: number): UserProfileSnapshot["confidence"] {
-  if (sampleSize < 5) return "low";
-  if (sampleSize < 15) return "medium";
-  return "high";
-}
-
-function aggregateAffinityScore(bucket: AffinityBucket): number {
-  const all = [...Object.values(bucket.tag), ...Object.values(bucket.source), ...Object.values(bucket.area)];
-  if (all.length === 0) {
-    return AFFINITY_NEUTRAL;
-  }
-  const sum = all.reduce((acc, value) => acc + value, 0);
-  return clamp(Math.round(AFFINITY_NEUTRAL + sum / all.length), 0, 100);
-}
-
-function buildTopReasons(
-  positive: PreferenceWeight[],
-  negative: PreferenceWeight[],
-  exposure: { itemIds: string[]; routeTitles: string[] }
-): string[] {
-  const reasons: string[] = [];
-  for (const weight of positive.slice(0, 3)) {
-    reasons.push(`${weight.dimension}:${weight.key} +${weight.weight}`);
-  }
-  for (const weight of negative.slice(0, 2)) {
-    reasons.push(`${weight.dimension}:${weight.key} -${weight.weight}`);
-  }
-  if (exposure.itemIds.length > 0) {
-    reasons.push(`recentlySeen:${exposure.itemIds.length} items`);
-  }
-  return reasons;
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 /**
- * 关键去重（约束 1）：一次反馈对同一 item 只计一次。
- * 同一 (recommendationId, routeId, itemId) 可能因历史重复 mirror 产生多条 interaction；
- * 只保留最早一条。授权导入类（非 feedback action）命名空间隔离，不参与此去重。
+ * Compute the six dimension scores from the three fused tag sources.
+ * Pure function — exported for unit testing without a database.
+ *
+ * Scoring per dimension:
+ *   - explicit: each approved tag matching the dimension adds 30 (cap 90)
+ *   - implicit:  sum of implicit tag weights for matching tags × 25
+ *   - city:      mean of city heatScore for matching tags × 0.35
+ * Final = clamp(explicit + implicit + city, 0, 100).
+ * If all three sources are empty for a dimension → NEUTRAL_SCORE (50).
  */
-function dedupeFeedbackInteractions<
-  T extends {
-    recommendationId: string | null;
-    routeId: string | null;
-    itemId: string | null;
-    action: string;
-    createdAt: Date;
+export function computeDimensionScores(input: {
+  explicitApproved: Record<string, number>;
+  implicitTagWeights: Map<string, number>;
+  cityTopTags: { label: string; value: number }[];
+}): DimensionScore[] {
+  const { explicitApproved, implicitTagWeights, cityTopTags } = input;
+  const cityHeatByTag = new Map<string, number>();
+  for (const metric of cityTopTags) {
+    cityHeatByTag.set(metric.label, metric.value);
   }
->(interactions: T[]): T[] {
-  const seen = new Set<string>();
-  const ascending = [...interactions].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-  const out: T[] = [];
-  for (const interaction of ascending) {
-    if (!FEEDBACK_ACTIONS.has(interaction.action)) {
-      // 授权导入类：命名空间隔离，直接保留（约束 2）。
-      out.push(interaction);
-      continue;
-    }
-    const key = [
-      interaction.recommendationId ?? "",
-      interaction.routeId ?? "",
-      interaction.itemId ?? ""
-    ].join("|");
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    out.push(interaction);
-  }
-  return out;
-}
 
-function normalizeWeightsFromRows(
-  rows: Map<string, WeightedDimensionRow>,
-  sign: 1 | -1
-): PreferenceWeight[] {
-  const cap = sign > 0 ? POSITIVE_PREFERENCE_HARD_CAP : NEGATIVE_PREFERENCE_HARD_CAP;
-  return [...rows.values()]
-    .map((row) => ({
-      dimension: row.dimension,
-      key: row.key,
-      weight: clamp(Math.round(Math.abs(row.rawWeight) * 10) / 10, 0, cap),
-      sampleSize: row.sampleSize
-    }))
-    .sort((a, b) => b.weight - a.weight);
-}
+  return DIMENSIONS.map((dimension) => {
+    const tagSet = new Set(dimension.tags);
+    const matchedTags: string[] = [];
 
-function applyNegativeSampleFloor(rows: PreferenceWeight[]): PreferenceWeight[] {
-  // 约束 3：泛化负偏好必须负样本 >= 2。
-  return rows.filter((row) => row.sampleSize >= NEGATIVE_PREFERENCE_MIN_SAMPLES);
-}
-
-function extractExposureFromRoutes(routesJson: unknown): {
-  itemIds: string[];
-  routeTitles: string[];
-} {
-  if (!Array.isArray(routesJson)) {
-    return { itemIds: [], routeTitles: [] };
-  }
-  const itemIds = new Set<string>();
-  const routeTitles = new Set<string>();
-  for (const route of routesJson as Array<Record<string, unknown>>) {
-    const title = typeof route.title === "string" ? route.title : undefined;
-    const places = Array.isArray(route.places) ? (route.places as Array<Record<string, unknown>>) : [];
-    for (const place of places) {
-      if (typeof place.id === "string") {
-        itemIds.add(place.id);
+    // Explicit approved tags — strongest signal, capped so multi-tag dimensions
+    // don't saturate instantly.
+    let explicitScore = 0;
+    for (const tag of Object.keys(explicitApproved)) {
+      if (tagSet.has(tag)) {
+        explicitScore += 15;
+        matchedTags.push(tag);
       }
     }
-    if (title) {
-      routeTitles.add(title);
+    explicitScore = Math.min(35, explicitScore);
+
+    // Implicit feedback weights.
+    let implicitSum = 0;
+    for (const [tag, weight] of implicitTagWeights) {
+      if (tagSet.has(tag) && weight > 0) {
+        implicitSum += weight;
+        if (!matchedTags.includes(tag)) matchedTags.push(tag);
+      }
     }
-  }
+    const implicitScore = Math.min(15, implicitSum * 10);
+
+    // City heat average across matching tags present in city topTags.
+    let citySum = 0;
+    let cityCount = 0;
+    for (const tag of dimension.tags) {
+      const heat = cityHeatByTag.get(tag);
+      if (typeof heat === "number") {
+        citySum += heat;
+        cityCount += 1;
+        if (!matchedTags.includes(tag)) matchedTags.push(tag);
+      }
+    }
+    const cityScore = cityCount > 0 ? (citySum / cityCount) * 0.35 : 0;
+
+    const hasAnySignal = explicitScore > 0 || implicitScore > 0 || cityScore > 0;
+    // NEUTRAL_SCORE is the baseline; the three sources are additive bonuses
+    // so any positive signal lifts the dimension above neutral, never below.
+    const value = hasAnySignal
+      ? clampScore(NEUTRAL_SCORE + explicitScore + implicitScore + cityScore)
+      : NEUTRAL_SCORE;
+
+    return {
+      key: dimension.key,
+      label: dimension.label,
+      value,
+      topTags: matchedTags.slice(0, 5)
+    };
+  });
+}
+
+type PreferenceMetadata = {
+  approvedTags: Record<string, number>;
+  disapprovedTags: Record<string, number>;
+  tagHistory: { tag: string; action: TagAction; at: string }[];
+  version: number;
+};
+
+const METADATA_VERSION = 1;
+const CITY_TAG_FALLBACK_LIMIT = 12;
+const CANDIDATE_LIMIT = 20;
+
+function emptyMetadata(): PreferenceMetadata {
   return {
-    itemIds: [...itemIds].slice(0, 200),
-    routeTitles: [...routeTitles].slice(0, 50)
+    approvedTags: {},
+    disapprovedTags: {},
+    tagHistory: [],
+    version: METADATA_VERSION
+  };
+}
+
+function readMetadata(raw: unknown): PreferenceMetadata {
+  if (!raw || typeof raw !== "object") {
+    return emptyMetadata();
+  }
+
+  // v1 数据存放在 metadata.tags 子键下（与 v2 的 metadata.profile 分离）。
+  // 向后兼容：若没有 tags 子键但顶层是 v1 结构（approvedTags 等），按扁平 v1 读取。
+  const root = raw as Record<string, unknown>;
+  const value =
+    (root.tags && typeof root.tags === "object"
+      ? (root.tags as Partial<PreferenceMetadata>)
+      : (root as Partial<PreferenceMetadata>));
+
+  return {
+    approvedTags:
+      value.approvedTags && typeof value.approvedTags === "object"
+        ? (value.approvedTags as Record<string, number>)
+        : {},
+    disapprovedTags:
+      value.disapprovedTags && typeof value.disapprovedTags === "object"
+        ? (value.disapprovedTags as Record<string, number>)
+        : {},
+    tagHistory: Array.isArray(value.tagHistory) ? value.tagHistory : [],
+    version: METADATA_VERSION
   };
 }
 
@@ -305,396 +238,211 @@ function toJson(value: unknown): Prisma.InputJsonValue {
 }
 
 /**
- * 重算用户画像并持久化到 UserPreference.metadata。
- * 异常时返回 EMPTY_USER_PROFILE，不抛错（约束 4）。
+ * Fuse the three tag sources into a single ranked candidate list.
+ * Pure function — exported for unit testing without a database.
  */
-export async function recomputeUserProfile(userId: string): Promise<UserProfileSnapshot> {
-  if (!userId) {
-    return EMPTY_USER_PROFILE;
-  }
+export function fuseCandidateTags(input: {
+  explicitApproved: Record<string, number>;
+  explicitDisapproved: Record<string, number>;
+  implicitTagWeights: Map<string, number>;
+  cityTopTags: { label: string; value: number }[];
+}): TagCandidate[] {
+  const { explicitApproved, explicitDisapproved, implicitTagWeights, cityTopTags } = input;
+  const merged = new Map<
+    string,
+    { sources: Set<TagSource>; maxScore: number; status: TagStatus; contexts: string[] }
+  >();
 
-  try {
-    const since = new Date(Date.now() - PROFILE_DECAY_WINDOW_DAYS * 86_400_000);
-    const exposureSince = new Date(Date.now() - PROFILE_EXPOSURE_WINDOW_DAYS * 86_400_000);
-
-    const [interactions, logs] = await Promise.all([
-      prisma.userInteraction.findMany({
-        where: {
-          userId,
-          createdAt: { gte: since }
-        },
-        orderBy: { createdAt: "asc" },
-        take: 1000
-      }),
-      prisma.recommendationLog.findMany({
-        where: {
-          userId,
-          createdAt: { gte: exposureSince }
-        },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-        select: { recommendedRoutes: true }
-      })
-    ]);
-
-    const deduped = dedupeFeedbackInteractions(interactions);
-
-    // 单次遍历完成：衰减（按每条 interaction 的 createdAt）+ 维度聚合 + bucket 累加。
-    const positiveRows = new Map<string, WeightedDimensionRow>();
-    const negativeRows = new Map<string, WeightedDimensionRow>();
-    const positiveBucket: AffinityBucket = { tag: {}, source: {}, area: {} };
-    let sampleSize = 0;
-
-    for (const interaction of deduped) {
-      const isFeedback = FEEDBACK_ACTIONS.has(interaction.action);
-      const isImport = IMPORT_ACTIONS.has(interaction.action);
-      if (!isFeedback && !isImport) {
-        continue;
+  function upsert(
+    tag: string,
+    source: TagSource,
+    score: number,
+    status: TagStatus,
+    context: string
+  ) {
+    const existing = merged.get(tag);
+    if (existing) {
+      existing.sources.add(source);
+      existing.maxScore = Math.max(existing.maxScore, score);
+      existing.contexts.push(context);
+      // Stronger status wins: explicit > implicit > city. approved/disapproved from explicit lock it.
+      if (source === "explicit") {
+        existing.status = status;
       }
-      const baseWeight =
-        interaction.weight ??
-        (isFeedback
-          ? FEEDBACK_ACTION_WEIGHT[interaction.action] ?? 0
-          : IMPORT_ACTION_WEIGHT[interaction.action] ?? 0);
-      if (baseWeight === 0) {
-        continue;
-      }
-      sampleSize += 1;
-
-      const ageDays = Math.max(0, (Date.now() - interaction.createdAt.getTime()) / 86_400_000);
-      const decay = baseWeight > 0 ? positiveDecay(ageDays) : negativeDecay(ageDays);
-      const decayedWeight = baseWeight * decay;
-
-      const targetRows = decayedWeight > 0 ? positiveRows : negativeRows;
-      const targetBucket = decayedWeight > 0 ? positiveBucket : null;
-
-      const tags = contextTags(interaction.context);
-      const source = contextSource(interaction.context);
-      for (const tag of tags) {
-        addDimension(targetRows, "tag", tag, decayedWeight);
-        if (targetBucket) bucketFor(targetBucket.tag, tag, decayedWeight);
-      }
-      if (source) {
-        addDimension(targetRows, "source", source, decayedWeight);
-        if (targetBucket) bucketFor(targetBucket.source, source, decayedWeight);
-      }
-    }
-
-    const positiveWeights = normalizeWeightsFromRows(positiveRows, 1);
-    const negativeWeights = applyNegativeSampleFloor(normalizeWeightsFromRows(negativeRows, -1));
-
-    const exposureItemIds = new Set<string>();
-    const exposureRouteTitles = new Set<string>();
-    for (const log of logs) {
-      const extracted = extractExposureFromRoutes(log.recommendedRoutes);
-      for (const id of extracted.itemIds) exposureItemIds.add(id);
-      for (const title of extracted.routeTitles) exposureRouteTitles.add(title);
-    }
-    const recentExposure = {
-      itemIds: [...exposureItemIds].slice(0, 200),
-      routeTitles: [...exposureRouteTitles].slice(0, 50),
-      windowDays: PROFILE_EXPOSURE_WINDOW_DAYS,
-      capturedAt: new Date().toISOString()
-    };
-
-    const snapshot: UserProfileSnapshot = {
-      profileVersion: PROFILE_VERSION,
-      updatedFrom: "feedback",
-      generatedAt: new Date().toISOString(),
-      sampleSize,
-      decayWindowDays: PROFILE_DECAY_WINDOW_DAYS,
-      confidence: confidenceFor(sampleSize),
-      positiveWeights,
-      negativeWeights,
-      sourceAffinity: aggregateAffinityScore(positiveBucket),
-      areaAffinity: AFFINITY_NEUTRAL,
-      budgetAffinity: AFFINITY_NEUTRAL,
-      quietnessAffinity: AFFINITY_NEUTRAL,
-      moodAffinity: {},
-      recentExposure,
-      topReasons: buildTopReasons(positiveWeights, negativeWeights, recentExposure)
-    };
-
-    try {
-      await prisma.userPreference.upsert({
-        where: { userId },
-        create: {
-          userId,
-          interests: [],
-          metadata: toJson(snapshot)
-        },
-        update: {
-          metadata: toJson(snapshot)
-        }
+    } else {
+      merged.set(tag, {
+        sources: new Set([source]),
+        maxScore: score,
+        status,
+        contexts: [context]
       });
-    } catch {
-      // 持久化失败不影响内存画像可用性。
     }
-
-    return snapshot;
-  } catch {
-    return EMPTY_USER_PROFILE;
   }
-}
 
-function isStaleSnapshot(snapshot: UserProfileSnapshot | null): boolean {
-  if (!snapshot) return true;
-  if (snapshot.profileVersion !== PROFILE_VERSION) return true;
-  const generatedAt = Date.parse(snapshot.generatedAt);
-  if (!Number.isFinite(generatedAt)) return true;
-  return Date.now() - generatedAt > PROFILE_REFRESH_TTL_MS;
-}
+  for (const [tag, confidence] of Object.entries(explicitApproved)) {
+    upsert(tag, "explicit", Math.round(confidence * 100), "approved", `显式认可 ${confidence.toFixed(2)}`);
+  }
+  for (const [tag, confidence] of Object.entries(explicitDisapproved)) {
+    upsert(tag, "explicit", Math.round(Math.abs(confidence) * 100), "disapproved", `显式不认可 ${confidence.toFixed(2)}`);
+  }
+  for (const [tag, weight] of implicitTagWeights) {
+    if (weight === 0) continue;
+    const score = Math.min(100, Math.round(Math.abs(weight) * 50));
+    const status: TagStatus = weight > 0 ? "approved" : "disapproved";
+    upsert(tag, "implicit", score, status, `隐式反馈 ${weight > 0 ? "+" : ""}${weight.toFixed(2)}`);
+  }
+  for (const metric of cityTopTags) {
+    upsert(metric.label, "city", Math.round(metric.value), "pending", `城市热度 ${metric.value}`);
+  }
 
-function parseStoredMetadata(metadata: unknown): UserProfileSnapshot | null {
-  if (!metadata || typeof metadata !== "object") {
-    return null;
-  }
-  const value = metadata as Partial<UserProfileSnapshot>;
-  if (value.profileVersion !== PROFILE_VERSION) {
-    return null;
-  }
-  // 信任我们自己写入的结构；字段缺失时回退到空画像默认值。
-  return {
-    ...EMPTY_USER_PROFILE,
-    ...value,
-    recentExposure: {
-      ...EMPTY_USER_PROFILE.recentExposure,
-      ...(value.recentExposure ?? {})
-    }
-  } as UserProfileSnapshot;
-}
-
-/**
- * 读取用户画像：优先读持久化快照；过期或缺失时重算并写回；任何异常回退空画像。
- * 约束 4：永不抛错。
- */
-export async function loadUserProfile(userId: string | undefined): Promise<UserProfileSnapshot> {
-  if (!userId) {
-    return EMPTY_USER_PROFILE;
-  }
-  try {
-    const stored = await prisma.userPreference.findUnique({
-      where: { userId },
-      select: { metadata: true }
+  return [...merged.entries()]
+    .map(([tag, info]) => {
+      // Source priority for display: explicit > implicit > city
+      const source: TagSource = info.sources.has("explicit")
+        ? "explicit"
+        : info.sources.has("implicit")
+          ? "implicit"
+          : "city";
+      return {
+        tag,
+        source,
+        score: info.maxScore,
+        status: info.status,
+        context: info.contexts.join(" · ")
+      };
+    })
+    .sort((a, b) => {
+      // Pending first (those the user hasn't decided on yet), then approved, then disapproved.
+      const order: Record<TagStatus, number> = { pending: 0, approved: 1, disapproved: 2 };
+      if (order[a.status] !== order[b.status]) {
+        return order[a.status] - order[b.status];
+      }
+      return b.score - a.score;
     });
-    const parsed = parseStoredMetadata(stored?.metadata);
-    if (parsed && !isStaleSnapshot(parsed)) {
-      return parsed;
-    }
-    return await recomputeUserProfile(userId);
-  } catch {
-    return EMPTY_USER_PROFILE;
-  }
 }
 
 /**
- * ranker 一次请求内复用的画像读取结果。无 userId 时直接返回空画像与 degraded 标记，
- * 保证无画像时 ranker 行为与改造前一致（约束 4）。
+ * Load a user's fused interest profile. Falls back gracefully:
+ * - no userId history → only city tags (new-user onboarding)
+ * - DB read failure → empty metadata treated as new user
  */
-export async function loadUserProfileForRanking(userId: string | undefined): Promise<{
-  profile: UserProfileSnapshot;
-  degraded: boolean;
-}> {
-  if (!userId) {
-    return { profile: EMPTY_USER_PROFILE, degraded: true };
-  }
-  try {
-    const profile = await loadUserProfile(userId);
-    return { profile, degraded: profile === EMPTY_USER_PROFILE || profile.sampleSize === 0 };
-  } catch {
-    return { profile: EMPTY_USER_PROFILE, degraded: true };
-  }
-}
+export async function getUserProfile(input: {
+  userId: string;
+  city: string;
+  area?: string;
+}): Promise<UserProfileResponse> {
+  const generatedAt = new Date().toISOString();
+  const { userId, city, area } = input;
 
-export type ProfileFactor = {
-  dimension: PreferenceDimension;
-  key: string;
-  delta: number;
-};
+  const [preference, implicitSignals, cityProfile] = await Promise.all([
+    prisma.userPreference
+      .findUnique({ where: { userId } })
+      .catch(() => null),
+    loadUserRecommendationSignals(userId),
+    getCityProfile({ city, area })
+  ]);
 
-export type AffinityComputation = {
-  score: number; // [0,100]，50 为中性
-  factors: ProfileFactor[];
-  profileHit: boolean;
-};
+  const metadata = readMetadata(preference?.metadata);
+  const candidateTags = fuseCandidateTags({
+    explicitApproved: metadata.approvedTags,
+    explicitDisapproved: metadata.disapprovedTags,
+    implicitTagWeights: implicitSignals.tagWeights,
+    cityTopTags: cityProfile.topTags.slice(0, CITY_TAG_FALLBACK_LIMIT)
+  }).slice(0, CANDIDATE_LIMIT);
 
-function matchWeight(weights: PreferenceWeight[], dimension: PreferenceDimension, key: string) {
-  return weights.find((weight) => weight.dimension === dimension && weight.key === key);
-}
+  const approvedTags = Object.keys(metadata.approvedTags);
+  const disapprovedTags = Object.keys(metadata.disapprovedTags);
+  const pendingCount = candidateTags.filter((c) => c.status === "pending").length;
+  const dimensions = computeDimensionScores({
+    explicitApproved: metadata.approvedTags,
+    implicitTagWeights: implicitSignals.tagWeights,
+    cityTopTags: cityProfile.topTags.slice(0, CITY_TAG_FALLBACK_LIMIT)
+  });
 
-/**
- * 基于画像的正偏好 affinity 计算。
- * 输出 [0,100]，50 为中性；同时给出 attribution（约束：可追溯，如 tag:展览 +8）。
- * 当 profile 为空或 sampleSize < 5（低置信）→ 返回中性 50，profileHit=false，保持原行为。
- */
-export function calculateUserAffinityFromProfile(
-  candidate: Candidate,
-  profile: UserProfileSnapshot
-): AffinityComputation {
-  if (profile.sampleSize < 5) {
-    return { score: AFFINITY_NEUTRAL, factors: [], profileHit: false };
-  }
-
-  const factors: ProfileFactor[] = [];
-  let delta = 0;
-
-  for (const tag of candidate.tags) {
-    const weight = matchWeight(profile.positiveWeights, "tag", tag);
-    if (weight) {
-      // 单 tag 贡献归一到 0~20 的 delta 区间。
-      const contribution = clamp(weight.weight / POSITIVE_PREFERENCE_HARD_CAP, 0, 1) * 20;
-      delta += contribution;
-      factors.push({ dimension: "tag", key: tag, delta: Math.round(contribution * 10) / 10 });
-    }
-  }
-
-  if (candidate.source) {
-    const weight = matchWeight(profile.positiveWeights, "source", candidate.source);
-    if (weight) {
-      const contribution = clamp(weight.weight / POSITIVE_PREFERENCE_HARD_CAP, 0, 1) * 15;
-      delta += contribution;
-      factors.push({ dimension: "source", key: candidate.source, delta: Math.round(contribution * 10) / 10 });
-    }
-  }
-
-  return {
-    score: clamp(Math.round(AFFINITY_NEUTRAL + delta), 0, 100),
-    factors,
-    profileHit: factors.length > 0
-  };
-}
-
-/**
- * 基于画像的负偏好惩罚。
- * 约束 3：泛化到 tag/source/area 的负偏好已满足 sampleSize>=2、更快衰减、硬上限；
- * 单次 down/dismiss 在 recompute 阶段因 sampleSize<2 已被 applyNegativeSampleFloor 过滤。
- * 输出 [0, NEGATIVE_PREFERENCE_HARD_CAP]，0 表示无惩罚。
- */
-export function calculateFeedbackPenaltyFromProfile(
-  candidate: Candidate,
-  profile: UserProfileSnapshot
-): AffinityComputation {
-  if (profile.negativeWeights.length === 0) {
-    return { score: 0, factors: [], profileHit: false };
-  }
-
-  const factors: ProfileFactor[] = [];
-  let penalty = 0;
-
-  for (const tag of candidate.tags) {
-    const weight = matchWeight(profile.negativeWeights, "tag", tag);
-    if (weight) {
-      const contribution = clamp(weight.weight / NEGATIVE_PREFERENCE_HARD_CAP, 0, 1) * 12;
-      penalty += contribution;
-      factors.push({ dimension: "tag", key: tag, delta: -Math.round(contribution * 10) / 10 });
-    }
-  }
-
-  if (candidate.source) {
-    const weight = matchWeight(profile.negativeWeights, "source", candidate.source);
-    if (weight) {
-      const contribution = clamp(weight.weight / NEGATIVE_PREFERENCE_HARD_CAP, 0, 1) * 8;
-      penalty += contribution;
-      factors.push({ dimension: "source", key: candidate.source, delta: -Math.round(contribution * 10) / 10 });
-    }
-  }
-
-  return {
-    score: clamp(Math.round(penalty), 0, NEGATIVE_PREFERENCE_HARD_CAP),
-    factors,
-    profileHit: factors.length > 0
-  };
-}
-
-/**
- * 曝光惩罚：命中最近曝光 itemId 或 routeTitle 时给 novelty 轻惩罚。
- * 仅轻微影响排序，不过滤候选（验收要求"轻微排序影响"）。
- */
-export function calculateExposurePenalty(
-  candidate: Candidate,
-  profile: UserProfileSnapshot
-): { penalty: number; reason?: string } {
-  const exposure = profile.recentExposure;
-  if (exposure.itemIds.length === 0 && exposure.routeTitles.length === 0) {
-    return { penalty: 0 };
-  }
-  if (exposure.itemIds.includes(candidate.id)) {
-    return { penalty: 8, reason: `recentlySeen:itemId ${candidate.id}` };
-  }
-  if (candidate.name && exposure.routeTitles.some((title) => title.includes(candidate.name))) {
-    return { penalty: 4, reason: `recentlySeen:theme ${candidate.name}` };
-  }
-  return { penalty: 0 };
-}
-
-/**
- * 用户可见摘要：只返回派生标签/权重，不返回 raw interactions（隐私）。
- */
-export async function getUserProfileSummary(userId: string | undefined) {
-  if (!userId) {
-    return {
-      userId: null,
-      profileVersion: PROFILE_VERSION,
-      hasProfile: false,
-      degraded: true,
-      summary: null
-    };
-  }
-  const { profile, degraded } = await loadUserProfileForRanking(userId);
-  if (degraded || profile.sampleSize === 0) {
-    return {
-      userId,
-      profileVersion: PROFILE_VERSION,
-      hasProfile: false,
-      degraded: true,
-      summary: null
-    };
-  }
   return {
     userId,
-    profileVersion: PROFILE_VERSION,
-    hasProfile: true,
-    degraded: false,
-    summary: {
-      sampleSize: profile.sampleSize,
-      confidence: profile.confidence,
-      generatedAt: profile.generatedAt,
-      decayWindowDays: profile.decayWindowDays,
-      topPositiveTags: profile.positiveWeights
-        .filter((weight) => weight.dimension === "tag")
-        .slice(0, 5)
-        .map((weight) => ({ tag: weight.key, weight: weight.weight, sampleSize: weight.sampleSize })),
-      topNegativeTags: profile.negativeWeights
-        .filter((weight) => weight.dimension === "tag")
-        .slice(0, 5)
-        .map((weight) => ({ tag: weight.key, weight: weight.weight, sampleSize: weight.sampleSize })),
-      topSources: profile.positiveWeights
-        .filter((weight) => weight.dimension === "source")
-        .slice(0, 3)
-        .map((weight) => ({ source: weight.key, weight: weight.weight })),
-      topReasons: profile.topReasons,
-      recentExposureCount: profile.recentExposure.itemIds.length
-    }
+    city,
+    area,
+    candidateTags,
+    approvedTags,
+    disapprovedTags,
+    dimensions,
+    stats: {
+      approvedCount: approvedTags.length,
+      disapprovedCount: disapprovedTags.length,
+      pendingCount,
+      implicitTagCount: implicitSignals.tagWeights.size,
+      hasHistory: preference !== null || implicitSignals.tagWeights.size > 0
+    },
+    generatedAt
   };
 }
 
 /**
- * 清空画像：清空 UserPreference.metadata，保留行（interests 等不动）。
- * 清空后推荐回到无画像状态（验收要求）。
+ * Record a user's explicit tag preference. Upserts UserPreference,
+ * updates metadata maps + tagHistory, and syncs the `interests` array
+ * (which the existing recommendation pipeline already reads).
+ *
+ * `skip` is recorded in history but does not change approved/disapproved maps.
  */
-export async function clearUserProfile(userId: string): Promise<{ ok: boolean; clearedAt: string }> {
-  const clearedAt = new Date().toISOString();
-  try {
-    const existing = await prisma.userPreference.findUnique({ where: { userId } });
-    if (!existing) {
-      return { ok: true, clearedAt };
-    }
-    await prisma.userPreference.update({
-      where: { userId },
-      data: { metadata: Prisma.JsonNull }
-    });
-    return { ok: true, clearedAt };
-  } catch {
-    return { ok: true, clearedAt };
+export async function setTagPreference(input: {
+  userId: string;
+  tag: string;
+  action: TagAction;
+}): Promise<{ ok: true; status: TagStatus }> {
+  const { userId, tag, action } = input;
+  const trimmedTag = tag.trim();
+
+  if (!trimmedTag) {
+    throw new Error("tag must not be empty");
   }
+
+  const existing = await prisma.userPreference
+    .findUnique({ where: { userId } })
+    .catch(() => null);
+
+  // read-modify-write：保留 metadata 中其他子键（如 v2 的 metadata.profile），
+  // 只更新 metadata.tags 子键。旧数据（扁平结构）会被迁移到 tags 子键。
+  const storedRoot =
+    existing?.metadata && typeof existing.metadata === "object"
+      ? (existing.metadata as Record<string, unknown>)
+      : {};
+  const metadata = readMetadata(existing?.metadata);
+  metadata.tagHistory.push({ tag: trimmedTag, action, at: new Date().toISOString() });
+  // Cap history to avoid unbounded growth.
+  if (metadata.tagHistory.length > 200) {
+    metadata.tagHistory = metadata.tagHistory.slice(-200);
+  }
+
+  let status: TagStatus = "pending";
+  if (action === "approve") {
+    // Confidence grows with repeated approvals, capped at 1.
+    const prev = metadata.approvedTags[trimmedTag] ?? 0.3;
+    metadata.approvedTags[trimmedTag] = Math.min(1, prev + 0.25);
+    delete metadata.disapprovedTags[trimmedTag];
+    status = "approved";
+  } else if (action === "disapprove") {
+    const prev = metadata.disapprovedTags[trimmedTag] ?? -0.3;
+    metadata.disapprovedTags[trimmedTag] = Math.max(-1, prev - 0.25);
+    delete metadata.approvedTags[trimmedTag];
+    status = "disapproved";
+  }
+  // skip: status stays pending, only history updated.
+
+  const approvedTags = Object.keys(metadata.approvedTags);
+  // 合并：保留其他子键，覆盖 tags 子键。
+  const mergedMetadata = { ...storedRoot, tags: toJson(metadata) };
+  const data = {
+    userId,
+    interests: approvedTags,
+    metadata: toJson(mergedMetadata)
+  };
+
+  await prisma.userPreference.upsert({
+    where: { userId },
+    create: data,
+    update: { interests: approvedTags, metadata: data.metadata }
+  });
+
+  return { ok: true, status };
 }

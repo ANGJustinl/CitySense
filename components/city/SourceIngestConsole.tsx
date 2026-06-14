@@ -82,8 +82,8 @@ type DamaiSessionSaveResponse = {
   expiresAt?: string;
 };
 
-function formatDate(value?: string) {
-  if (!value) {
+function formatDate(value?: string, mounted = true) {
+  if (!value || !mounted) {
     return "-";
   }
 
@@ -138,6 +138,11 @@ function damaiVerificationKeyword(keywords: string[]) {
 
 export function SourceIngestConsole({ initialStatus }: SourceIngestConsoleProps) {
   const [status, setStatus] = useState<IngestStatusResponse>(initialStatus);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const [xhsStatus, setXhsStatus] = useState<XhsLoginStatus | null>(null);
   const [xhsQrcode, setXhsQrcode] = useState<XhsLoginQrcode | null>(null);
   const [xhsVerificationCode, setXhsVerificationCode] = useState("");
@@ -589,8 +594,8 @@ export function SourceIngestConsole({ initialStatus }: SourceIngestConsoleProps)
           <p className="muted-copy xhs-login-message">
             {[
               damaiStatus?.message ?? "尚未检查大麦验证状态。",
-              damaiStatus?.savedAt ? `保存时间：${formatDate(damaiStatus.savedAt)}` : "",
-              damaiStatus?.expiresAt ? `过期时间：${formatDate(damaiStatus.expiresAt)}` : "",
+              damaiStatus?.savedAt ? `保存时间：${formatDate(damaiStatus.savedAt, mounted)}` : "",
+              damaiStatus?.expiresAt ? `过期时间：${formatDate(damaiStatus.expiresAt, mounted)}` : "",
               damaiStatus?.cookieCount ? `已保存 ${damaiStatus.cookieCount} 个 cookie` : "",
               damaiStatus?.activeSession
                 ? `当前窗口：${damaiStatus.activeSession.city} / ${damaiStatus.activeSession.keyword}`
@@ -669,7 +674,7 @@ export function SourceIngestConsole({ initialStatus }: SourceIngestConsoleProps)
               {connectorIcon(connector.status)}
               {connector.enabled ? connector.status : "disabled"}
             </span>
-            <span>{formatDate(connector.lastSuccessAt)}</span>
+            <span>{formatDate(connector.lastSuccessAt, mounted)}</span>
             <span>{connector.lastError ?? "-"}</span>
           </div>
         ))}
@@ -688,7 +693,7 @@ export function SourceIngestConsole({ initialStatus }: SourceIngestConsoleProps)
               <strong>{run.status}</strong>
               <span>{run.city}</span>
               <span>{run.sources.join(", ")}</span>
-              <span>{formatDate(run.createdAt)}</span>
+              <span>{formatDate(run.createdAt, mounted)}</span>
             </div>
           ))
         )}
