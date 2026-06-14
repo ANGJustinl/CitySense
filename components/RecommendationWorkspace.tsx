@@ -7,7 +7,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState
 } from "react";
 import {
@@ -28,6 +27,8 @@ import type {
   RecommendResponse,
   TimeWindow
 } from "@/server/recommendation/types";
+import { AccountSwitcher } from "@/components/AccountSwitcher";
+import { DEMO_USER_PERSONA_INTERESTS } from "@/lib/demo-users";
 import { CityPulsePanel } from "@/components/city/CityPulsePanel";
 import { RouteInspector } from "@/components/city/RouteInspector";
 import { RouteMapCanvas } from "@/components/city/RouteMapCanvas";
@@ -35,6 +36,7 @@ import { RouteTimeline } from "@/components/city/RouteTimeline";
 
 type WorkspaceProps = {
   initialData: RecommendResponse;
+  initialUserId: string;
 };
 
 type WorkspacePanel = "controls" | "map" | "inspector" | "pulse";
@@ -106,7 +108,7 @@ function formatGeneratedAt(value: string) {
   });
 }
 
-export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
+export function RecommendationWorkspace({ initialData, initialUserId }: WorkspaceProps) {
   const [city, setCity] = useState("上海");
   const [area, setArea] = useState("");
   const [originMode, setOriginMode] = useState<OriginMode>("current");
@@ -119,6 +121,7 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
   const [budget, setBudget] = useState<Budget>("medium");
   const [timeWindow, setTimeWindow] = useState<TimeWindow>("tonight");
   const [useRealtimeTraffic, setUseRealtimeTraffic] = useState(false);
+  const [userId, setUserId] = useState(initialUserId);
   const [data, setData] = useState<RecommendResponse>(initialData);
   const [selectedRouteId, setSelectedRouteId] = useState<string | undefined>(
     initialData.routes[0]?.id
@@ -224,6 +227,7 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
       const requestBody =
         originMode === "manual"
           ? {
+              userId,
               city,
               area: area || undefined,
               originAddress: manualAddress,
@@ -235,6 +239,7 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
               useSocialSignals: true
             }
           : {
+              userId,
               city,
               area: area || undefined,
               origin: {
@@ -287,6 +292,69 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
       } else if (originMode === "manual") {
         setOriginMessage("未找到该起点，已按城市级路线返回");
       }
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  /**
+   * 账号切换：更新 userId 后立即用新 userId 重新拉推荐，
+   * 让用户看到画像差异（文艺静思 vs 热闹潮流）。
+   * 不复用 submitRecommendation 闭包（它会捕获旧 userId），直接用 nextUserId fetch。
+   */
+  async function handleAccountChange(nextUserId: string) {
+    if (nextUserId === userId) return;
+    // 切换账号时同步 interests 到该 persona 的召回默认（与首页逻辑一致，
+    // 让候选池从源头分化）。用户仍可手动调整兴趣标签后重新生成。
+    const nextInterests = DEMO_USER_PERSONA_INTERESTS[nextUserId] ?? interests;
+    setUserId(nextUserId);
+    setInterests(nextInterests);
+    setIsLoading(true);
+    try {
+      const requestBody =
+        originMode === "manual"
+          ? {
+              userId: nextUserId,
+              city,
+              area: area || undefined,
+              originAddress: originAddress.trim(),
+              interests: nextInterests,
+              mood,
+              budget,
+              timeWindow,
+              useRealtimeTraffic,
+              useSocialSignals: true
+            }
+          : {
+              userId: nextUserId,
+              city,
+              area: area || undefined,
+              origin: {
+                lat: origin.lat,
+                lng: origin.lng,
+                label: origin.label,
+                address: origin.address,
+                source: origin.source,
+                provider: origin.provider
+              },
+              interests: nextInterests,
+              mood,
+              budget,
+              timeWindow,
+              useRealtimeTraffic,
+              useSocialSignals: true
+            };
+      const response = await fetch("/api/recommend", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(requestBody)
+      });
+      if (!response.ok) throw new Error("recommend failed");
+      const nextData = (await response.json()) as RecommendResponse;
+      setData(nextData);
+      setSelectedRouteId(nextData.routes[0]?.id);
+    } catch {
+      // 切换失败保持原数据，不阻塞 UI。
     } finally {
       setIsLoading(false);
     }
@@ -406,9 +474,10 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
           </div>
         </div>
         <nav className="top-actions" aria-label="primary">
+          <AccountSwitcher currentUserId={userId} onChange={handleAccountChange} />
           <a href="/admin/sources">Sources</a>
           <a href="/discover">Discover</a>
-          <a href="/profile">画像</a>
+          <a href={`/profile?userId=${userId}`}>画像</a>
         </nav>
       </header>
 

@@ -12,7 +12,8 @@ export const WEIGHTED_RANKER_NAME = "weighted-v1";
 export const WEIGHTED_RANKER_VERSION = "weighted-v1.2-profile";
 
 // 权重调整（TASK2-P0-001 审批 2026-06-14）：
-// - userAffinity 0.05 -> 0.10（画像可信后提升正偏好影响）
+// - userAffinity 0.05 -> 0.10 -> 0.25（画像可信后提升正偏好影响；
+//   0.10 太弱，画像命中差值被 actionability/taste 淹没，无法改变排序）
 // - feedbackPenalty -0.12 -> -0.10（限制负反馈影响，配合分层硬上限）
 // - 新增 exposurePenalty -0.05（曝光轻惩罚，仅影响排序）
 // 无画像时 affinity=50(中性)、penalty=0、exposure=0，等价于改造前行为。
@@ -26,7 +27,7 @@ export const WEIGHTED_RANKER_WEIGHTS = {
   timeFit: 0.07,
   novelty: 0.04,
   actionability: 0.2,
-  userAffinity: 0.1,
+  userAffinity: 0.35,
   feedbackPenalty: -0.1,
   exposurePenalty: -0.05
 } satisfies Record<keyof ScoreBreakdown, number>;

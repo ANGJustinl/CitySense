@@ -12,6 +12,7 @@ import {
   User,
   X
 } from "lucide-react";
+import { AccountSwitcher } from "@/components/AccountSwitcher";
 import type { RecommendResponse } from "@/server/recommendation/types";
 import type {
   RecommendationTrace,
@@ -295,6 +296,16 @@ export function UserProfileView({
   const [error, setError] = useState<string | undefined>();
   const trace = initialTrace; // trace rebuild is server-side on next nav
 
+  // 账号切换：更新 URL 的 userId 参数，触发服务端重新渲染画像 + 推荐。
+  function handleAccountChange(nextUserId: string) {
+    const params = new URLSearchParams();
+    params.set("userId", nextUserId);
+    if (city) params.set("city", city);
+    if (area) params.set("area", area);
+    // typedRoutes 对动态 query 校验严格，用 window.location 走标准导航。
+    window.location.href = `/profile?${params.toString()}`;
+  }
+
   const { pending, approved, disapproved } = useMemo(() => {
     const pending: TagCandidate[] = [];
     const approved: TagCandidate[] = [];
@@ -375,7 +386,8 @@ export function UserProfileView({
           </div>
         </div>
         <nav className="top-actions" aria-label="primary">
-          <a href="/">工作台</a>
+          <AccountSwitcher currentUserId={profile.userId} onChange={handleAccountChange} />
+          <a href={`/?userId=${profile.userId}`}>工作台</a>
           <a href="/admin/sources">Sources</a>
         </nav>
       </header>

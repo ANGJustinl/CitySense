@@ -559,8 +559,9 @@ export function calculateUserAffinityFromProfile(
   for (const tag of candidate.tags) {
     const weight = matchWeight(profile.positiveWeights, "tag", tag);
     if (weight) {
-      // 单 tag 贡献归一到 0~20 的 delta 区间。
-      const contribution = clamp(weight.weight / POSITIVE_PREFERENCE_HARD_CAP, 0, 1) * 20;
+      // 单 tag 贡献归一到 0~32 的 delta 区间；多 tag 命中累加，最终 clamp 到 100。
+      // 之前 0~20 太弱，与 actionability/taste 等高分维度相比几乎不影响排序。
+      const contribution = clamp(weight.weight / POSITIVE_PREFERENCE_HARD_CAP, 0, 1) * 32;
       delta += contribution;
       factors.push({ dimension: "tag", key: tag, delta: Math.round(contribution * 10) / 10 });
     }
@@ -569,7 +570,7 @@ export function calculateUserAffinityFromProfile(
   if (candidate.source) {
     const weight = matchWeight(profile.positiveWeights, "source", candidate.source);
     if (weight) {
-      const contribution = clamp(weight.weight / POSITIVE_PREFERENCE_HARD_CAP, 0, 1) * 15;
+      const contribution = clamp(weight.weight / POSITIVE_PREFERENCE_HARD_CAP, 0, 1) * 20;
       delta += contribution;
       factors.push({ dimension: "source", key: candidate.source, delta: Math.round(contribution * 10) / 10 });
     }

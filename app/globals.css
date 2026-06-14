@@ -103,6 +103,147 @@ p {
   gap: 8px;
 }
 
+/* ── 账号切换器：头像按钮 + 弹出菜单 ── */
+.account-switcher {
+  position: relative;
+  display: inline-flex;
+}
+
+.account-trigger {
+  align-items: center;
+  background: var(--surface, #fff);
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  min-height: 36px;
+  padding: 3px 10px 3px 3px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.account-trigger:hover {
+  border-color: var(--ink, #111);
+}
+
+.account-avatar {
+  align-items: center;
+  border-radius: 50%;
+  color: #fff;
+  display: inline-flex;
+  flex-shrink: 0;
+  font-size: 14px;
+  font-weight: 700;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.account-avatar.small {
+  font-size: 13px;
+  height: 28px;
+  width: 28px;
+}
+
+/* 两个 persona 的头像配色：文艺用沉静蓝灰，潮流用暖橙红。 */
+.account-avatar.persona-quiet-culture {
+  background: linear-gradient(135deg, #6b7a8f, #475569);
+}
+
+.account-avatar.persona-lively-trend {
+  background: linear-gradient(135deg, #f97316, #db2777);
+}
+
+.account-trigger-text {
+  align-items: flex-start;
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.account-name {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.account-persona {
+  color: var(--muted, #6b7280);
+  font-size: 10px;
+}
+
+.account-caret {
+  color: var(--muted, #6b7280);
+  flex-shrink: 0;
+}
+
+/* 弹出菜单 */
+.account-menu {
+  background: var(--surface, #fff);
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  min-width: 240px;
+  overflow: hidden;
+  padding: 4px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 50;
+}
+
+.account-menu-header {
+  color: var(--muted, #6b7280);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 8px 10px 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.account-menu-item {
+  align-items: center;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  padding: 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.account-menu-item:hover {
+  background: var(--surface-2, #f5f5f4);
+}
+
+.account-menu-item.active {
+  background: var(--surface-2, #f5f5f4);
+}
+
+.account-menu-text {
+  align-items: flex-start;
+  display: inline-flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.2;
+  min-width: 0;
+}
+
+.account-blurb {
+  color: var(--muted, #6b7280);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-check {
+  color: var(--ink, #111);
+  flex-shrink: 0;
+}
+
 .top-actions a,
 .back-link,
 .text-link {
