@@ -1089,6 +1089,96 @@
 - 日期：
 - 结论：
 
+### TASK-P2-007：用户画像面板视觉精细化（卡片网格 + emoji 色块）
+
+- 状态：`待审批`
+- 负责人：Codex / 用户
+- 是否需要审批：否，纯前端组件视觉改造，不涉及数据契约、推荐算法或外部 API。
+
+背景与现状：
+
+- 用户画像面板（`components/city/UserProfilePanel.tsx`）功能完整（P2-002），但视觉朴素：偏好/反感因子用纯文字标签云（`tag:咖啡 +8`）、来源/样本/曝光是干巴巴的键值对、空状态是一段灰字。
+- 当前视觉问题：权重数字裸露用户无法感知强弱；tag/source/area/price 维度混合无分组；整体像调试面板而非"用户档案"。
+- 决策已确认：视觉风格为**卡片网格（emoji + 色块）**，强偏好卡片更大/更亮；范围**只改 UserProfilePanel 组件 + 其 CSS**。
+
+目标：
+
+- 把画像面板从"调试信息"重构为"用户档案"——让用户一眼看到自己被系统理解成什么样。
+- 偏好因子用 emoji + 色块卡片展示，强偏好（高权重）卡片视觉更突出（更大/更饱和/带光晕）。
+- 反感因子用弱化的 coral 色块卡片，视觉权重低于偏好。
+- 维度分组：tag/source/area 各为一组，组内有 emoji 图标和维度标签。
+- 空状态从灰字改为有引导感的插画式占位（emoji 大图标 + 引导文案 + 示例反馈按钮）。
+- 权重用视觉强度（色块大小/饱和度/条形）而非裸露数字表达。
+
+视觉设计（卡片网格方案）：
+
+```
+┌─────────────────────────────────┐
+│ 👤 你的探索画像                   │
+│ ─────────────────────────────── │
+│ 已学习 · 12 条反馈 · 探索 7 处    │
+│                                 │
+│ 偏好                             │
+│ ┌─────────┐ ┌──────┐ ┌──────┐  │
+│ │  ☕ 咖啡 │ │🎨展览 │ │📍静安│  │
+│ │  +8     │ │ +6   │ │ +5  │  │
+│ │ (teal)  │ │(teal)│ │(teal)│  │
+│ └─────────┘ └──────┘ └──────┘  │
+│ ┌──────┐ ┌──────┐               │
+│ │📚书店│ │🎵音乐│               │
+│ │ +4  │ │ +3  │               │
+│ └──────┘ └──────┘               │
+│                                 │
+│ 反感                             │
+│ ┌──────────┐                    │
+│ │ 🌃 夜生活 │                    │
+│ │  -2      │                    │
+│ │ (coral)  │                    │
+│ └──────────┘                    │
+│                                 │
+│ [🗑 清空画像]                    │
+└─────────────────────────────────┘
+```
+
+方案与约束：
+
+- **只改 UserProfilePanel 组件 + 其 CSS**（globals.css 的 `.profile-*` 规则），不动其他面板。
+- 不改数据契约：`UserProfileMeta`（topPositive/topNegative/recentExposureHits/source）结构不变。
+- emoji 映射：tag/source/area 维度各有默认 emoji（如 tag:咖啡→☕、source:amap-poi→📍、area:静安→🏙）；未映射的用通用 emoji（✨/⚠）。
+- 卡片大小映射权重：weight ≥ 6 大卡、3-5 中卡、1-2 小卡；色块饱和度随权重递增。
+- 偏好卡片用 teal 系（`--accent`），反感卡片用 coral 系（`--coral`），弱化处理。
+- 空状态：大 emoji 图标 + "还没有画像数据" + 引导（"给路线点'有帮助'，系统会更懂你"）+ 3 个示例反馈引导。
+- 沿用现有 8px 圆角、轻边框、shadow 风格。
+
+计划触达文件：
+
+- 修改：`components/city/UserProfilePanel.tsx`（卡片网格布局 + emoji 映射 + 权重视觉强度）
+- 修改：`app/globals.css`（`.profile-stack` 内的偏好/反感卡片网格样式、空状态、响应式）
+- 不改：`server/recommendation/profile.types.ts`、`server/recommendation/user-profile.ts`、API 路由
+
+验收标准：
+
+- [ ] 偏好因子以 emoji + 色块卡片展示，不再是纯文字标签。
+- [ ] 强偏好（高权重）卡片视觉更突出（更大/更饱和）。
+- [ ] 反感因子用弱化 coral 色块，视觉权重低于偏好。
+- [ ] 空状态有引导感的插画式占位（大 emoji + 引导文案）。
+- [ ] 权重用视觉强度表达，不裸露数字（或数字弱化为辅助）。
+- [ ] 清空画像按钮仍正常工作。
+- [ ] 不改数据契约和 API。
+- [ ] `pnpm typecheck`、`pnpm lint`、`pnpm build` 通过。
+
+风险与降级：
+
+- emoji 映射不全：未映射维度用通用 emoji 兜底，不报错。
+- 卡片数量过多：限制 topPositive 显示数量（如 6 个），超出可折叠。
+- 响应式：窄屏下列数降级（3列→2列→1列）。
+
+审批记录：
+
+- 审批人：
+- 日期：
+- 结论：
+
 ## 当前审批队列
 
 - [x] 审查并批准 `TASK-P0-001`。
@@ -1105,6 +1195,7 @@
 - [x] 审查并批准 `TASK-P2-002`。
 - [x] TASK-P2-004 无需审批(辅助交互层)。
 - [ ] 审查并批准 `TASK-P2-005`。
+- [ ] TASK-P2-007 无需审批(纯前端视觉改造)。
 
 ## 变更记录
 
@@ -1132,4 +1223,5 @@
 - 2026-06-14：扩写 TASK-P2-002 用户品味画像 MVP，规划显式偏好、隐式反馈、新鲜度惩罚、画像解释和隐私降级路径。
 - 2026-06-14：完成 TASK-P2-002 用户品味画像 MVP
 - 2026-06-14：完成 TASK-P2-004 AI 对话分析助手
-- 2026-06-14：新增 TASK-P2-005 首页清新化重构,规划地图优先+情绪化输入(MoodOrbSelector 复用、grid 5列→3列、技术面板折叠、来源徽章保留)。,新增 chat-client(glm-4-flash 流式+tools)/chat-tools(4工具)/chat-session(Redis 历史)/SSE端点/useChat hook/ChatDrawer+ChatDock,挂载到工作台右下角浮动入口;真实 smoke 验证流式回复+工具调用链路通过。，新增画像服务（profile.types / user-profile-core 纯计算 / user-profile prisma 封装）、6 维度正负权重 + 新鲜度曝光惩罚、读时懒重算 + TTL、推荐链路接入（user-signals/features/ranker/recommend）、`GET/DELETE /api/user-profile`、UserProfilePanel explain 面板（工作台第 5 列）；128 个测试通过,真实 smoke 验证反馈→画像→explain→清空→回退全链路。
+- 2026-06-14：新增 TASK-P2-005 首页清新化重构
+- 2026-06-14：新增 TASK-P2-007 用户画像面板视觉精细化,规划卡片网格(emoji+色块)替代纯文字标签云,强偏好卡片更突出,空状态引导式占位。,规划地图优先+情绪化输入(MoodOrbSelector 复用、grid 5列→3列、技术面板折叠、来源徽章保留)。,新增 chat-client(glm-4-flash 流式+tools)/chat-tools(4工具)/chat-session(Redis 历史)/SSE端点/useChat hook/ChatDrawer+ChatDock,挂载到工作台右下角浮动入口;真实 smoke 验证流式回复+工具调用链路通过。，新增画像服务（profile.types / user-profile-core 纯计算 / user-profile prisma 封装）、6 维度正负权重 + 新鲜度曝光惩罚、读时懒重算 + TTL、推荐链路接入（user-signals/features/ranker/recommend）、`GET/DELETE /api/user-profile`、UserProfilePanel explain 面板（工作台第 5 列）；128 个测试通过,真实 smoke 验证反馈→画像→explain→清空→回退全链路。
