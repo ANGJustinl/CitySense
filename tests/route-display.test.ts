@@ -19,7 +19,8 @@ const breakdown: ScoreBreakdown = {
   novelty: 80,
   actionability: 80,
   userAffinity: 50,
-  feedbackPenalty: 0
+  feedbackPenalty: 0,
+  exposurePenalty: 0
 };
 
 const sampleLeg: RouteLeg = {

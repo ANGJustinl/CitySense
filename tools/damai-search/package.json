@@ -1,0 +1,10 @@
+{
+  "name": "citysense-damai-search-tool",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "init": "node damai-search.mjs --init-config",
+    "start": "node damai-search.mjs"
+  }
+}

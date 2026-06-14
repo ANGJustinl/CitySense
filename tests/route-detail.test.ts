@@ -24,7 +24,8 @@ const sampleRoute: RecommendedRoute = {
     novelty: 76,
     actionability: 100,
     userAffinity: 50,
-    feedbackPenalty: 0
+    feedbackPenalty: 0,
+    exposurePenalty: 0
   },
   traffic: {
     estimatedDurationMinutes: 20,

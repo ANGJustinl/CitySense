@@ -1,389 +1,448 @@
-/**
- * 用户品味画像 MVP prisma 薄封装。
- *
- * 职责:从数据库读 interactions / recommendation logs,调用 user-profile-core 纯函数重算画像,
- * 把画像快照持久化到 UserPreference.metadata。
- *
- * 设计(TASK-P2-002):
- * - 读时懒重算 + TTL(30 分钟)失效:ranker 统一入口 ensureFreshProfile。
- * - 画像为空 / 读取失败 / 信号不足 → 返回 null,调用方(user-signals)回退即时聚合。
- * - clearProfile 物理删除 UserPreference 行,支持任务验收"用户可以清空画像"。
- * - 不实时爬虫/MCP;只读本地库表。
- */
-
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db/prisma";
-import {
-  PROFILE_DECAY_WINDOW_DAYS,
-  PROFILE_MAX_EXPOSURE_LOGS,
-  PROFILE_MIN_SIGNALS,
-  PROFILE_RECOMPUTE_TTL_MS,
-  PROFILE_VERSION,
-  type ProfileSignal,
-  type UserProfileMeta,
-  type UserProfileSnapshot
-} from "@/server/recommendation/profile.types";
-import {
-  buildSnapshot,
-  computeProfileWeights,
-  computeRecentExposure,
-  countExposureHits,
-  topNegativeFactors,
-  topPositiveFactors
-} from "@/server/recommendation/user-profile-core";
-import type { RecommendedRoute } from "@/server/recommendation/types";
+import { loadUserRecommendationSignals } from "@/server/recommendation/user-signals";
+import { getCityProfile } from "@/server/recommendation/city-profile";
 
-const DAY_MS = 86_400_000;
+/**
+ * Per-user interest profile, built from three fused sources:
+ *   1. explicit approvals/disapprovals (this module writes them)
+ *   2. implicit signals from feedback (reuses loadUserRecommendationSignals)
+ *   3. city-wide hot tags from 小红书 CitySignal (reuses getCityProfile) as a
+ *      candidate pool for new users with no history yet.
+ *
+ * All preference state lives in `UserPreference.metadata` (zero schema migration).
+ */
 
-/** 把对象转为 Prisma 接受的 InputJsonValue,沿用 feedback.ts 的处理方式。 */
+export type TagSource = "explicit" | "implicit" | "city";
+export type TagStatus = "approved" | "disapproved" | "pending";
+export type TagAction = "approve" | "disapprove" | "skip";
+
+export type TagCandidate = {
+  tag: string;
+  /** Where this tag surfaced from. A tag can appear from multiple sources;
+   * we report the strongest one (explicit > implicit > city). */
+  source: TagSource;
+  /** Normalized 0-100 relevance signal used for ordering. */
+  score: number;
+  status: TagStatus;
+  /** Raw context for display, e.g. "城市热度 79" or "隐式反馈 +0.3". */
+  context: string;
+};
+
+export type UserProfileStats = {
+  approvedCount: number;
+  disapprovedCount: number;
+  pendingCount: number;
+  implicitTagCount: number;
+  hasHistory: boolean;
+};
+
+export type UserProfileResponse = {
+  userId: string;
+  city: string;
+  area?: string;
+  candidateTags: TagCandidate[];
+  approvedTags: string[];
+  disapprovedTags: string[];
+  dimensions: DimensionScore[];
+  stats: UserProfileStats;
+  generatedAt: string;
+};
+
+/**
+ * Six taste dimensions for the radar chart. Each dimension aggregates a set of
+ * related tags. Aligned with the THEME_TAGS classification in route-builder.ts
+ * so the chart reflects the same interest taxonomy the recommender uses.
+ */
+export type DimensionKey =
+  | "culture"
+  | "coffee"
+  | "nightlife"
+  | "marketFood"
+  | "trend"
+  | "quiet";
+
+export type DimensionScore = {
+  key: DimensionKey;
+  label: string;
+  /** Normalized 0-100 strength. */
+  value: number;
+  /** The tags that contributed to this dimension's score (for tooltips). */
+  topTags: string[];
+};
+
+export const DIMENSIONS: { key: DimensionKey; label: string; tags: string[] }[] = [
+  {
+    key: "culture",
+    label: "文化静思",
+    tags: ["书店", "展览", "艺术", "文化", "漫画", "美术馆", "画廊"]
+  },
+  {
+    key: "coffee",
+    label: "咖啡生活",
+    tags: ["咖啡", "咖啡厅", "咖啡馆", "咖啡品鉴"]
+  },
+  {
+    key: "nightlife",
+    label: "夜生活",
+    tags: ["独立音乐", "livehouse", "Livehouse", "酒吧", "演出", "音乐", "夜生活"]
+  },
+  {
+    key: "marketFood",
+    label: "市集美食",
+    tags: ["市集", "快闪", "美食", "餐饮", "烘焙", "甜点", "小吃"]
+  },
+  {
+    key: "trend",
+    label: "热门潮流",
+    tags: ["热门", "热度", "潮流", "活动", "体育休闲", "购物", "同城"]
+  },
+  {
+    key: "quiet",
+    label: "安静独处",
+    tags: ["安静", "solo", "书店", "漫画"]
+  }
+];
+
+const NEUTRAL_SCORE = 50;
+
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+/**
+ * Compute the six dimension scores from the three fused tag sources.
+ * Pure function — exported for unit testing without a database.
+ *
+ * Scoring per dimension:
+ *   - explicit: each approved tag matching the dimension adds 30 (cap 90)
+ *   - implicit:  sum of implicit tag weights for matching tags × 25
+ *   - city:      mean of city heatScore for matching tags × 0.35
+ * Final = clamp(explicit + implicit + city, 0, 100).
+ * If all three sources are empty for a dimension → NEUTRAL_SCORE (50).
+ */
+export function computeDimensionScores(input: {
+  explicitApproved: Record<string, number>;
+  implicitTagWeights: Map<string, number>;
+  cityTopTags: { label: string; value: number }[];
+}): DimensionScore[] {
+  const { explicitApproved, implicitTagWeights, cityTopTags } = input;
+  const cityHeatByTag = new Map<string, number>();
+  for (const metric of cityTopTags) {
+    cityHeatByTag.set(metric.label, metric.value);
+  }
+
+  return DIMENSIONS.map((dimension) => {
+    const tagSet = new Set(dimension.tags);
+    const matchedTags: string[] = [];
+
+    // Explicit approved tags — strongest signal, capped so multi-tag dimensions
+    // don't saturate instantly.
+    let explicitScore = 0;
+    for (const tag of Object.keys(explicitApproved)) {
+      if (tagSet.has(tag)) {
+        explicitScore += 15;
+        matchedTags.push(tag);
+      }
+    }
+    explicitScore = Math.min(35, explicitScore);
+
+    // Implicit feedback weights.
+    let implicitSum = 0;
+    for (const [tag, weight] of implicitTagWeights) {
+      if (tagSet.has(tag) && weight > 0) {
+        implicitSum += weight;
+        if (!matchedTags.includes(tag)) matchedTags.push(tag);
+      }
+    }
+    const implicitScore = Math.min(15, implicitSum * 10);
+
+    // City heat average across matching tags present in city topTags.
+    let citySum = 0;
+    let cityCount = 0;
+    for (const tag of dimension.tags) {
+      const heat = cityHeatByTag.get(tag);
+      if (typeof heat === "number") {
+        citySum += heat;
+        cityCount += 1;
+        if (!matchedTags.includes(tag)) matchedTags.push(tag);
+      }
+    }
+    const cityScore = cityCount > 0 ? (citySum / cityCount) * 0.35 : 0;
+
+    const hasAnySignal = explicitScore > 0 || implicitScore > 0 || cityScore > 0;
+    // NEUTRAL_SCORE is the baseline; the three sources are additive bonuses
+    // so any positive signal lifts the dimension above neutral, never below.
+    const value = hasAnySignal
+      ? clampScore(NEUTRAL_SCORE + explicitScore + implicitScore + cityScore)
+      : NEUTRAL_SCORE;
+
+    return {
+      key: dimension.key,
+      label: dimension.label,
+      value,
+      topTags: matchedTags.slice(0, 5)
+    };
+  });
+}
+
+type PreferenceMetadata = {
+  approvedTags: Record<string, number>;
+  disapprovedTags: Record<string, number>;
+  tagHistory: { tag: string; action: TagAction; at: string }[];
+  version: number;
+};
+
+const METADATA_VERSION = 1;
+const CITY_TAG_FALLBACK_LIMIT = 12;
+const CANDIDATE_LIMIT = 20;
+
+function emptyMetadata(): PreferenceMetadata {
+  return {
+    approvedTags: {},
+    disapprovedTags: {},
+    tagHistory: [],
+    version: METADATA_VERSION
+  };
+}
+
+function readMetadata(raw: unknown): PreferenceMetadata {
+  if (!raw || typeof raw !== "object") {
+    return emptyMetadata();
+  }
+
+  // v1 数据存放在 metadata.tags 子键下（与 v2 的 metadata.profile 分离）。
+  // 向后兼容：若没有 tags 子键但顶层是 v1 结构（approvedTags 等），按扁平 v1 读取。
+  const root = raw as Record<string, unknown>;
+  const value =
+    (root.tags && typeof root.tags === "object"
+      ? (root.tags as Partial<PreferenceMetadata>)
+      : (root as Partial<PreferenceMetadata>));
+
+  return {
+    approvedTags:
+      value.approvedTags && typeof value.approvedTags === "object"
+        ? (value.approvedTags as Record<string, number>)
+        : {},
+    disapprovedTags:
+      value.disapprovedTags && typeof value.disapprovedTags === "object"
+        ? (value.disapprovedTags as Record<string, number>)
+        : {},
+    tagHistory: Array.isArray(value.tagHistory) ? value.tagHistory : [],
+    version: METADATA_VERSION
+  };
+}
+
 function toJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
-type InteractionRow = {
-  weight: number;
-  createdAt: Date;
-  action: string;
-  itemId: string | null;
-  context: unknown;
-};
+/**
+ * Fuse the three tag sources into a single ranked candidate list.
+ * Pure function — exported for unit testing without a database.
+ */
+export function fuseCandidateTags(input: {
+  explicitApproved: Record<string, number>;
+  explicitDisapproved: Record<string, number>;
+  implicitTagWeights: Map<string, number>;
+  cityTopTags: { label: string; value: number }[];
+}): TagCandidate[] {
+  const { explicitApproved, explicitDisapproved, implicitTagWeights, cityTopTags } = input;
+  const merged = new Map<
+    string,
+    { sources: Set<TagSource>; maxScore: number; status: TagStatus; contexts: string[] }
+  >();
 
-function readTags(context: unknown): string[] | undefined {
-  if (!context || typeof context !== "object") {
-    return undefined;
-  }
-
-  const tags = (context as { tags?: unknown }).tags;
-
-  return Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === "string") : undefined;
-}
-
-function readString(context: unknown, key: string): string | undefined {
-  if (!context || typeof context !== "object") {
-    return undefined;
-  }
-
-  const value = (context as Record<string, unknown>)[key];
-
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function readNumber(context: unknown, key: string): number | undefined {
-  if (!context || typeof context !== "object") {
-    return undefined;
-  }
-
-  const value = (context as Record<string, unknown>)[key];
-
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function rowToSignal(row: InteractionRow): ProfileSignal {
-  return {
-    action: row.action as ProfileSignal["action"],
-    weight: row.weight,
-    createdAt: row.createdAt,
-    itemId: row.itemId ?? undefined,
-    tags: readTags(row.context),
-    source: readString(row.context, "source"),
-    area: readString(row.context, "area"),
-    priceLevel: readNumber(row.context, "priceLevel"),
-    quietness: readNumber(row.context, "quietness"),
-    popularity: readNumber(row.context, "popularity")
-  };
-}
-
-function readExposureVenueIds(routes: unknown): string[] {
-  if (!Array.isArray(routes)) {
-    return [];
-  }
-
-  const ids: string[] = [];
-
-  for (const route of routes as RecommendedRoute[]) {
-    if (!route || typeof route !== "object" || !Array.isArray(route.places)) {
-      continue;
-    }
-
-    for (const place of route.places) {
-      if (place && typeof place.id === "string") {
-        ids.push(place.id);
-      }
-    }
-  }
-
-  return ids;
-}
-
-/** 解析 UserPreference.metadata 为画像快照;非法返回 null。 */
-export function parseProfileSnapshot(metadata: unknown): UserProfileSnapshot | null {
-  if (!metadata || typeof metadata !== "object") {
-    return null;
-  }
-
-  const candidate = metadata as Partial<UserProfileSnapshot>;
-
-  if (
-    typeof candidate.profileVersion !== "string" ||
-    typeof candidate.updatedAt !== "string" ||
-    !candidate.positiveWeights ||
-    !candidate.negativeWeights
+  function upsert(
+    tag: string,
+    source: TagSource,
+    score: number,
+    status: TagStatus,
+    context: string
   ) {
-    return null;
-  }
-
-  return candidate as UserProfileSnapshot;
-}
-
-/** 判断画像快照是否过期(TTL 或版本不符)。 */
-export function isSnapshotStale(
-  snapshot: UserProfileSnapshot | null,
-  sinceInteractionAt?: Date | null,
-  now: Date = new Date()
-): boolean {
-  if (!snapshot) {
-    return true;
-  }
-
-  if (snapshot.profileVersion !== PROFILE_VERSION) {
-    return true;
-  }
-
-  const ageMs = now.getTime() - new Date(snapshot.updatedAt).getTime();
-
-  if (ageMs > PROFILE_RECOMPUTE_TTL_MS) {
-    return true;
-  }
-
-  // 自上次重算后有新 interaction → 立即过期,确保反馈及时生效。
-  if (sinceInteractionAt) {
-    const updatedAtMs = new Date(snapshot.updatedAt).getTime();
-    const interactionMs = sinceInteractionAt.getTime();
-
-    if (interactionMs > updatedAtMs) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * 读取已持久化的画像快照 + stale 标记。任何异常返回 null(降级)。
- */
-export async function loadProfile(profileKey: string | undefined): Promise<{
-  snapshot: UserProfileSnapshot | null;
-  stale: boolean;
-  latestInteractionAt: Date | null;
-}> {
-  if (!profileKey) {
-    return { snapshot: null, stale: true, latestInteractionAt: null };
-  }
-
-  try {
-    const [preference, latestInteraction] = await Promise.all([
-      prisma.userPreference.findUnique({
-        where: {
-          userId: profileKey
-        },
-        select: {
-          metadata: true,
-          profileVersion: true,
-          signalCount: true
-        }
-      }),
-      prisma.userInteraction.findFirst({
-        where: {
-          userId: profileKey
-        },
-        orderBy: {
-          createdAt: "desc"
-        },
-        select: {
-          createdAt: true
-        }
-      })
-    ]);
-
-    const snapshot = parseProfileSnapshot(preference?.metadata);
-    const latestInteractionAt = latestInteraction?.createdAt ?? null;
-
-    return {
-      snapshot,
-      stale: isSnapshotStale(snapshot, latestInteractionAt),
-      latestInteractionAt
-    };
-  } catch {
-    return { snapshot: null, stale: true, latestInteractionAt: null };
-  }
-}
-
-/**
- * 重算并持久化画像快照。信号不足 / 写入失败 → 返回 null(调用方回退)。
- */
-export async function recomputeProfile(profileKey: string): Promise<UserProfileSnapshot | null> {
-  const now = new Date();
-  const since = new Date(now.getTime() - PROFILE_DECAY_WINDOW_DAYS * DAY_MS);
-
-  try {
-    const [interactions, logs] = await Promise.all([
-      prisma.userInteraction.findMany({
-        where: {
-          userId: profileKey,
-          createdAt: {
-            gte: since
-          }
-        },
-        orderBy: {
-          createdAt: "desc"
-        },
-        take: 500,
-        select: {
-          weight: true,
-          createdAt: true,
-          action: true,
-          itemId: true,
-          context: true
-        }
-      }),
-      prisma.recommendationLog.findMany({
-        where: {
-          userId: profileKey,
-          createdAt: {
-            gte: new Date(now.getTime() - 30 * DAY_MS)
-          }
-        },
-        orderBy: {
-          createdAt: "desc"
-        },
-        take: PROFILE_MAX_EXPOSURE_LOGS,
-        select: {
-          createdAt: true,
-          recommendedRoutes: true
-        }
-      })
-    ]);
-
-    const signals = interactions.map(rowToSignal);
-    const weights = computeProfileWeights(signals, { now });
-
-    if (weights.skipped) {
-      // 信号不足:清理旧画像(若有),让推荐回退通用逻辑。
-      try {
-        await prisma.userPreference.deleteMany({ where: { userId: profileKey } });
-      } catch {
-        // 删除失败不影响降级。
+    const existing = merged.get(tag);
+    if (existing) {
+      existing.sources.add(source);
+      existing.maxScore = Math.max(existing.maxScore, score);
+      existing.contexts.push(context);
+      // Stronger status wins: explicit > implicit > city. approved/disapproved from explicit lock it.
+      if (source === "explicit") {
+        existing.status = status;
       }
-
-      return null;
+    } else {
+      merged.set(tag, {
+        sources: new Set([source]),
+        maxScore: score,
+        status,
+        contexts: [context]
+      });
     }
+  }
 
-    const exposureEntries = logs.map((log) => ({
-      venueIds: readExposureVenueIds(log.recommendedRoutes),
-      createdAt: log.createdAt
-    }));
-    const recentExposure = computeRecentExposure(exposureEntries, { now });
-    const snapshot = buildSnapshot(weights, recentExposure, now);
+  for (const [tag, confidence] of Object.entries(explicitApproved)) {
+    upsert(tag, "explicit", Math.round(confidence * 100), "approved", `显式认可 ${confidence.toFixed(2)}`);
+  }
+  for (const [tag, confidence] of Object.entries(explicitDisapproved)) {
+    upsert(tag, "explicit", Math.round(Math.abs(confidence) * 100), "disapproved", `显式不认可 ${confidence.toFixed(2)}`);
+  }
+  for (const [tag, weight] of implicitTagWeights) {
+    if (weight === 0) continue;
+    const score = Math.min(100, Math.round(Math.abs(weight) * 50));
+    const status: TagStatus = weight > 0 ? "approved" : "disapproved";
+    upsert(tag, "implicit", score, status, `隐式反馈 ${weight > 0 ? "+" : ""}${weight.toFixed(2)}`);
+  }
+  for (const metric of cityTopTags) {
+    upsert(metric.label, "city", Math.round(metric.value), "pending", `城市热度 ${metric.value}`);
+  }
 
-    if (!snapshot) {
-      return null;
-    }
-
-    await prisma.userPreference.upsert({
-      where: {
-        userId: profileKey
-      },
-      update: {
-        metadata: toJson(snapshot),
-        profileVersion: weights.signalCount,
-        signalCount: weights.signalCount
-      },
-      create: {
-        userId: profileKey,
-        interests: [],
-        metadata: toJson(snapshot),
-        profileVersion: weights.signalCount,
-        signalCount: weights.signalCount
+  return [...merged.entries()]
+    .map(([tag, info]) => {
+      // Source priority for display: explicit > implicit > city
+      const source: TagSource = info.sources.has("explicit")
+        ? "explicit"
+        : info.sources.has("implicit")
+          ? "implicit"
+          : "city";
+      return {
+        tag,
+        source,
+        score: info.maxScore,
+        status: info.status,
+        context: info.contexts.join(" · ")
+      };
+    })
+    .sort((a, b) => {
+      // Pending first (those the user hasn't decided on yet), then approved, then disapproved.
+      const order: Record<TagStatus, number> = { pending: 0, approved: 1, disapproved: 2 };
+      if (order[a.status] !== order[b.status]) {
+        return order[a.status] - order[b.status];
       }
+      return b.score - a.score;
     });
-
-    return snapshot;
-  } catch {
-    return null;
-  }
 }
 
 /**
- * ranker / recommend 统一入口:确保返回新鲜画像(读 → 必要时重算 → 再读)。
- * 任何失败返回 null,调用方回退即时聚合。
+ * Load a user's fused interest profile. Falls back gracefully:
+ * - no userId history → only city tags (new-user onboarding)
+ * - DB read failure → empty metadata treated as new user
  */
-export async function ensureFreshProfile(profileKey: string | undefined): Promise<UserProfileSnapshot | null> {
-  if (!profileKey) {
-    return null;
-  }
+export async function getUserProfile(input: {
+  userId: string;
+  city: string;
+  area?: string;
+}): Promise<UserProfileResponse> {
+  const generatedAt = new Date().toISOString();
+  const { userId, city, area } = input;
 
-  const loaded = await loadProfile(profileKey);
+  const [preference, implicitSignals, cityProfile] = await Promise.all([
+    prisma.userPreference
+      .findUnique({ where: { userId } })
+      .catch(() => null),
+    loadUserRecommendationSignals(userId),
+    getCityProfile({ city, area })
+  ]);
 
-  if (loaded.snapshot && !loaded.stale) {
-    return loaded.snapshot;
-  }
+  const metadata = readMetadata(preference?.metadata);
+  const candidateTags = fuseCandidateTags({
+    explicitApproved: metadata.approvedTags,
+    explicitDisapproved: metadata.disapprovedTags,
+    implicitTagWeights: implicitSignals.tagWeights,
+    cityTopTags: cityProfile.topTags.slice(0, CITY_TAG_FALLBACK_LIMIT)
+  }).slice(0, CANDIDATE_LIMIT);
 
-  const recomputed = await recomputeProfile(profileKey);
-
-  if (recomputed) {
-    return recomputed;
-  }
-
-  // 重算后仍无画像(信号不足):返回已加载的旧快照(若存在)作为 best-effort,否则 null。
-  return loaded.snapshot;
-}
-
-/**
- * 物理删除画像,支持任务验收"用户可以清空画像;清空后推荐恢复无画像状态"。
- *
- * 画像由 UserInteraction 驱动聚合,只删 UserPreference 快照会导致下次推荐重算时
- * 从残留 interaction 重建画像。因此清空画像时同时删除该 profileKey 的
- * UserInteraction(画像数据源),保留 RecommendationFeedback(权威反馈事实表)
- * 和 RecommendationLog(推荐审计日志),它们不属于画像。
- */
-export async function clearProfile(profileKey: string): Promise<boolean> {
-  try {
-    await prisma.$transaction([
-      prisma.userPreference.deleteMany({ where: { userId: profileKey } }),
-      prisma.userInteraction.deleteMany({ where: { userId: profileKey } })
-    ]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** 把画像快照转成推荐响应 meta 摘要。 */
-export function buildProfileMeta(
-  snapshot: UserProfileSnapshot | null,
-  source: "profile" | "fallback" | "empty",
-  candidateIds: string[] = []
-): UserProfileMeta {
-  if (!snapshot) {
-    return {
-      version: PROFILE_VERSION,
-      source,
-      updatedFrom: 0,
-      topPositive: [],
-      topNegative: [],
-      recentExposureHits: 0
-    };
-  }
+  const approvedTags = Object.keys(metadata.approvedTags);
+  const disapprovedTags = Object.keys(metadata.disapprovedTags);
+  const pendingCount = candidateTags.filter((c) => c.status === "pending").length;
+  const dimensions = computeDimensionScores({
+    explicitApproved: metadata.approvedTags,
+    implicitTagWeights: implicitSignals.tagWeights,
+    cityTopTags: cityProfile.topTags.slice(0, CITY_TAG_FALLBACK_LIMIT)
+  });
 
   return {
-    version: snapshot.profileVersion,
-    source,
-    updatedFrom: snapshot.updatedFrom,
-    updatedAt: snapshot.updatedAt,
-    topPositive: topPositiveFactors(snapshot, 5),
-    topNegative: topNegativeFactors(snapshot, 3),
-    recentExposureHits: countExposureHits(candidateIds, snapshot)
+    userId,
+    city,
+    area,
+    candidateTags,
+    approvedTags,
+    disapprovedTags,
+    dimensions,
+    stats: {
+      approvedCount: approvedTags.length,
+      disapprovedCount: disapprovedTags.length,
+      pendingCount,
+      implicitTagCount: implicitSignals.tagWeights.size,
+      hasHistory: preference !== null || implicitSignals.tagWeights.size > 0
+    },
+    generatedAt
   };
 }
 
-export const MIN_PROFILE_SIGNALS = PROFILE_MIN_SIGNALS;
+/**
+ * Record a user's explicit tag preference. Upserts UserPreference,
+ * updates metadata maps + tagHistory, and syncs the `interests` array
+ * (which the existing recommendation pipeline already reads).
+ *
+ * `skip` is recorded in history but does not change approved/disapproved maps.
+ */
+export async function setTagPreference(input: {
+  userId: string;
+  tag: string;
+  action: TagAction;
+}): Promise<{ ok: true; status: TagStatus }> {
+  const { userId, tag, action } = input;
+  const trimmedTag = tag.trim();
+
+  if (!trimmedTag) {
+    throw new Error("tag must not be empty");
+  }
+
+  const existing = await prisma.userPreference
+    .findUnique({ where: { userId } })
+    .catch(() => null);
+
+  // read-modify-write：保留 metadata 中其他子键（如 v2 的 metadata.profile），
+  // 只更新 metadata.tags 子键。旧数据（扁平结构）会被迁移到 tags 子键。
+  const storedRoot =
+    existing?.metadata && typeof existing.metadata === "object"
+      ? (existing.metadata as Record<string, unknown>)
+      : {};
+  const metadata = readMetadata(existing?.metadata);
+  metadata.tagHistory.push({ tag: trimmedTag, action, at: new Date().toISOString() });
+  // Cap history to avoid unbounded growth.
+  if (metadata.tagHistory.length > 200) {
+    metadata.tagHistory = metadata.tagHistory.slice(-200);
+  }
+
+  let status: TagStatus = "pending";
+  if (action === "approve") {
+    // Confidence grows with repeated approvals, capped at 1.
+    const prev = metadata.approvedTags[trimmedTag] ?? 0.3;
+    metadata.approvedTags[trimmedTag] = Math.min(1, prev + 0.25);
+    delete metadata.disapprovedTags[trimmedTag];
+    status = "approved";
+  } else if (action === "disapprove") {
+    const prev = metadata.disapprovedTags[trimmedTag] ?? -0.3;
+    metadata.disapprovedTags[trimmedTag] = Math.max(-1, prev - 0.25);
+    delete metadata.approvedTags[trimmedTag];
+    status = "disapproved";
+  }
+  // skip: status stays pending, only history updated.
+
+  const approvedTags = Object.keys(metadata.approvedTags);
+  // 合并：保留其他子键，覆盖 tags 子键。
+  const mergedMetadata = { ...storedRoot, tags: toJson(metadata) };
+  const data = {
+    userId,
+    interests: approvedTags,
+    metadata: toJson(mergedMetadata)
+  };
+
+  await prisma.userPreference.upsert({
+    where: { userId },
+    create: data,
+    update: { interests: approvedTags, metadata: data.metadata }
+  });
+
+  return { ok: true, status };
+}

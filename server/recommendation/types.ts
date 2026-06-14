@@ -5,15 +5,8 @@ export type TravelMode = "walking" | "transit" | "driving";
 export type CandidateType = "venue" | "event";
 export type OriginSource = "browser" | "manual" | "default";
 
-import type { ProfileFactor, UserProfileMeta } from "@/server/recommendation/profile.types";
-
 export type RecommendInput = {
   userId?: string;
-  /**
-   * 匿名会话标识。TASK-P2-002:与 feedback 链路对齐,
-   * profileKey = userId ?? sessionId,用于匿名用户画像。
-   */
-  sessionId?: string;
   city: string;
   area?: string;
   originAddress?: string;
@@ -31,7 +24,6 @@ export type RecommendInput = {
   timeWindow: TimeWindow;
   useRealtimeTraffic?: boolean;
   useSocialSignals?: boolean;
-  waypointCount?: number; // 路线途径点数量，默认 3
 };
 
 export type SourceSignal = {
@@ -64,6 +56,7 @@ export type Candidate = {
   source?: string;
   sourceUrl?: string;
   imageUrl?: string;
+  venueId?: string;
   startsAt?: string;
   endsAt?: string;
   trendScore: number;
@@ -93,6 +86,14 @@ export type ScoreBreakdown = {
   actionability: number;
   userAffinity: number;
   feedbackPenalty: number;
+  exposurePenalty: number;
+};
+
+// TASK2-P0-001：画像归因，写入 CandidateFeatures.profileFactors 供追溯。
+export type ProfileFactor = {
+  dimension: "tag" | "source" | "area" | "budget" | "quietness" | "mood";
+  key: string;
+  delta: number;
 };
 
 export type CandidateFeatures = ScoreBreakdown & {
@@ -102,8 +103,9 @@ export type CandidateFeatures = ScoreBreakdown & {
   qualityFlags?: string[];
   signalStrength?: number;
   routeEligible?: boolean;
-  /** TASK-P2-002:候选命中的画像因子,用于 explain 与打分。 */
   profileFactors?: ProfileFactor[];
+  profileHit?: boolean;
+  profileVersion?: number;
 };
 
 export type ScoredCandidate = Candidate & {
@@ -165,16 +167,12 @@ export type RecommendedRoute = {
     name: string;
     type: CandidateType;
     address?: string;
-    area?: string;
     lat?: number;
     lng?: number;
     tags: string[];
     source?: string;
     sourceUrl?: string;
     imageUrl?: string;
-    priceLevel?: number;
-    quietness?: number;
-    popularity?: number;
   }[];
   reason: string;
   tips: string[];
@@ -198,8 +196,13 @@ export type RecommendResponse = {
     ranker?: string;
     rankerVersion?: string;
     recallChannels?: RecallChannel[];
-    /** TASK-P2-002:画像摘要,供 UI explain。 */
-    userProfile?: UserProfileMeta;
+    profileApplied?: {
+      version: number;
+      topFactors: string[];
+      sampleSize: number;
+      confidence: "low" | "medium" | "high";
+      degraded: boolean;
+    };
     generatedAt: string;
   };
 };

@@ -9,22 +9,21 @@ import {
   WEIGHTED_RANKER_VERSION
 } from "@/server/recommendation/scoring";
 import { buildCandidateFeatures } from "@/server/recommendation/features";
-import { loadUserRecommendationSignals, type UserRecommendationSignals } from "@/server/recommendation/user-signals";
-
-/**
- * ranker 内部返回:ranked 候选 + 加载的 signals(供 recommend.ts 构建 meta.userProfile)。
- */
-export type RankOutput = {
-  ranked: ScoredCandidate[];
-  signals?: UserRecommendationSignals;
-};
+import { loadUserRecommendationSignals } from "@/server/recommendation/user-signals";
+import { loadUserProfileForRanking, type UserProfileSnapshot } from "@/server/recommendation/user-profile-v2";
 
 export type RankerResult = {
   ranked: ScoredCandidate[];
   ranker: string;
   rankerVersion: string;
-  /** TASK-P2-002:暴露加载的用户信号,用于构建 meta.userProfile。 */
-  signals?: UserRecommendationSignals;
+  // TASK2-P0-001：画像命中信息，透出给推荐 meta.profileApplied。
+  profileApplied?: {
+    version: number;
+    topFactors: string[];
+    sampleSize: number;
+    confidence: "low" | "medium" | "high";
+    degraded: boolean;
+  };
 };
 
 export interface CandidateRanker {
@@ -33,20 +32,36 @@ export interface CandidateRanker {
   rank(input: {
     request: RecommendInput;
     candidates: Candidate[];
-  }): Promise<RankOutput>;
+  }): Promise<ScoredCandidate[]>;
 }
 
-export const weightedRanker: CandidateRanker = {
+/**
+ * TASK2-P0-001 约束 4：无画像时保持当前行为。
+ * - 有 userId 且画像 sampleSize>=5 → 用画像版 affinity/penalty/exposure。
+ * - 否则（匿名 / 画像空 / 读取失败）→ 回退即时 interaction 聚合。
+ */
+export const weightedRanker: CandidateRanker & {
+  rank(input: {
+    request: RecommendInput;
+    candidates: Candidate[];
+  }): Promise<ScoredCandidate[]>;
+  profile?: UserProfileSnapshot;
+} = {
   name: WEIGHTED_RANKER_NAME,
   version: WEIGHTED_RANKER_VERSION,
-  async rank({ request, candidates }): Promise<RankOutput> {
-    // TASK-P2-002:profileKey = userId ?? sessionId,与 feedback 链路对齐。
-    const profileKey = request.userId ?? request.sessionId;
-    const signals = await loadUserRecommendationSignals(profileKey);
+  profile: undefined,
+  async rank({ request, candidates }) {
+    const { profile, degraded } = await loadUserProfileForRanking(request.userId);
+    // 画像不可用时回退即时 interaction 聚合（保持改造前行为）。
+    const signals = degraded ? await loadUserRecommendationSignals(request.userId) : undefined;
+    this.profile = degraded ? undefined : profile;
 
-    const ranked = candidates
+    return candidates
       .map((candidate) => {
-        const features = buildCandidateFeatures(candidate, request, signals);
+        const features = buildCandidateFeatures(candidate, request, {
+          profile: degraded ? undefined : profile,
+          signals
+        });
         const scoreBreakdown = {
           taste: features.taste,
           textRelevance: features.textRelevance,
@@ -58,7 +73,8 @@ export const weightedRanker: CandidateRanker = {
           novelty: features.novelty,
           actionability: features.actionability,
           userAffinity: features.userAffinity,
-          feedbackPenalty: features.feedbackPenalty
+          feedbackPenalty: features.feedbackPenalty,
+          exposurePenalty: features.exposurePenalty
         };
 
         return {
@@ -71,22 +87,35 @@ export const weightedRanker: CandidateRanker = {
         };
       })
       .sort((a, b) => b.baseScore - a.baseScore);
-
-    return { ranked, signals };
   }
 };
 
 export async function rankCandidates(
   request: RecommendInput,
   candidates: Candidate[],
-  ranker: CandidateRanker = weightedRanker
+  ranker: CandidateRanker & { profile?: UserProfileSnapshot } = weightedRanker
 ): Promise<RankerResult> {
-  const output = await ranker.rank({ request, candidates });
+  const ranked = await ranker.rank({ request, candidates });
+  const profile = ranker.profile;
 
   return {
-    ranked: output.ranked,
+    ranked,
     ranker: ranker.name,
     rankerVersion: ranker.version,
-    signals: output.signals
+    profileApplied: profile
+      ? {
+          version: profile.profileVersion,
+          topFactors: profile.topReasons,
+          sampleSize: profile.sampleSize,
+          confidence: profile.confidence,
+          degraded: false
+        }
+      : {
+          version: 1,
+          topFactors: [],
+          sampleSize: 0,
+          confidence: "low",
+          degraded: true
+        }
   };
 }

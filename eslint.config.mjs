@@ -10,6 +10,9 @@ export default defineConfig([
     "out/**",
     "build/**",
     "docs/**/*.cjs",
+    "data/damai-session/**",
+    "tools/damai-search/.browser-profile/**",
+    "tools/damai-search/output/**",
     "next-env.d.ts"
   ])
 ]);

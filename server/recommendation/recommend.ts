@@ -15,7 +15,6 @@ import { persistRecommendationSnapshot } from "@/server/routes/route-detail";
 import { rankCandidates } from "@/server/recommendation/ranker";
 import { routeEligibilityFromQuality } from "@/server/recommendation/quality";
 import { geocodeAddress, type GeocodeResult } from "@/server/maps/geocode";
-import { buildProfileMeta } from "@/server/recommendation/user-profile";
 
 const TRAFFIC_ENRICHMENT_LIMIT = 20;
 const ORIGIN_ADDRESS_MAX_LENGTH = 120;
@@ -36,8 +35,6 @@ const optionalTrimmedString = (maxLength: number) =>
 
 export const recommendRequestSchema = z.object({
   userId: z.string().optional(),
-  // TASK-P2-002:匿名会话标识,profileKey = userId ?? sessionId。
-  sessionId: z.string().min(1).max(128).optional(),
   city: z.string().min(1).default("上海"),
   area: optionalTrimmedString(60),
   originAddress: optionalTrimmedString(ORIGIN_ADDRESS_MAX_LENGTH),
@@ -56,8 +53,7 @@ export const recommendRequestSchema = z.object({
   budget: z.enum(["low", "medium", "high"]).default("medium"),
   timeWindow: z.enum(["now", "tonight", "weekend"]).default("tonight"),
   useRealtimeTraffic: z.boolean().default(true),
-  useSocialSignals: z.boolean().default(true),
-  waypointCount: z.number().min(2).max(6).default(3).optional()
+  useSocialSignals: z.boolean().default(true)
 });
 
 type GeocodeAddress = typeof geocodeAddress;
@@ -221,12 +217,7 @@ export async function recommend(rawInput: unknown): Promise<RecommendResponse> {
       ranker: rankerResult.ranker,
       rankerVersion: rankerResult.rankerVersion,
       recallChannels,
-      // TASK-P2-002:画像 explain 摘要,来自 ranker 加载的 signals.snapshot。
-      userProfile: buildProfileMeta(
-        rankerResult.signals?.snapshot ?? null,
-        rankerResult.signals?.source ?? "empty",
-        trafficRanked.map((candidate) => candidate.id)
-      ),
+      profileApplied: rankerResult.profileApplied,
       generatedAt: new Date().toISOString()
     }
   };

@@ -9,8 +9,13 @@ import { distanceMeters } from "@/server/maps/traffic";
 import { assessCandidateQuality } from "@/server/recommendation/quality";
 
 export const WEIGHTED_RANKER_NAME = "weighted-v1";
-export const WEIGHTED_RANKER_VERSION = "weighted-v1.1-signal-backed";
+export const WEIGHTED_RANKER_VERSION = "weighted-v1.2-profile";
 
+// 权重调整（TASK2-P0-001 审批 2026-06-14）：
+// - userAffinity 0.05 -> 0.10（画像可信后提升正偏好影响）
+// - feedbackPenalty -0.12 -> -0.10（限制负反馈影响，配合分层硬上限）
+// - 新增 exposurePenalty -0.05（曝光轻惩罚，仅影响排序）
+// 无画像时 affinity=50(中性)、penalty=0、exposure=0，等价于改造前行为。
 export const WEIGHTED_RANKER_WEIGHTS = {
   taste: 0.18,
   textRelevance: 0.09,
@@ -21,8 +26,9 @@ export const WEIGHTED_RANKER_WEIGHTS = {
   timeFit: 0.07,
   novelty: 0.04,
   actionability: 0.2,
-  userAffinity: 0.05,
-  feedbackPenalty: -0.12
+  userAffinity: 0.1,
+  feedbackPenalty: -0.1,
+  exposurePenalty: -0.05
 } satisfies Record<keyof ScoreBreakdown, number>;
 
 export function clamp(score: number) {
@@ -197,7 +203,8 @@ export function calculateFinalScore(breakdown: ScoreBreakdown) {
       breakdown.novelty * WEIGHTED_RANKER_WEIGHTS.novelty +
       breakdown.actionability * WEIGHTED_RANKER_WEIGHTS.actionability +
       breakdown.userAffinity * WEIGHTED_RANKER_WEIGHTS.userAffinity +
-      breakdown.feedbackPenalty * WEIGHTED_RANKER_WEIGHTS.feedbackPenalty
+      breakdown.feedbackPenalty * WEIGHTED_RANKER_WEIGHTS.feedbackPenalty +
+      breakdown.exposurePenalty * WEIGHTED_RANKER_WEIGHTS.exposurePenalty
   );
 }
 
@@ -220,6 +227,7 @@ export function createDefaultFeatures(candidate: Candidate, input: RecommendInpu
     actionability: calculateActionabilityScore(candidate),
     userAffinity: 50,
     feedbackPenalty: 0,
+    exposurePenalty: 0,
     qualityScore: quality.qualityScore,
     qualityFlags: quality.qualityFlags,
     signalStrength: clamp(signalStrength),
@@ -253,6 +261,7 @@ export function averageBreakdown(items: ScoreBreakdown[]): ScoreBreakdown {
     novelty: clamp(average(items.map((item) => item.novelty))),
     actionability: clamp(average(items.map((item) => item.actionability))),
     userAffinity: clamp(average(items.map((item) => item.userAffinity))),
-    feedbackPenalty: clamp(average(items.map((item) => item.feedbackPenalty)))
+    feedbackPenalty: clamp(average(items.map((item) => item.feedbackPenalty))),
+    exposurePenalty: clamp(average(items.map((item) => item.exposurePenalty)))
   };
 }

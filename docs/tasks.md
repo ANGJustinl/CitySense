@@ -812,6 +812,11 @@
 - 映射优化：大麦结果只产出 `Event`，保留 `sourceUrl`、演出时间、票价、类别、图片、售票状态和 `venueName` 场馆线索；`searchVenues` 明确返回空数组。
 - 降级：大麦返回 captcha / punish / `FAIL_SYS_USER_VALIDATE` 时抛出 `damai_requires_manual_verification`，供后续 source 页提示管理员重新验证。
 - 验证：新增 `tests/damai-adapter.test.ts` 覆盖 query 扩展、时间解析、未配置 cookie 降级、Event-only 映射和验证码阻断；`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 均通过。
+- 2026-06-14 第二阶段：新增 `server/sources/plugins/damai-session.ts` 与 `/api/admin/damai-session/status|start|save`，source 页增加大麦验证面板；管理员可打开浏览器验证窗口，完成验证码后保存过滤后的匿名大麦 cookie 到 `data/damai-session/cookies.json`。
+- 安全边界：API 和 UI 只展示 cookie 状态、数量、名称、保存时间和过期时间，不返回 cookie 值；过滤逻辑只接受 `damai.cn` 域 cookie，并丢弃明显账号态 cookie（如 nick/user/login/member/tracknick 等）。
+- adapter 读取顺序更新为：显式传入 cookie → `DAMAI_COOKIE_HEADER` → 本地保存 cookie 文件；`data/damai-session/` 已加入 git/eslint ignore。
+- 新增 `tests/damai-session.test.ts` 覆盖 cookie 过滤；验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 通过。真实大麦验证码窗口仍需管理员在本机浏览器做一次 smoke。
+- 2026-06-14 修正：打开大麦验证窗口后立即返回 UI，不再等待 DevTools target 导致按钮持续 loading；读取 cookie 时再懒连接浏览器。保存的匿名 cookie 文件作为持久凭据反复复用，不因本地 `expiresAt` 主动判废，直到大麦接口再次要求验证码时由管理员重新保存覆盖。
 
 ## P2：黑客松后的产品化打磨
 
@@ -842,7 +847,7 @@
 
 ### TASK-P2-002：用户品味画像 MVP
 
-- 状态：`已完成`
+- 状态：`待审批`
 - 负责人：Codex / 用户
 - 是否需要审批：是，涉及用户数据、推荐算法权重、持久化画像和隐私/删除能力。
 
@@ -888,14 +893,14 @@
 
 验收标准：
 
-- [x] 有历史正反馈的用户，会更容易看到相同 tag/source/area/预算风格的候选，但仍受可执行性和交通约束限制。
-- [x] 有历史负反馈或 dismiss 的用户，相同地点、相同主题或相同 source 的候选会被降权。
-- [x] 最近多次曝光过的地点或路线主题会受到新鲜度惩罚，避免连续重复推荐。
-- [x] 无 `userId/sessionId`、画像为空或画像读取失败时，推荐接口回退到当前通用推荐，不报错。
-- [x] `RecommendationFeatureSnapshot` 或推荐 meta 能追溯画像命中的 top factors。
-- [x] 用户可以清空画像；清空后推荐恢复到无画像状态。
-- [x] 不保存精确浏览器坐标、原始自由文本敏感信息或不可解释的 LLM 画像判断。
-- [x] `pnpm typecheck`、`pnpm lint`、`pnpm test` 和 `pnpm build` 通过。
+- [ ] 有历史正反馈的用户，会更容易看到相同 tag/source/area/预算风格的候选，但仍受可执行性和交通约束限制。
+- [ ] 有历史负反馈或 dismiss 的用户，相同地点、相同主题或相同 source 的候选会被降权。
+- [ ] 最近多次曝光过的地点或路线主题会受到新鲜度惩罚，避免连续重复推荐。
+- [ ] 无 `userId/sessionId`、画像为空或画像读取失败时，推荐接口回退到当前通用推荐，不报错。
+- [ ] `RecommendationFeatureSnapshot` 或推荐 meta 能追溯画像命中的 top factors。
+- [ ] 用户可以清空画像；清空后推荐恢复到无画像状态。
+- [ ] 不保存精确浏览器坐标、原始自由文本敏感信息或不可解释的 LLM 画像判断。
+- [ ] `pnpm typecheck`、`pnpm lint`、`pnpm test` 和 `pnpm build` 通过。
 
 风险与降级：
 
@@ -906,26 +911,9 @@
 
 审批记录：
 
-- 审批人：用户
-- 日期：2026-06-14
-- 结论：用户与 Codex 讨论后批准实施。决策：profileKey = userId ?? sessionId 沿用现状 key;读时懒重算 + TTL 30 分钟失效;新鲜度从 RecommendationLog 推导曝光;MVP 维度含 tag/source/area/正负/新鲜度 + price/氛围 + UI explain 面板;UserPreference 新增标量列 + metadata 承载快照;explain 落 FeatureSnapshot + meta.userProfile。
-
-完成记录：
-
-- 完成日期：2026-06-14
-- migration `20260614090000_user_profile_metadata`(`ADD COLUMN IF NOT EXISTS` 幂等)已对 Supabase 执行;`UserPreference` 新增 `profileVersion` / `signalCount`,完整画像快照存 `metadata` Json。
-- 新增 `server/recommendation/profile.types.ts`(画像类型与维度常量)、`server/recommendation/user-profile-core.ts`(纯计算:衰减、正负权重聚合、6 维度、权重 cap、曝光统计、因子提取、top reasons)、`server/recommendation/user-profile.ts`(prisma 薄封装:load/recompute/ensure/clear + buildProfileMeta)。
-- 时间衰减:正反馈 4 档(1d/7d/30d/90d+ = 1/0.72/0.42/0.18),负反馈 venue 维度更短半衰期(7d 后 0.5,30d 后 0.18,90d+ 0.05),对应"负权重要分散、地点级惩罚需更短半衰期"。
-- 最小样本阈值 3 条 + 单维度权重上限 12,避免稀疏过拟合和单次反馈锁死排序。
-- `user-signals.ts` 改造:优先 `ensureFreshProfile` 读画像快照重建 7 张权重 map(含 area/price/quietness/popularity),画像为空/读失败回退即时聚合;修复了原实现 `return empty` 永远返回空 map 的潜伏 bug。
-- ranker 用 `profileKey = userId ?? sessionId` 加载 signals,并通过 `RankOutput.signals` 暴露给 recommend 构建 meta;`features.ts` 注入 `profileFactors`;`scoring.ts` 的 userAffinity/feedbackPenalty 接入新维度,recentExposure 命中叠加新鲜度惩罚。
-- `RecommendInput` / `recommendRequestSchema` 新增 `sessionId`;`RecommendationLog.userId` 改为 `userId ?? sessionId` 补齐匿名曝光数据来源;`RecommendedRoute.places` 透传 area/priceLevel/quietness/popularity;`feedback.ts` interaction context 扩展写入这些维度。
-- 新增 `GET/DELETE /api/user-profile`(读画像摘要 / 清空画像);新增 `components/city/UserProfilePanel.tsx`(explain 面板,优先用 response.meta.userProfile inline,清空按钮仅对登录用户);`RecommendationWorkspace` 加第 5 列 profile-rail + 稳定匿名 sessionId(模块级,事件处理器内调用,避免 React 纯净规则)。
-- 清空画像同时删除 `UserInteraction`(画像数据源),保留 `RecommendationFeedback` 和 `RecommendationLog` 审计事实;清空后推荐 `source` 回退 `fallback`/`empty`。
-- 隐私:area 仅区级粒度,context 只存 tags/source/数值桶,不存精确坐标或自由文本敏感信息;无 LLM 画像判断。
-- 测试:`tests/user-profile.test.ts` 28 个用例覆盖衰减档位、最小样本、6 维度聚合、权重 cap、曝光统计、因子提取、topReasons、stale 判断、meta 构建、历史数据兼容;修复 `recommendation-v1.test.ts` signals 字面量。
-- 验证:`pnpm prisma:generate`、`pnpm typecheck`、`pnpm lint`、`pnpm test`(128 个测试)、`pnpm build` 均通过。
-- 真实 smoke(user `smoke-p2-002`):基线 `source: fallback` → 3 次 up/save 反馈 → 推荐 `source: profile, updatedFrom: 9, topPositive 5 因子, recentExposureHits 7` → GET /api/user-profile 返回完整画像 → DELETE 清空 → 推荐 `source: fallback, updatedFrom: 0` 回退 → 匿名请求 `source: empty` 不报错。
+- 审批人：
+- 日期：
+- 结论：
 
 ### TASK-P2-003：部署与运维
 
@@ -966,7 +954,7 @@
 - [x] 审查并批准 `TASK-P1-011`。
 - [x] 审查并批准 `TASK-P1-012`。
 - [x] 审查并批准 `TASK-P1-013`。
-- [x] 审查并批准 `TASK-P2-002`。
+- [ ] 审查并批准 `TASK-P2-002`。
 
 ## 变更记录
 
@@ -992,4 +980,3 @@
 - 2026-06-14：新增 TASK-P1-013，规划大麦作为 `/admin/sources` 可调用插件：管理员完成人工验证码，保存无登录公开搜索 cookie，worker 后续自动采集并只产出 `Event`。
 - 2026-06-14：推进 TASK-P1-013 第一阶段，新增 `damai` crawler adapter，优化多关键词搜索召回、去重和 Event-only 映射；source 页验证码/cookie 管理继续保留为后续工作。
 - 2026-06-14：扩写 TASK-P2-002 用户品味画像 MVP，规划显式偏好、隐式反馈、新鲜度惩罚、画像解释和隐私降级路径。
-- 2026-06-14：完成 TASK-P2-002 用户品味画像 MVP，新增画像服务（profile.types / user-profile-core 纯计算 / user-profile prisma 封装）、6 维度正负权重 + 新鲜度曝光惩罚、读时懒重算 + TTL、推荐链路接入（user-signals/features/ranker/recommend）、`GET/DELETE /api/user-profile`、UserProfilePanel explain 面板（工作台第 5 列）；128 个测试通过,真实 smoke 验证反馈→画像→explain→清空→回退全链路。

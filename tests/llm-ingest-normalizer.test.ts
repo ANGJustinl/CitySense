@@ -154,25 +154,31 @@ test("llm ingest normalizer uses OPENAI_API_BASE when OPENAI_BASE_URL is absent"
 
     return new Response(
       JSON.stringify({
-        output_text: JSON.stringify({
-          status: "normalized",
-          entityType: "event",
-          title: "静安咖啡快闪",
-          description: "静安寺附近的咖啡快闪。",
-          city: "上海",
-          area: "静安",
-          address: "静安寺附近",
-          startTime: null,
-          endTime: null,
-          tags: ["咖啡", "快闪"],
-          trendScore: 80,
-          confidence: 82,
-          priceLevel: null,
-          quietness: null,
-          popularity: null,
-          ignoreReason: null,
-          reason: "测试"
-        })
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                status: "normalized",
+                entityType: "event",
+                title: "静安咖啡快闪",
+                description: "静安寺附近的咖啡快闪。",
+                city: "上海",
+                area: "静安",
+                address: "静安寺附近",
+                startTime: null,
+                endTime: null,
+                tags: ["咖啡", "快闪"],
+                trendScore: 80,
+                confidence: 82,
+                priceLevel: null,
+                quietness: null,
+                popularity: null,
+                ignoreReason: null,
+                reason: "测试"
+              })
+            }
+          }
+        ]
       }),
       {
         status: 200,
@@ -192,7 +198,7 @@ test("llm ingest normalizer uses OPENAI_API_BASE when OPENAI_BASE_URL is absent"
     });
 
     assert.equal(result.status, "llm_normalized");
-    assert.equal(capturedUrl, "https://example.test/openai/v1/responses");
+    assert.equal(capturedUrl, "https://example.test/openai/v1/chat/completions");
   } finally {
     if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousKey;

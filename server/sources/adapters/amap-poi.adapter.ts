@@ -7,6 +7,11 @@ type AmapPoiAdapterOptions = {
   fetchFn?: FetchLike;
 };
 
+type AmapPoiSearchInput = Parameters<CitySourceAdapter["searchVenues"]>[0] & {
+  fetchFn?: FetchLike;
+  limitPerKeyword?: number;
+};
+
 type AmapPoi = {
   id?: string;
   name?: string;
@@ -65,6 +70,7 @@ function toPoiItem(poi: AmapPoi, city: string, keyword: string): RawSourceItemDe
     id: `amap-${poi.id ?? poi.name}`,
     source: "amap-poi",
     sourceId: poi.id,
+    sourceUrl: poi.id ? `https://ditu.amap.com/place/${poi.id}` : undefined,
     title: poi.name,
     content: poi.type,
     rawPayload: poi,
@@ -93,6 +99,56 @@ function toPoiItem(poi: AmapPoi, city: string, keyword: string): RawSourceItemDe
   };
 }
 
+export async function searchAmapPoiVenueItems(input: AmapPoiSearchInput) {
+  const apiKey = process.env.AMAP_API_KEY;
+
+  if (!apiKey) {
+    return [];
+  }
+
+  const fetchFn = input.fetchFn ?? fetch;
+  const keywords = input.keywords.length > 0 ? input.keywords : ["咖啡", "展览", "书店"];
+  const results = await Promise.all(
+    keywords.map(async (keyword) => {
+      const searchKeyword = searchKeywordFor(keyword);
+      const params = new URLSearchParams({
+        key: apiKey,
+        keywords: input.area ? `${input.area} ${searchKeyword}` : searchKeyword,
+        city: input.city,
+        output: "json",
+        extensions: "all",
+        offset: String(input.limitPerKeyword ?? 6),
+        page: "1"
+      });
+
+      const response = await fetchFn(`https://restapi.amap.com/v3/place/text?${params.toString()}`, {
+        next: { revalidate: 60 * 30 }
+      });
+      const data = (await response.json()) as { pois?: AmapPoi[] };
+
+      return (data.pois ?? []).map((poi) => ({
+        keyword,
+        poi
+      }));
+    })
+  );
+  const seen = new Set<string>();
+
+  return results
+    .flat()
+    .filter(({ poi }) => {
+      const key = poiKey(poi);
+      if (!key || seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    })
+    .map(({ keyword, poi }) => toPoiItem(poi, input.city, keyword))
+    .filter((item): item is RawSourceItemDetail => Boolean(item));
+}
+
 class AmapPoiAdapter extends BaseCitySourceAdapter {
   private fetchFn: FetchLike;
 
@@ -112,52 +168,10 @@ class AmapPoiAdapter extends BaseCitySourceAdapter {
   }
 
   protected async searchVenuesImpl(input: Parameters<CitySourceAdapter["searchVenues"]>[0]) {
-    const apiKey = process.env.AMAP_API_KEY;
-
-    if (!apiKey) {
-      return [];
-    }
-
-    const keywords = input.keywords.length > 0 ? input.keywords : ["咖啡", "展览", "书店"];
-    const results = await Promise.all(
-      keywords.map(async (keyword) => {
-        const searchKeyword = searchKeywordFor(keyword);
-        const params = new URLSearchParams({
-          key: apiKey,
-          keywords: input.area ? `${input.area} ${searchKeyword}` : searchKeyword,
-          city: input.city,
-          output: "json",
-          extensions: "all",
-          offset: "6",
-          page: "1"
-        });
-
-        const response = await this.fetchFn(`https://restapi.amap.com/v3/place/text?${params.toString()}`, {
-          next: { revalidate: 60 * 30 }
-        });
-        const data = (await response.json()) as { pois?: AmapPoi[] };
-
-        return (data.pois ?? []).map((poi) => ({
-          keyword,
-          poi
-        }));
-      })
-    );
-    const seen = new Set<string>();
-
-    return results
-      .flat()
-      .filter(({ poi }) => {
-        const key = poiKey(poi);
-        if (!key || seen.has(key)) {
-          return false;
-        }
-
-        seen.add(key);
-        return true;
-      })
-      .map(({ keyword, poi }) => toPoiItem(poi, input.city, keyword))
-      .filter((item): item is RawSourceItemDetail => Boolean(item));
+    return searchAmapPoiVenueItems({
+      ...input,
+      fetchFn: this.fetchFn
+    });
   }
 
   protected async getItemDetailImpl() {

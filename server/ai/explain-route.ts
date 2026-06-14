@@ -6,9 +6,14 @@ import type {
   TrafficCandidate,
   TrafficInfo
 } from "@/server/recommendation/types";
-import { resolveOpenAiBaseUrl } from "@/server/ai/openai-config";
+import {
+  createLlmClient,
+  llmTimeoutMs,
+  withLlmTimeout
+} from "@/server/ai/llm-client";
+import type { OpenAiCompatibleClient } from "@/server/ai/llm-client";
 
-const DEFAULT_OPENAI_MODEL = "gpt-5.5";
+const DEFAULT_OPENAI_MODEL = "glm-4.6";
 const DEFAULT_LLM_TIMEOUT_MS = 8_000;
 const MAX_SOURCE_CONTEXT_ITEMS = 8;
 
@@ -67,18 +72,10 @@ type ExplainRoutesOptions = {
   timeoutMs?: number;
 };
 
-type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
-
 function timeWindowText(timeWindow: RecommendInput["timeWindow"]) {
   if (timeWindow === "now") return "现在出发";
   if (timeWindow === "tonight") return "今晚";
   return "这个周末";
-}
-
-function numberFromEnv(name: string, fallback: number) {
-  const parsed = Number(process.env[name]);
-
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function routeFacts(routes: RecommendedRoute[]): RouteExplanationFact[] {
@@ -164,18 +161,8 @@ export function buildSourceContextItems(
 }
 
 function createDefaultRouteExplanationClient(): RouteExplanationClient | undefined {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-
-  if (!apiKey) {
-    return undefined;
-  }
-
-  return new OpenAIResponsesRouteExplanationClient({
-    apiKey,
-    baseUrl: resolveOpenAiBaseUrl(),
-    model: process.env.OPENAI_MODEL?.trim() || DEFAULT_OPENAI_MODEL,
-    fetchFn: fetch
-  });
+  const shared = createLlmClient({ defaultModel: DEFAULT_OPENAI_MODEL });
+  return shared ? adaptSharedRouteExplanationClient(shared) : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -222,34 +209,6 @@ function parseRouteExplanationPayload(value: unknown): RouteExplanationPayload |
   return { routes };
 }
 
-function extractOutputText(value: unknown) {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  if (typeof value.output_text === "string" && value.output_text.trim()) {
-    return value.output_text.trim();
-  }
-
-  const chunks: string[] = [];
-
-  if (Array.isArray(value.output)) {
-    for (const output of value.output) {
-      if (!isRecord(output) || !Array.isArray(output.content)) {
-        continue;
-      }
-
-      for (const content of output.content) {
-        if (isRecord(content) && typeof content.text === "string") {
-          chunks.push(content.text);
-        }
-      }
-    }
-  }
-
-  return chunks.join("").trim() || null;
-}
-
 const ROUTE_EXPLANATION_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -292,90 +251,20 @@ const ROUTE_EXPLANATION_INSTRUCTIONS = [
   "用中文输出，reason 一句话，tips 1 到 3 条，每条简短可执行。"
 ].join("\n");
 
-class OpenAIResponsesRouteExplanationClient implements RouteExplanationClient {
-  private readonly apiKey: string;
-  private readonly baseUrl: string;
-  private readonly model: string;
-  private readonly fetchFn: FetchLike;
-
-  constructor(input: {
-    apiKey: string;
-    baseUrl: string;
-    model: string;
-    fetchFn: FetchLike;
-  }) {
-    this.apiKey = input.apiKey;
-    this.baseUrl = input.baseUrl.replace(/\/$/, "");
-    this.model = input.model;
-    this.fetchFn = input.fetchFn;
-  }
-
-  async explain(
-    request: RouteExplanationRequest,
-    signal?: AbortSignal
-  ): Promise<RouteExplanationPayload | null> {
-    const response = await this.fetchFn(`${this.baseUrl}/responses`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json"
-      },
-      signal,
-      body: JSON.stringify({
-        model: this.model,
+function adaptSharedRouteExplanationClient(client: OpenAiCompatibleClient): RouteExplanationClient {
+  return {
+    async explain(request, signal) {
+      const text = await client.completeJsonOrNull({
         instructions: ROUTE_EXPLANATION_INSTRUCTIONS,
-        input: JSON.stringify(request),
-        text: {
-          format: {
-            type: "json_schema",
-            name: "citysense_route_explanations",
-            strict: true,
-            schema: ROUTE_EXPLANATION_SCHEMA
-          }
-        },
-        store: false,
-        max_output_tokens: 900
-      })
-    });
+        schema: ROUTE_EXPLANATION_SCHEMA,
+        userPayload: request,
+        maxTokens: 900,
+        signal
+      });
 
-    if (!response.ok) {
-      throw new Error(`OpenAI route explanation failed: ${response.status}`);
+      return text ? parseRouteExplanationPayload(JSON.parse(text)) : null;
     }
-
-    const data: unknown = await response.json();
-    const text = extractOutputText(data);
-
-    if (!text) {
-      return null;
-    }
-
-    return parseRouteExplanationPayload(JSON.parse(text));
-  }
-}
-
-async function explainWithTimeout(
-  client: RouteExplanationClient,
-  request: RouteExplanationRequest,
-  timeoutMs: number
-) {
-  const controller = new AbortController();
-  let timeout: NodeJS.Timeout | undefined;
-
-  try {
-    return await Promise.race([
-      client.explain(request, controller.signal),
-      new Promise<null>((_, reject) => {
-        timeout = setTimeout(() => {
-          controller.abort();
-          reject(new Error("Route explanation timed out"));
-        }, timeoutMs);
-      })
-    ]);
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-  }
+  };
 }
 
 function explanationText(explanation: RouteExplanation) {
@@ -467,10 +356,13 @@ export async function explainRoutes(
     routes: routeFacts(localRoutes),
     sourceContext
   };
-  const timeoutMs = options.timeoutMs ?? numberFromEnv("OPENAI_TIMEOUT_MS", DEFAULT_LLM_TIMEOUT_MS);
+  const timeoutMs = options.timeoutMs ?? llmTimeoutMs("OPENAI_TIMEOUT_MS", DEFAULT_LLM_TIMEOUT_MS);
 
   try {
-    const payload = await explainWithTimeout(client, request, timeoutMs);
+    const payload = await withLlmTimeout({
+      timeoutMs,
+      task: (signal) => client.explain(request, signal)
+    });
 
     return mergeModelExplanations(localRoutes, payload, sourceContext);
   } catch {
