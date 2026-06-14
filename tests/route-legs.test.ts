@@ -19,7 +19,8 @@ const breakdown: ScoreBreakdown = {
   novelty: 50,
   actionability: 50,
   userAffinity: 50,
-  feedbackPenalty: 0
+  feedbackPenalty: 0,
+  exposurePenalty: 0
 };
 
 function sampleRoute(overrides: Partial<RecommendedRoute> = {}): RecommendedRoute {

@@ -68,7 +68,7 @@ test("weighted ranker score carries V1 metadata", () => {
   const scored = scoreCandidate(candidate("event-a", ["展览", "安静"], 31.22, 121.45), request);
 
   assert.equal(scored.ranker, "weighted-v1");
-  assert.equal(scored.rankerVersion, "weighted-v1.1-signal-backed");
+  assert.equal(scored.rankerVersion, "weighted-v1.2-profile");
   assert.equal(scored.features.candidateId, "event-a");
   assert.equal(scored.scoreBreakdown.textRelevance, 70);
   assert.equal(scored.features.routeEligible, true);

@@ -41,7 +41,7 @@ function fakeRoute(overrides: Partial<RecommendedRoute> = {}): RecommendedRoute 
     scoreBreakdown: {
       taste: 80, textRelevance: 70, socialTrend: 75, freshness: 65, distance: 70,
       traffic: 72, timeFit: 78, novelty: 60, actionability: 90, userAffinity: 50,
-      feedbackPenalty: 0
+      feedbackPenalty: 0, exposurePenalty: 0
     },
     traffic: { estimatedDurationMinutes: 30, mode: "transit", provider: "estimated" },
     sourceSignals: [],

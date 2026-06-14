@@ -74,7 +74,8 @@ function trafficCandidate(input: {
       novelty: 50,
       actionability: 100,
       userAffinity: 50,
-      feedbackPenalty: 0
+      feedbackPenalty: 0,
+      exposurePenalty: 0
     },
     scoreBreakdown: {
       taste: 80,
@@ -87,7 +88,8 @@ function trafficCandidate(input: {
       novelty: 50,
       actionability: 100,
       userAffinity: 50,
-      feedbackPenalty: 0
+      feedbackPenalty: 0,
+      exposurePenalty: 0
     },
     traffic: {
       estimatedDurationMinutes: 18,
@@ -114,7 +116,8 @@ const route: RecommendedRoute = {
     novelty: 70,
     actionability: 100,
     userAffinity: 50,
-    feedbackPenalty: 0
+    feedbackPenalty: 0,
+    exposurePenalty: 0
   },
   traffic: {
     estimatedDurationMinutes: 18,
