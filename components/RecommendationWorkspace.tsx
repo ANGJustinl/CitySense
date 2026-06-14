@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState
 } from "react";
 import {
@@ -124,6 +125,11 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
   );
   const [isLoading, setIsLoading] = useState(false);
   const [panelWidths, setPanelWidths] = useState<WorkspacePanelWidths>(defaultPanelWidths);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const amapRouteCount = useMemo(
     () => data.routes.filter((route) => route.traffic.provider === "amap").length,
@@ -402,6 +408,7 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
         <nav className="top-actions" aria-label="primary">
           <a href="/admin/sources">Sources</a>
           <a href="/discover">Discover</a>
+          <a href="/profile">画像</a>
         </nav>
       </header>
 
@@ -595,10 +602,10 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
               <strong>{data.routes.length} 条 / {data.meta.candidateCount} 候选</strong>
             </div>
             <div>
-              <Clock3 size={16} />
-              <span>生成</span>
-              <strong>{formatGeneratedAt(data.meta.generatedAt)}</strong>
-            </div>
+                  <Clock3 size={16} />
+                  <span>生成</span>
+                  <strong>{mounted ? formatGeneratedAt(data.meta.generatedAt) : "…"}</strong>
+                </div>
           </div>
 
           <RouteMapCanvas
