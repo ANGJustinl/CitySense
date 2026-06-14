@@ -349,6 +349,26 @@ export function UserProfileView({
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || "保存失败");
         }
+
+        // Re-fetch the full profile to get updated dimension scores for the radar chart.
+        try {
+          const profileRes = await fetch(
+            `/api/user-profile?userId=${encodeURIComponent(profile.userId)}&city=${encodeURIComponent(city)}&area=${area ? encodeURIComponent(area) : ""}`
+          );
+          if (profileRes.ok) {
+            const freshProfile: UserProfileResponse = await profileRes.json();
+            setProfile((current) => ({
+              ...current,
+              dimensions: freshProfile.dimensions,
+              approvedTags: freshProfile.approvedTags,
+              disapprovedTags: freshProfile.disapprovedTags,
+              stats: freshProfile.stats
+            }));
+          }
+        } catch {
+          // If re-fetch fails, keep the optimistic update — dimensions will be
+          // correct on next full page load.
+        }
       } catch (e) {
         // Rollback optimistic update on failure.
         setError(e instanceof Error ? e.message : "保存失败，已回滚");
