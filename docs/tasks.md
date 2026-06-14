@@ -1025,6 +1025,70 @@
 - 真实 smoke：简单问候 → 流式自我介绍（30+ delta + done）；"最近上海流行什么" → 触发 get_city_pulse 工具调用 → 基于真实数据回复（4 个 up 趋势、80 次出行）。
 - 已知问题（非本次引入）：`recommendation-v1.test.ts` 的 "route assembler prefers fully addressed routes" 用例在 P2-002 提交（3ad63bd）即失败，与 P2-004 无关，需后续单独修复。
 
+### TASK-P2-005：首页清新化重构（地图优先 + 情绪化输入）
+
+- 状态：`待审批`
+- 负责人：Codex / 用户
+- 是否需要审批：是，作为 demo 主界面的视觉重构，涉及首页布局结构和 CSS 变量契约变化。
+
+背景与现状：
+
+- 当前首页是"地图优先的 5 列工作台"（偏好输入 + 地图 + 路线 inspector + 城市脉冲 + 用户画像），信息密度高，偏工具感/dashboard 感。
+- demo 方向已确认：**面向用户的清新实用 UI**，而非评委导向的高信息密度展示。
+- 项目里已有情绪化视觉组件（`components/explorer/MoodOrbSelector`、`GiftRouteCard`、`CityPulseLoader`），目前在 `/explore` `/demo` 页面用 mock 数据展示，和真实推荐系统割裂。
+- MoodOrbSelector 的数据契约（`{value: MoodType, onChange}`）和现有 mood state 完全兼容，可直接接入。
+
+目标：
+
+- 将首页从"工具感工作台"重构为"清新实用的产品界面"，同时保留地图为视觉中心。
+- 左侧偏好输入情绪化：心情选择用 MoodOrbSelector（球体选择器）替代干巴巴的分段按钮；兴趣标签放大、加 emoji。
+- 右侧面板精简：城市脉冲 + 用户画像合并为一个可折叠的"推荐透视"区，默认折叠；路线 inspector 保留但加来源徽章。
+- 中间地图区降噪：指标条默认折叠，点击"为什么推荐？"展开。
+- 保留轻量来源徽章（让用户感知推荐真实性），但完整技术面板不默认暴露。
+
+方案与约束：
+
+- **不重写整个工作台**，分层改造现有 `RecommendationWorkspace`：输入栏情绪化 → 右侧面板精简 → 中间地图降噪。
+- **不改推荐算法/数据契约**：推荐接口、路线组装、画像逻辑都不动。
+- **不改 AI 助手**：ChatDock/ChatDrawer 继续作为浮动入口。
+- **不改路线详情页**：`/routes/[id]` 保持现状。
+- grid 布局从 5 列减为 3 列（controls + map + inspector），CSS 变量契约（`--control-col` 等）和 resize handle 需同步调整。
+- MoodOrbSelector 自注入 `<style>` 标签（运行时），使用 `.mood-orb-*` 命名空间，不依赖 globals.css，不和现有样式冲突。
+- 折叠区用原生 `<details>/<summary>`（无 JS、无 a11y 问题）或 useState + CSS transition。
+- 数据映射（如需接 GiftRouteCard）：duration/distance/score/tags/image 字段格式化，复用 `components/city/route-display.ts` 的 formatDistance。
+
+计划触达文件：
+
+- 修改：`components/RecommendationWorkspace.tsx`（左侧输入情绪化 + 右侧面板精简 + 指标条折叠 + grid 列数调整 + CSS 变量契约）
+- 修改：`components/city/RouteInspector.tsx`（路线选项卡片加来源徽章和推荐分）
+- 修改：`app/globals.css`（`.workspace.map-first` grid-template 从 5 列改 3 列；折叠区样式；情绪化标签样式）
+- 复用：`components/explorer/MoodOrbSelector`（直接接入，零适配）
+- 可选修改：`components/city/SourceSignalBadge` / `TrafficBadge`（如需在路线选项卡片复用）
+- 清理：删除孤立的 `app/explorer.css`（628 行，无人 import）
+
+验收标准：
+
+- [ ] 左侧心情选择是情绪化球体（MoodOrbSelector），不是干巴巴的分段按钮。
+- [ ] 兴趣标签是大尺寸带 emoji 的，不是小 chip。
+- [ ] 右侧只有 1 个路线 inspector 列 + 1 个可折叠"推荐透视"区（不再是 3 列）。
+- [ ] 路线选项卡片显示来源徽章和推荐分。
+- [ ] 指标条默认折叠，可展开。
+- [ ] 生成路线、AI 助手、反馈按钮仍正常工作。
+- [ ] 桌面端和移动端布局都不出现溢出或重叠。
+- [ ] `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 通过。
+
+风险与降级：
+
+- MoodOrbSelector 自注入样式如和 globals.css 冲突：可提取其 `<style>` 到 globals.css 统一管理。
+- grid 列数变化导致 resize handle 失效：resize handle 是成对的（left+right），删列要同步删对应 handle，WorkspacePanel 类型同步调整。
+- 折叠区交互定制：原生 `<details>` 样式定制有限，如需更精细控制用 useState + CSS transition。
+
+审批记录：
+
+- 审批人：
+- 日期：
+- 结论：
+
 ## 当前审批队列
 
 - [x] 审查并批准 `TASK-P0-001`。
@@ -1040,6 +1104,7 @@
 - [x] 审查并批准 `TASK-P1-013`。
 - [x] 审查并批准 `TASK-P2-002`。
 - [x] TASK-P2-004 无需审批(辅助交互层)。
+- [ ] 审查并批准 `TASK-P2-005`。
 
 ## 变更记录
 
@@ -1066,4 +1131,5 @@
 - 2026-06-14：推进 TASK-P1-013 第一阶段，新增 `damai` crawler adapter，优化多关键词搜索召回、去重和 Event-only 映射；source 页验证码/cookie 管理继续保留为后续工作。
 - 2026-06-14：扩写 TASK-P2-002 用户品味画像 MVP，规划显式偏好、隐式反馈、新鲜度惩罚、画像解释和隐私降级路径。
 - 2026-06-14：完成 TASK-P2-002 用户品味画像 MVP
-- 2026-06-14：完成 TASK-P2-004 AI 对话分析助手,新增 chat-client(glm-4-flash 流式+tools)/chat-tools(4工具)/chat-session(Redis 历史)/SSE端点/useChat hook/ChatDrawer+ChatDock,挂载到工作台右下角浮动入口;真实 smoke 验证流式回复+工具调用链路通过。，新增画像服务（profile.types / user-profile-core 纯计算 / user-profile prisma 封装）、6 维度正负权重 + 新鲜度曝光惩罚、读时懒重算 + TTL、推荐链路接入（user-signals/features/ranker/recommend）、`GET/DELETE /api/user-profile`、UserProfilePanel explain 面板（工作台第 5 列）；128 个测试通过,真实 smoke 验证反馈→画像→explain→清空→回退全链路。
+- 2026-06-14：完成 TASK-P2-004 AI 对话分析助手
+- 2026-06-14：新增 TASK-P2-005 首页清新化重构,规划地图优先+情绪化输入(MoodOrbSelector 复用、grid 5列→3列、技术面板折叠、来源徽章保留)。,新增 chat-client(glm-4-flash 流式+tools)/chat-tools(4工具)/chat-session(Redis 历史)/SSE端点/useChat hook/ChatDrawer+ChatDock,挂载到工作台右下角浮动入口;真实 smoke 验证流式回复+工具调用链路通过。，新增画像服务（profile.types / user-profile-core 纯计算 / user-profile prisma 封装）、6 维度正负权重 + 新鲜度曝光惩罚、读时懒重算 + TTL、推荐链路接入（user-signals/features/ranker/recommend）、`GET/DELETE /api/user-profile`、UserProfilePanel explain 面板（工作台第 5 列）；128 个测试通过,真实 smoke 验证反馈→画像→explain→清空→回退全链路。
