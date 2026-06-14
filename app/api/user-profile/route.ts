@@ -68,13 +68,16 @@ export async function GET(request: Request) {
 const preferenceSchema = z.object({
   userId: z.string().min(1).max(128),
   tag: z.string().min(1).max(60),
-  action: tagActionSchema
+  action: tagActionSchema,
+  city: z.string().max(60).optional(),
+  area: z.string().max(60).optional()
 });
 
 /**
  * POST /api/user-profile
  * Body: { userId, tag, action: "approve"|"disapprove"|"skip" }
  * 记录用户的显式标签偏好。`skip` 只记历史。驱动 v1 标签表态 UI。
+ * 返回重算后的完整画像（含 dimensions），供前端即时刷新六维雷达图。
  */
 export async function POST(request: Request) {
   let body: unknown;
@@ -93,12 +96,21 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await setTagPreference({
+    await setTagPreference({
       userId: parsed.data.userId,
       tag: parsed.data.tag,
       action: parsed.data.action as TagAction
     });
-    return NextResponse.json(result);
+
+    // 重新读取完整画像，返回重算后的 dimensions 让前端刷新六维雷达图。
+    // getUserProfile 内部并行聚合 explicit/implicit/city 三源，与首屏数据源一致。
+    const refreshedProfile = await getUserProfile({
+      userId: parsed.data.userId,
+      city: parsed.data.city || "上海",
+      area: parsed.data.area || undefined
+    });
+
+    return NextResponse.json(refreshedProfile);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to save preference";
     return NextResponse.json({ error: message }, { status: 500 });

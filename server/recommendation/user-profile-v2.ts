@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db/prisma";
 import type { Candidate } from "@/server/recommendation/types";
+import { FEEDBACK_INTERACTION_WEIGHT } from "@/server/recommendation/feedback-weights";
 
 /**
  * TASK2-P0-001：用户品味画像闭环。
@@ -34,12 +35,10 @@ export const AFFINITY_NEUTRAL = 50;
 const FEEDBACK_ACTIONS = new Set(["up", "down", "save", "dismiss"]);
 const IMPORT_ACTIONS = new Set(["liked", "saved", "rated", "watched", "followed"]);
 
-// 站内反馈到维度权重的映射（方向与 feedback.ts feedbackToInteractionWeight 对齐）。
+// 站内反馈到维度权重的映射：统一从 feedback-weights.ts 引用（TASK2-P0-004），
+// 与 feedback.ts 的 feedbackToInteractionWeight 保持单一事实源。
 const FEEDBACK_ACTION_WEIGHT: Record<string, number> = {
-  up: 1,
-  save: 1.5,
-  down: -1.5,
-  dismiss: -0.8
+  ...FEEDBACK_INTERACTION_WEIGHT
 };
 
 // 授权导入到维度权重的映射（E：AuthorizedTasteImport 用）。
@@ -156,6 +155,18 @@ function contextSource(context: unknown): string | undefined {
     : undefined;
 }
 
+/**
+ * 从 interaction.context 提取 area（TASK2-P0-004 激活 area 维度）。
+ * 反馈镜像（feedback.ts writeInteractionMirror）会把候选 area 写入 context.area。
+ * 规范化区域名（去"区/县/市"后缀）由调用方在入库时处理，这里只做 trim。
+ */
+function contextArea(context: unknown): string | undefined {
+  const value = readContext(context);
+  return typeof value.area === "string" && value.area.trim().length > 0
+    ? value.area.trim()
+    : undefined;
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
@@ -196,6 +207,19 @@ function aggregateAffinityScore(bucket: AffinityBucket): number {
   }
   const sum = all.reduce((acc, value) => acc + value, 0);
   return clamp(Math.round(AFFINITY_NEUTRAL + sum / all.length), 0, 100);
+}
+
+/**
+ * 单维度 bucket 聚合（TASK2-P0-004）：计算 area 维度的独立 affinity 分数。
+ * 空维度返回中性 50；否则用衰减权重均值作为正向偏移。
+ */
+function singleBucketAffinity(bucket: Record<string, number>): number {
+  const values = Object.values(bucket);
+  if (values.length === 0) {
+    return AFFINITY_NEUTRAL;
+  }
+  const sum = values.reduce((acc, value) => acc + value, 0);
+  return clamp(Math.round(AFFINITY_NEUTRAL + sum / values.length), 0, 100);
 }
 
 function buildTopReasons(
@@ -370,6 +394,7 @@ export async function recomputeUserProfile(userId: string): Promise<UserProfileS
 
       const tags = contextTags(interaction.context);
       const source = contextSource(interaction.context);
+      const area = contextArea(interaction.context);
       for (const tag of tags) {
         addDimension(targetRows, "tag", tag, decayedWeight);
         if (targetBucket) bucketFor(targetBucket.tag, tag, decayedWeight);
@@ -377,6 +402,11 @@ export async function recomputeUserProfile(userId: string): Promise<UserProfileS
       if (source) {
         addDimension(targetRows, "source", source, decayedWeight);
         if (targetBucket) bucketFor(targetBucket.source, source, decayedWeight);
+      }
+      // TASK2-P0-004：激活 area 维度（之前硬编码中性，现已从 interaction.context 提取）。
+      if (area) {
+        addDimension(targetRows, "area", area, decayedWeight);
+        if (targetBucket) bucketFor(targetBucket.area, area, decayedWeight);
       }
     }
 
@@ -407,7 +437,9 @@ export async function recomputeUserProfile(userId: string): Promise<UserProfileS
       positiveWeights,
       negativeWeights,
       sourceAffinity: aggregateAffinityScore(positiveBucket),
-      areaAffinity: AFFINITY_NEUTRAL,
+      // TASK2-P0-004：area 维度已激活，从 interaction.context 提取并聚合。
+      // budget/quietness/mood 暂未激活（数据稀疏，需更多反馈样本），保留中性。
+      areaAffinity: singleBucketAffinity(positiveBucket.area),
       budgetAffinity: AFFINITY_NEUTRAL,
       quietnessAffinity: AFFINITY_NEUTRAL,
       moodAffinity: {},
@@ -573,6 +605,17 @@ export function calculateUserAffinityFromProfile(
       const contribution = clamp(weight.weight / POSITIVE_PREFERENCE_HARD_CAP, 0, 1) * 20;
       delta += contribution;
       factors.push({ dimension: "source", key: candidate.source, delta: Math.round(contribution * 10) / 10 });
+    }
+  }
+
+  // TASK2-P0-004：area 维度贡献。area 比 tag 更粗粒度（同区域不代表同品味），
+  // 贡献系数设为 12（tag 32、source 20），仅作为地理偏好的轻量加分。
+  if (candidate.area) {
+    const weight = matchWeight(profile.positiveWeights, "area", candidate.area);
+    if (weight) {
+      const contribution = clamp(weight.weight / POSITIVE_PREFERENCE_HARD_CAP, 0, 1) * 12;
+      delta += contribution;
+      factors.push({ dimension: "area", key: candidate.area, delta: Math.round(contribution * 10) / 10 });
     }
   }
 

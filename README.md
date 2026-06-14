@@ -132,7 +132,7 @@ NEXT_PUBLIC_AMAP_SECURITY_JS_CODE="your-amap-js-api-security-code"
 
 ## 核心接口
 
-- `POST /api/recommend` 返回 3 条可执行城市路线。
+- `POST /api/recommend` 返回 3 条可执行城市路线。支持可选 `recentExposure`（匿名用户冷启动多样性补偿：前端传入上次推荐的 placeId/title，命中项会被轻量降权）。
 - `GET /api/routes/:id` 返回路线详情、地图 polyline 和站点 markers。
 - `POST /api/feedback` 记录轻量反馈事件。
 - `POST /api/ingest/run` 创建 Source Adapter 采集任务并入队。
@@ -145,3 +145,5 @@ NEXT_PUBLIC_AMAP_SECURITY_JS_CODE="your-amap-js-api-security-code"
 ## 架构原则
 
 实时推荐链路不直接爬取外部平台，也不实时调用 MCP 服务。Source Adapter 和 worker 负责提前沉淀城市信号；推荐 API 读取规范化候选数据，并且只对短名单调用交通接口。
+
+排序权重经过 TASK2-P0-001（画像层）与 TASK2-P0-004（归一化）两次审批调整，当前正权重之和 = 1.00（`calculateFinalScore` 为真正的加权平均），详见 `docs/recommendation-system-plan.md` 与 `docs/tasks-2.md`。任何权重变更必须走审批流程并记录在 `docs/tasks-2.md`。

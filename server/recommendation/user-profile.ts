@@ -114,12 +114,12 @@ function clampScore(value: number): number {
  * Compute the six dimension scores from the three fused tag sources.
  * Pure function — exported for unit testing without a database.
  *
- * Scoring per dimension:
- *   - explicit: each approved tag matching the dimension adds 30 (cap 90)
- *   - implicit:  sum of implicit tag weights for matching tags × 25
- *   - city:      mean of city heatScore for matching tags × 0.35
- * Final = clamp(explicit + implicit + city, 0, 100).
- * If all three sources are empty for a dimension → NEUTRAL_SCORE (50).
+ * Scoring per dimension (以 NEUTRAL_SCORE=50 为基线，三源叠加为正向加分)：
+ *   - explicit: 每个命中的 approved tag +15（上限 35）
+ *   - implicit:  命中 tag 的隐式权重之和 × 10（上限 15）
+ *   - city:      命中 tag 的城市 heatScore 均值 × 0.35
+ * Final = clamp(NEUTRAL_SCORE + explicit + implicit + city, 0, 100)。
+ * 三源全空 → NEUTRAL_SCORE (50)。
  */
 export function computeDimensionScores(input: {
   explicitApproved: Record<string, number>;
@@ -136,11 +136,21 @@ export function computeDimensionScores(input: {
     const tagSet = new Set(dimension.tags);
     const matchedTags: string[] = [];
 
+    // 维度标签匹配：支持子串包含（双向）。
+    // 城市热度/平台返回的标签常为复合词（如"展览休闲"），维度定义的是原子词（如"展览"）；
+    // 精确匹配会让这些标签无法贡献到任何维度，导致雷达图不随表态变化。
+    function tagMatchesDimension(tag: string): boolean {
+      if (tagSet.has(tag)) return true;
+      return dimension.tags.some(
+        (dimTag) => tag.includes(dimTag) || dimTag.includes(tag)
+      );
+    }
+
     // Explicit approved tags — strongest signal, capped so multi-tag dimensions
     // don't saturate instantly.
     let explicitScore = 0;
     for (const tag of Object.keys(explicitApproved)) {
-      if (tagSet.has(tag)) {
+      if (tagMatchesDimension(tag)) {
         explicitScore += 15;
         matchedTags.push(tag);
       }
@@ -150,7 +160,7 @@ export function computeDimensionScores(input: {
     // Implicit feedback weights.
     let implicitSum = 0;
     for (const [tag, weight] of implicitTagWeights) {
-      if (tagSet.has(tag) && weight > 0) {
+      if (tagMatchesDimension(tag) && weight > 0) {
         implicitSum += weight;
         if (!matchedTags.includes(tag)) matchedTags.push(tag);
       }

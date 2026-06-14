@@ -34,6 +34,14 @@ const CANDIDATE_RECALL_LIMIT = 80;
 const ACTIONABLE_SUPPLEMENT_LIMIT = 80;
 const DIRECT_SIGNAL_ONLY_SOURCES = new Set(["xiaohongshu"]);
 
+// pg_trgm similarity 阈值（TASK2-P0-004：从 0.03 提升到 0.08）。
+// 0.03 会召回大量低相关噪声；0.08 仍是宽松阈值，但能过滤明显无关项。
+const TEXT_RECALL_SIMILARITY_THRESHOLD = 0.08;
+
+// 标记 social 召回通道的 trendScore 下限（TASK2-P0-004 常量化，便于后续调参）。
+// 原为未命名 magic number 70。
+const SOCIAL_CHANNEL_TREND_THRESHOLD = 70;
+
 function hasDatabaseUrl() {
   return Boolean(process.env.DATABASE_URL);
 }
@@ -216,7 +224,7 @@ function inferRecallChannels(candidate: Candidate, input: RecommendInput): Recal
     channels.add("text");
   }
 
-  if (candidate.trendScore >= 70) {
+  if (candidate.trendScore >= SOCIAL_CHANNEL_TREND_THRESHOLD) {
     channels.add("social");
   }
 
@@ -520,7 +528,7 @@ async function loadTextRecallRows(input: RecommendInput): Promise<TextRecallRow[
           AND similarity(
             lower(concat_ws(' ', "title", coalesce("description", ''), coalesce("address", ''), array_to_string("tags", ' '))),
             lower(${query})
-          ) > 0.03
+          ) > ${TEXT_RECALL_SIMILARITY_THRESHOLD}
         ORDER BY "score" DESC
         LIMIT 30
       `,
@@ -539,7 +547,7 @@ async function loadTextRecallRows(input: RecommendInput): Promise<TextRecallRow[
           AND similarity(
             lower(concat_ws(' ', "name", coalesce("description", ''), coalesce("address", ''), array_to_string("tags", ' '))),
             lower(${query})
-          ) > 0.03
+          ) > ${TEXT_RECALL_SIMILARITY_THRESHOLD}
         ORDER BY "score" DESC
         LIMIT 30
       `

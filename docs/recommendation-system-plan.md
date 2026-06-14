@@ -386,8 +386,10 @@ create table item_embeddings (
 | `traffic` | AMap/cache/estimate | 真实可达性 |
 | `timeFit` | timeWindow + event time | 时间窗口匹配 |
 | `novelty` | popularity + history | 小众度/新鲜感 |
-| `userAffinity` | user profile | 用户画像匹配 |
+| `actionability` | quality + address/coords | 可执行性质量门（TASK2-P0-001 新增） |
+| `userAffinity` | user profile | 用户画像匹配（含 tag/source/area 维度） |
 | `feedbackPenalty` | interactions | 不感兴趣、跳过、重复推荐惩罚 |
+| `exposurePenalty` | recent exposure | 最近已曝光项轻惩罚（TASK2-P0-001 新增） |
 
 初始分数：
 
@@ -405,11 +407,44 @@ score =
   feedbackPenalty * 0.12
 ```
 
+> **权重演进说明（TASK2-P0-004，2026-06-15）**
+>
+> 上述为本文档最初的目标公式。实际实现经历了两次审批调整：
+>
+> - **TASK2-P0-001（2026-06-14）**：引入画像层。新增 `actionability`（0.20）质量门、
+>   `exposurePenalty`（-0.05）曝光惩罚；`userAffinity` 提升至 0.35。此时正权重之和 = 1.34，
+>   导致高分候选饱和在 100、分数区分度被压缩。
+> - **TASK2-P0-004（2026-06-15）**：权重归一化。正权重之和收敛到 1.00，使
+>   `calculateFinalScore` 成为真正的加权平均（all-100→100, all-50→50, all-0→0）。
+>   `userAffinity` 从 0.35 降回 0.18（仍是最强正向维度之一，但不再垄断排序）。
+>   详见下表与 `docs/tasks-2.md`。
+>
+> 当前生效权重（`server/recommendation/scoring.ts`）：
+
+```txt
+score =
+  taste * 0.16 +
+  textRelevance * 0.07 +
+  socialTrend * 0.08 +
+  freshness * 0.06 +
+  distance * 0.10 +
+  traffic * 0.09 +
+  timeFit * 0.05 +
+  novelty * 0.03 +
+  actionability * 0.18 +
+  userAffinity * 0.18 -
+  feedbackPenalty * 0.10 -
+  exposurePenalty * 0.05
+```
+
+（正权重求和 = 1.00，校验见 `tests/recommendation-weights.test.ts`）
+
 注意：
 
 - 这是候选排序分，不是路线最终分。
 - route score 应该加入路线连贯性、站点多样性和总交通成本。
-- 权重变化必须走 `docs/tasks.md` 的审批流程。
+- 权重变化必须走审批流程：记录在 `docs/tasks.md`（P0/P1 批次）或 `docs/tasks-2.md`（TASK2 批次）。
+  TASK2-P0-001（画像层权重）与 TASK2-P0-004（归一化）的审批结论见 `docs/tasks-2.md`。
 
 ## 路线组合 V1
 

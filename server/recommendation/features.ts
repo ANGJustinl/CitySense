@@ -59,8 +59,12 @@ export function buildCandidateFeatures(
     };
   }
 
-  // 回退路径：保持改造前行为（即时 interaction 聚合，无 exposure）。
+  // 回退路径：保持改造前行为（即时 interaction 聚合）。
+  // TASK2-P0-004：匿名用户冷启动多样性补偿——当请求携带 recentExposure
+  //（前端记录的上次推荐 place/title）时，对命中候选施加轻量 exposurePenalty，
+  // 避免无画像用户反复看到相同 Top 路线。有画像用户走上面的 profile.exposure 通道。
   const signals = sources.signals;
+  const anonymousExposure = calculateAnonymousExposurePenalty(candidate, request);
   return {
     ...base,
     userAffinity: signals
@@ -69,8 +73,36 @@ export function buildCandidateFeatures(
     feedbackPenalty: signals
       ? calculateFeedbackPenalty(candidate, signals)
       : base.feedbackPenalty,
-    exposurePenalty: 0
+    exposurePenalty: anonymousExposure.penalty
   };
+}
+
+/**
+ * 匿名用户 exposure 惩罚（TASK2-P0-004）。
+ * 复用画像 exposure 的判定逻辑（itemId 命中 8 分、routeTitle 命中 4 分），
+ * 但从 request.recentExposure 读取，不依赖 UserProfileSnapshot。
+ * 无 recentExposure 时返回 0，完全等价改造前行为。
+ */
+function calculateAnonymousExposurePenalty(
+  candidate: Candidate,
+  request: RecommendInput
+): { penalty: number; reason?: string } {
+  const exposure = request.recentExposure;
+  if (!exposure) {
+    return { penalty: 0 };
+  }
+  const itemIds = exposure.itemIds ?? [];
+  const routeTitles = exposure.routeTitles ?? [];
+  if (itemIds.length === 0 && routeTitles.length === 0) {
+    return { penalty: 0 };
+  }
+  if (itemIds.includes(candidate.id)) {
+    return { penalty: 8, reason: `recentlySeen:itemId ${candidate.id}` };
+  }
+  if (candidate.name && routeTitles.some((title) => title.includes(candidate.name))) {
+    return { penalty: 4, reason: `recentlySeen:theme ${candidate.name}` };
+  }
+  return { penalty: 0 };
 }
 
 export function buildCandidateFeatureSet(

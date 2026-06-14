@@ -11,23 +11,28 @@ import { assessCandidateQuality } from "@/server/recommendation/quality";
 export const WEIGHTED_RANKER_NAME = "weighted-v1";
 export const WEIGHTED_RANKER_VERSION = "weighted-v1.2-profile";
 
-// 权重调整（TASK2-P0-001 审批 2026-06-14）：
-// - userAffinity 0.05 -> 0.10 -> 0.25（画像可信后提升正偏好影响；
-//   0.10 太弱，画像命中差值被 actionability/taste 淹没，无法改变排序）
-// - feedbackPenalty -0.12 -> -0.10（限制负反馈影响，配合分层硬上限）
-// - 新增 exposurePenalty -0.05（曝光轻惩罚，仅影响排序）
+// 权重调整历史：
+// - TASK2-P0-001（2026-06-14）：引入画像层，userAffinity 0.05→0.35，新增 exposurePenalty。
+// - TASK2-P0-004（2026-06-15）：权重归一化。原正权重之和=1.34（远超 1.0），导致高分候选
+//   饱和在 100、分数区分度被压缩、排序信号被淹没。现将正权重之和收敛到 1.00，使
+//   calculateFinalScore 成为真正的加权平均（all-100→100, all-50→50, all-0→0）。
+//   主要调整：userAffinity 0.35→0.18（仍是最强正向维度之一，但不再垄断排序）；
+//   actionability 保持高位作为质量门；taste/distance/traffic 等按比例微调。
+//   负权重（feedbackPenalty/exposurePenalty）保持不变，仍为 [0,100] 区间内的减分项。
 // 无画像时 affinity=50(中性)、penalty=0、exposure=0，等价于改造前行为。
+//
+// 正权重求和校验：0.16+0.07+0.08+0.06+0.10+0.09+0.05+0.03+0.18+0.18 = 1.00
 export const WEIGHTED_RANKER_WEIGHTS = {
-  taste: 0.18,
-  textRelevance: 0.09,
-  socialTrend: 0.1,
-  freshness: 0.07,
-  distance: 0.12,
-  traffic: 0.12,
-  timeFit: 0.07,
-  novelty: 0.04,
-  actionability: 0.2,
-  userAffinity: 0.35,
+  taste: 0.16,
+  textRelevance: 0.07,
+  socialTrend: 0.08,
+  freshness: 0.06,
+  distance: 0.1,
+  traffic: 0.09,
+  timeFit: 0.05,
+  novelty: 0.03,
+  actionability: 0.18,
+  userAffinity: 0.18,
   feedbackPenalty: -0.1,
   exposurePenalty: -0.05
 } satisfies Record<keyof ScoreBreakdown, number>;

@@ -24,6 +24,16 @@ export type RecommendInput = {
   timeWindow: TimeWindow;
   useRealtimeTraffic?: boolean;
   useSocialSignals?: boolean;
+  /**
+   * 匿名用户冷启动多样性补偿（TASK2-P0-004）：
+   * 调用方传入最近已曝光的 place/route title 列表（如前端记录的上次推荐结果），
+   * 对命中的候选施加轻量 exposurePenalty，避免无画像用户反复看到相同 Top 路线。
+   * 有 userId 的用户走画像 exposure 通道，此字段仅对匿名/无画像用户生效。
+   */
+  recentExposure?: {
+    itemIds?: string[];
+    routeTitles?: string[];
+  };
 };
 
 export type SourceSignal = {
@@ -167,6 +177,7 @@ export type RecommendedRoute = {
     name: string;
     type: CandidateType;
     address?: string;
+    area?: string;
     lat?: number;
     lng?: number;
     tags: string[];

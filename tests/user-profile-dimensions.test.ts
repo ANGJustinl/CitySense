@@ -145,3 +145,33 @@ test("computeDimensionScores: disapproved tags do not contribute (only approved 
   const quiet = dimByKey(result, "quiet");
   assert.equal(quiet?.value, 50);
 });
+
+test("computeDimensionScores: 复合标签通过子串匹配贡献到维度（展览休闲 → culture）", () => {
+  // 城市热度/平台返回的标签常为复合词（如"展览休闲"），维度定义的是原子词（如"展览"）。
+  // 子串匹配确保这类标签仍能贡献到对应维度，雷达图才会随表态变化。
+  const result = computeDimensionScores({
+    explicitApproved: { "展览休闲": 0.5 },
+    implicitTagWeights: new Map(),
+    cityTopTags: []
+  });
+
+  const culture = dimByKey(result, "culture");
+  assert.ok(
+    (culture?.value ?? 0) > 50,
+    `culture 维度应因"展览休闲"子串匹配"展览"而上升，实际 ${culture?.value}`
+  );
+});
+
+test("computeDimensionScores: 子串匹配不会误匹配无关维度", () => {
+  // "美食市集" 应匹配 marketFood（含"市集"/"美食"），但不应匹配 culture。
+  const result = computeDimensionScores({
+    explicitApproved: { "美食市集": 0.5 },
+    implicitTagWeights: new Map(),
+    cityTopTags: []
+  });
+
+  const marketFood = dimByKey(result, "marketFood");
+  const culture = dimByKey(result, "culture");
+  assert.ok((marketFood?.value ?? 0) > 50, "marketFood 应因子串匹配上升");
+  assert.equal(culture?.value, 50, "culture 不应受影响");
+});

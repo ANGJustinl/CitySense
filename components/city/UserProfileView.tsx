@@ -354,11 +354,24 @@ export function UserProfileView({
         const res = await fetch("/api/user-profile", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ userId: profile.userId, tag, action })
+          body: JSON.stringify({
+            userId: profile.userId,
+            tag,
+            action,
+            city,
+            area
+          })
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || "保存失败");
+        }
+
+        // 服务端返回重算后的完整画像（含 dimensions），用它替换本地状态，
+        // 这样六维雷达图会随标签表态实时刷新。
+        const refreshed = (await res.json()) as UserProfileResponse;
+        if (refreshed && Array.isArray(refreshed.dimensions)) {
+          setProfile(refreshed);
         }
       } catch (e) {
         // Rollback optimistic update on failure.
@@ -368,7 +381,7 @@ export function UserProfileView({
         setPendingAction(undefined);
       }
     },
-    [initialProfile, profile.userId]
+    [initialProfile, profile.userId, city, area]
   );
 
   const stats = profile.stats;

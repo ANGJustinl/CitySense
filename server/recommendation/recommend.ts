@@ -53,7 +53,14 @@ export const recommendRequestSchema = z.object({
   budget: z.enum(["low", "medium", "high"]).default("medium"),
   timeWindow: z.enum(["now", "tonight", "weekend"]).default("tonight"),
   useRealtimeTraffic: z.boolean().default(true),
-  useSocialSignals: z.boolean().default(true)
+  useSocialSignals: z.boolean().default(true),
+  // 匿名用户冷启动多样性补偿（TASK2-P0-004）：前端可传入上次推荐的 placeId/title。
+  recentExposure: z
+    .object({
+      itemIds: z.array(z.string().max(128)).max(200).optional(),
+      routeTitles: z.array(z.string().max(120)).max(50).optional()
+    })
+    .optional()
 });
 
 type GeocodeAddress = typeof geocodeAddress;

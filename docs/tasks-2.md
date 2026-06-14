@@ -281,6 +281,55 @@ type RouteMomentFit = {
 - 停留时间主观：V0 可按地点类型给默认值，例如展览 60 分钟、咖啡 45 分钟、演出按活动时间。
 - 时机感不应过度过滤：先用于解释和轻微排序，再观察结果质量。
 
+### TASK2-P0-004：推荐算法权重归一化与冷启动优化
+
+- 状态：`已完成`
+- 负责人：Codex / 用户
+- 是否需要审批：是，涉及推荐权重变更（`docs/recommendation-system-plan.md` 明确要求审批）。
+- 审批人：用户（本会话明确批准"全面优化 + 允许触碰审批项并同步 docs"）
+- 审批日期：2026-06-15
+- 完成日期：2026-06-15
+
+背景与问题诊断（通过代码审计确认的 5 个核心问题）：
+
+1. **正权重之和 = 1.34**（`scoring.ts`）：远超 1.0，导致高分候选饱和在 100、分数区分度被压缩、排序信号被淹没。
+2. **匿名用户 userAffinity 恒为 50**：无画像用户无 exposure penalty，Top 路线几乎重复，冷启动体验差。
+3. **trendScore 双重计数**（`signal-fusion.ts`）：`trendScore` 被 signal 回写提升后，又喂给 `socialTrend` 特征，social 权重被计入两次。
+4. **文本召回阈值 0.03 过低**（`candidates.ts`）：召回大量低相关噪声，挤占候选池。
+5. **area 画像维度是死代码**（`user-profile-v2.ts`）：声明了 area/budget/quietness/mood 四个维度但 recompute 从不填充，affinity 只用 tag/source。
+
+完成情况（分 3 阶段实施，每阶段独立可测）：
+
+- **阶段 1：Bug 修复与正确性校正（不触及审批边界）**
+  - `signal-fusion.ts`：移除 trendScore 回写（L178），signal 只通过 `signalStrength` 单一通道影响 `socialTrend`，消除放大效应。
+  - `candidates.ts`：文本召回 `similarity` 阈值 0.03 → 0.08，过滤明显无关项。
+  - 新建 `feedback-weights.ts`：抽取共享 `FEEDBACK_INTERACTION_WEIGHT` 常量，`feedback.ts` 与 `user-profile-v2.ts` 统一引用，消除两处硬编码同步风险。
+  - `user-profile.ts`：修正 `computeDimensionScores` 过期 JSDoc（实际 +15/cap 35、×10，非文档声称的 +30/cap 90、×25）。
+
+- **阶段 2：权重归一化与冷启动（需审批）**
+  - `scoring.ts`：正权重之和从 1.34 收敛到 **1.00**。`userAffinity` 0.35→0.18（仍是最强正向维度之一，但不再垄断排序），其余按比例调整。`calculateFinalScore` 成为真正的加权平均（all-100→100, all-50→50, all-0→0）。
+  - `features.ts` + `types.ts` + `recommend.ts`：新增匿名用户冷启动多样性补偿。`RecommendInput` 新增可选 `recentExposure`（前端记录的上次推荐 placeId/title），匿名用户命中项施加轻量 `exposurePenalty`（itemId 命中 8 分、routeTitle 命中 4 分），避免反复看到相同 Top 路线。复用画像 exposure 判定逻辑，不破坏"空画像=中性50"不变量。
+  - `route-builder.ts`：`candidateScore` 权重 0.43→0.50，保持 route 组分中 candidate 质量的主导地位（归一化后 adjustedScore 量纲下降需同步）。
+
+- **阶段 3：召回质量与画像维度增强**
+  - `user-profile-v2.ts`：激活 area 维度。新增 `contextArea` 辅助函数，`recomputeUserProfile` 从 `interaction.context.area` 提取 area 偏好；新增 `singleBucketAffinity` 计算 area 独立 affinity；`calculateUserAffinityFromProfile` 加入 area 贡献项（系数 12，低于 tag 32/source 20，因 area 更粗粒度）。
+  - `route-builder.ts` + `types.ts` + `feedback.ts`：`RecommendedRoute.places` 新增 `area?` 字段，route 序列化保留 area，feedback mirror 写入 `context.area`，打通 area 维度数据闭环。
+  - `candidates.ts`：`trendScore >= 70` 抽为命名常量 `SOCIAL_CHANNEL_TREND_THRESHOLD`，`similarity > 0.08` 抽为 `TEXT_RECALL_SIMILARITY_THRESHOLD`，消除 magic number。
+
+- 新增测试：
+  - `tests/recommendation-weights.test.ts`（7 例）：正权重和=1.00、负权重稳定、满分/中性/零分映射、惩罚扣减、归一化后区分度提升。
+  - `tests/recommendation-coldstart.test.ts`（6 例）：匿名无 exposure=0、itemIds 命中=8、routeTitles 命中=4、未命中=0、空数组=0、冷启动多样性排序。
+
+- 验证：`pnpm typecheck` ✅、`pnpm test` ✅（192 pass / 0 fail）。
+
+不变量保持（未被破坏）：
+- `ranker="weighted-v1"` / `rankerVersion="weighted-v1.2-profile"` 不变。
+- 空画像 → affinity=50, penalty=0, exposure=0（匿名 exposure 是新增独立逻辑）。
+- XHS 永不 route-eligible；generic listicle 不进路线；路线无重复/跨主题混合。
+- authorized-taste 隐私约束（titleDigest=60、tags≤10×40、sourceItemId 仅哈希）。
+
+回滚方案：权重值集中在 `WEIGHTED_RANKER_WEIGHTS` 单一常量；trendScore 回写为单行删除（可恢复）；area 维度为增量新增（移除 `contextArea` 调用即回退中性）；匿名 exposure 由 `recentExposure` 字段控制（不传即等价改造前）。
+
 ## P1：强力提升产品说服力
 
 ### TASK2-P1-001：朋友式城市提醒卡
@@ -501,6 +550,7 @@ type RouteEvidence = {
 ## 当前审批队列
 
 - [x] 审查并批准 `TASK2-P0-001：用户品味画像闭环`（2026-06-14，angjustinl）；已完成实现并通过 typecheck/lint/test（build 失败为 main 既有预渲染问题，与本次改动无关）。
+- [x] 审查并批准 `TASK2-P0-004：推荐算法权重归一化与冷启动优化`（2026-06-15）；已完成实现，正权重之和 1.34→1.00，修复 trendScore 双重计数，激活 area 维度，新增匿名冷启动 exposure，通过 typecheck/test（192 pass / 0 fail）。
 - [ ] 审查并批准 `TASK2-P0-002：实时城市状态 V0`。
 - [ ] 审查并批准 `TASK2-P0-003：此刻可执行判断与时机感`。
 - [ ] 审查并批准 `TASK2-P1-001：朋友式城市提醒卡`。
@@ -521,3 +571,4 @@ type RouteEvidence = {
 - 2026-06-14：创建 `tasks-2.md`，将用户画像、实时城市状态、朋友式表达和信号可信度作为真实 MVP 补齐方向。
 - 2026-06-14：批准 `TASK2-P0-001：用户品味画像闭环`（angjustinl）。审批结论增加四项实现约束：feedback 去重、分层负偏好（≥2 样本/更快衰减/硬上限）、权重调整与无画像回退、E 仅做授权导入契约与脱敏 mapper。
 - 2026-06-14：完成 `TASK2-P0-001：用户品味画像闭环` 实现（A→E），通过 typecheck/lint/test；build 失败定位为 main 既有 Next.js 预渲染问题。
+- 2026-06-15：批准并完成 `TASK2-P0-004：推荐算法权重归一化与冷启动优化`。正权重之和 1.34→1.00（userAffinity 0.35→0.18）；修复 trendScore 双重计数（移除 signal-fusion trendScore 回写）；激活 area 画像维度（从 interaction.context.area 提取）；新增匿名用户冷启动 exposure（recentExposure 参数）；文本召回阈值 0.03→0.08；抽取共享 feedback-weights 常量；新增 13 个测试（recommendation-weights / recommendation-coldstart）。通过 typecheck/test（192 pass / 0 fail）。

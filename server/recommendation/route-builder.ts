@@ -334,13 +334,17 @@ function scoreRouteGroup(candidates: TrafficCandidate[], input: RecommendInput) 
   const trafficEfficiency = trafficEfficiencyScore(candidates);
   const timeFit = average(candidates.map((candidate) => candidate.scoreBreakdown.timeFit));
 
+  // TASK2-P0-004：candidateScore 权重 0.43→0.50。
+  // 候选维度权重归一化后 adjustedScore 量纲下降（不再饱和在 100），route 组分中需相应
+  // 提升 candidate 质量的主导地位，避免 continuity/theme 等组级特征过度影响最终排序。
+  // 权重和保持 1.00：0.50+0.12+0.13+0.15+0.05+0.03+0.01+0.01。
   return Math.round(
-    candidateScore * 0.43 +
-      continuity * 0.13 +
-      themeCoherence * 0.14 +
-      requestCoverage * 0.17 +
-      sourceEvidence * 0.06 +
-      trafficEfficiency * 0.05 +
+    candidateScore * 0.5 +
+      continuity * 0.12 +
+      themeCoherence * 0.13 +
+      requestCoverage * 0.15 +
+      sourceEvidence * 0.05 +
+      trafficEfficiency * 0.03 +
       timeFit * 0.01 +
       diversity * 0.01
   );
@@ -600,6 +604,7 @@ export function buildRoutes(
         name: candidate.name,
         type: candidate.type,
         address: candidate.address,
+        area: candidate.area,
         lat: candidate.lat,
         lng: candidate.lng,
         tags: candidate.tags,

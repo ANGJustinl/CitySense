@@ -3,13 +3,10 @@ import { z } from "zod";
 import { prisma } from "@/server/db/prisma";
 import type { RecommendedRoute } from "@/server/recommendation/types";
 import { createRouteSnapshotId, parseRouteSnapshotId } from "@/server/routes/route-detail";
+import { FEEDBACK_INTERACTION_WEIGHT } from "@/server/recommendation/feedback-weights";
 
-const feedbackToInteractionWeight = {
-  up: 1,
-  down: -1.5,
-  save: 1.5,
-  dismiss: -0.8
-} as const;
+// 站内反馈到 interaction 权重的映射：抽到 feedback-weights.ts 统一管理（TASK2-P0-004）。
+const feedbackToInteractionWeight = FEEDBACK_INTERACTION_WEIGHT;
 
 export const feedbackSchema = z.object({
   recommendationLogId: z.string().min(1).max(128),
@@ -102,6 +99,8 @@ async function writeInteractionMirror(input: FeedbackInput, route: RecommendedRo
         context: toJson({
           tags: place.tags,
           source: place.source,
+          // TASK2-P0-004：携带 area，供 user-profile-v2 recompute 提取 area 维度偏好。
+          area: place.area,
           reason: input.reason,
           routeTitle: route.title
         })

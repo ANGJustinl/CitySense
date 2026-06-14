@@ -172,10 +172,13 @@ export function applySignalBackedContext(
       ...matchedSignals.map((signal) => signal.heatScore)
     );
 
+    // 注意：不再回写 candidate.trendScore（TASK2-P0-004 修正）。
+    // trendScore 已通过 socialTrend 特征参与排序；若再被 signal 抬升，
+    // 会让 social 信号被计入两次（trendScore + signalStrength 双通道）。
+    // signal 现在只通过 signalStrength 单一通道影响 socialTrend 特征。
     return {
       ...candidate,
       routeEligible,
-      trendScore: Math.max(candidate.trendScore, signalStrength),
       signalStrength,
       recallChannels: addRecallChannel(candidate.recallChannels, "city-signal"),
       sourceSignals: mergeSourceSignals(
