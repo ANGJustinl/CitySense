@@ -1,0 +1,14 @@
+{
+  "city": "上海",
+  "keyword": "",
+  "pages": 3,
+  "pageSize": 30,
+  "order": 0,
+  "outputDir": "./output",
+  "userDataDir": "./.browser-profile",
+  "browserExecutable": "",
+  "closeBrowser": false,
+  "includeRaw": false,
+  "requestDelayMs": 1500,
+  "maxCaptchaRetries": 3
+}

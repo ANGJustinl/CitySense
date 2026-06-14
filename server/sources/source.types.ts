@@ -39,6 +39,7 @@ export type RawSourceItemDetail = RawSourceItem & {
   popularity?: number;
   quietness?: number;
   priceLevel?: number;
+  qualityFlags?: string[];
   sourceSignals?: {
     source: string;
     label: string;

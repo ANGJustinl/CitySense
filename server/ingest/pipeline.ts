@@ -9,6 +9,7 @@ import {
   type LlmIngestNormalizeResult
 } from "@/server/ingest/llm-normalizer";
 import { createSourceKey } from "@/server/ingest/source-key";
+import { matchXiaohongshuSignalsToAmapVenues } from "@/server/ingest/social-place-matcher";
 import {
   applySourceResult,
   createEmptyIngestStats,
@@ -129,6 +130,9 @@ function eventDataForEntity(entity: NormalizedEntityInput) {
     lng: entity.lng,
     tags: entity.tags
   });
+  // Preserve adapter-level quality flags (e.g. damai ticket_noise) alongside
+  // the recomputed address/coords flags.
+  const qualityFlags = [...new Set([...(entity.qualityFlags ?? []), ...quality.qualityFlags])];
   const values = {
     title: entity.title,
     description: entity.description ?? null,
@@ -147,7 +151,7 @@ function eventDataForEntity(entity: NormalizedEntityInput) {
     trendScore: entity.trendScore,
     confidence: entity.confidence,
     qualityScore: quality.qualityScore,
-    qualityFlags: quality.qualityFlags
+    qualityFlags
   };
 
   return {
@@ -258,7 +262,7 @@ async function normalizeItem(input: {
   sourceKey: string;
   runId: string;
 }) {
-  await upsertRawSourceItem(input);
+  const rawSourceItem = await upsertRawSourceItem(input);
   const normalizedInput = await normalizeSourceItemForIngest({
     item: input.item,
     sourceKey: input.sourceKey
@@ -292,12 +296,35 @@ async function normalizeItem(input: {
   );
 
   if (signals.length > 0) {
-    await prisma.citySignal.createMany({
-      data: signals.map((signal) => ({
-        ...signal,
-        metadata: toJson(signal.metadata)
-      }))
-    });
+    if (input.item.source === "xiaohongshu" || input.item.source === "damai") {
+      const createdSignals = [];
+
+      for (const signal of signals) {
+        createdSignals.push(
+          await prisma.citySignal.create({
+            data: {
+              ...signal,
+              metadata: toJson(signal.metadata)
+            }
+          })
+        );
+      }
+
+      await matchXiaohongshuSignalsToAmapVenues({
+        item: input.item,
+        sourceKey: input.sourceKey,
+        rawSourceItemId: rawSourceItem.id,
+        normalizedEntity: normalizedInput.entity,
+        citySignals: createdSignals
+      });
+    } else {
+      await prisma.citySignal.createMany({
+        data: signals.map((signal) => ({
+          ...signal,
+          metadata: toJson(signal.metadata)
+        }))
+      });
+    }
   }
 
   await prisma.rawSourceItem.update({

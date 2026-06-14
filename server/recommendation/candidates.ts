@@ -32,6 +32,7 @@ type TextRecallRow = {
 
 const CANDIDATE_RECALL_LIMIT = 80;
 const ACTIONABLE_SUPPLEMENT_LIMIT = 80;
+const DIRECT_SIGNAL_ONLY_SOURCES = new Set(["xiaohongshu"]);
 
 function hasDatabaseUrl() {
   return Boolean(process.env.DATABASE_URL);
@@ -60,6 +61,10 @@ function matchesInput(candidate: Candidate, input: RecommendInput) {
   const searchable = candidateSearchText(candidate);
 
   return input.interests.some((interest) => searchable.includes(interest.toLowerCase()));
+}
+
+function isDirectRecommendationCandidate(candidate: Candidate) {
+  return !candidate.source || !DIRECT_SIGNAL_ONLY_SOURCES.has(candidate.source);
 }
 
 function normalizedText(value?: string) {
@@ -268,8 +273,20 @@ function candidateQuality(input: {
 }) {
   const fallback = assessCandidateQuality(input);
   const stored = storedQuality(input.row);
-  const qualityScore = stored.qualityScore ?? fallback.qualityScore;
-  const qualityFlags = stored.qualityFlags ?? fallback.qualityFlags;
+  const storedFlags = stored.qualityFlags ?? [];
+  const fallbackBlocksRoute =
+    fallback.qualityFlags.includes("generic_social") ||
+    fallback.qualityFlags.includes("social_signal_only");
+  const storedLooksDefault =
+    stored.qualityScore === 50 && storedFlags.length === 0 && fallback.qualityScore !== 50;
+  const qualityScore = fallbackBlocksRoute
+    ? fallback.qualityScore
+    : storedLooksDefault
+      ? fallback.qualityScore
+      : Math.max(stored.qualityScore ?? fallback.qualityScore, fallback.qualityScore);
+  const qualityFlags = fallbackBlocksRoute
+    ? fallback.qualityFlags
+    : [...new Set([...storedFlags, ...fallback.qualityFlags])];
 
   return {
     qualityScore,
@@ -284,14 +301,20 @@ function candidateQuality(input: {
   };
 }
 
-function eventToCandidate(event: DbEvent): Candidate {
+function eventToCandidate(event: DbEvent, venue?: DbVenue): Candidate {
+  // When a damai (or other crawler) event is matched to a confirmed AMap Venue,
+  // backfill the venue's lat/lng/address/area onto the candidate so it can pass
+  // the routeEligible gate. The event row itself keeps its own (null) coords.
+  const address = event.address ?? venue?.address ?? null;
+  const lat = event.lat ?? venue?.lat ?? null;
+  const lng = event.lng ?? venue?.lng ?? null;
   const quality = candidateQuality({
     name: event.title,
     type: "event",
     source: event.source,
-    address: event.address,
-    lat: event.lat,
-    lng: event.lng,
+    address,
+    lat,
+    lng,
     tags: event.tags,
     row: event
   });
@@ -302,10 +325,11 @@ function eventToCandidate(event: DbEvent): Candidate {
     type: "event",
     description: event.description ?? undefined,
     city: event.city,
-    area: canonicalizeArea(event.area),
-    address: event.address ?? undefined,
-    lat: event.lat ?? undefined,
-    lng: event.lng ?? undefined,
+    area: canonicalizeArea(event.area ?? venue?.area),
+    address: address ?? undefined,
+    lat: lat ?? undefined,
+    lng: lng ?? undefined,
+    venueId: event.venueId ?? undefined,
     startsAt: event.startTime?.toISOString(),
     endsAt: event.endTime?.toISOString(),
     tags: event.tags,
@@ -445,7 +469,21 @@ async function loadBaseCandidates(input: RecommendInput) {
     })
   ]);
 
-  return [...events.map(eventToCandidate), ...venues.map(venueToCandidate)]
+  // Backfill coordinates from matched AMap venues so damai events become
+  // route-eligible. Only venues referenced by recalled events are loaded.
+  const venueIds = new Set(events.map((event) => event.venueId).filter(Boolean) as string[]);
+  const venueById = new Map<string, DbVenue>();
+  if (venueIds.size > 0) {
+    const matchedVenues = await prisma.venue.findMany({ where: { id: { in: [...venueIds] } } });
+    for (const venue of matchedVenues) {
+      venueById.set(venue.id, venue);
+    }
+  }
+
+  return [
+    ...events.map((event) => eventToCandidate(event, event.venueId ? venueById.get(event.venueId) : undefined)),
+    ...venues.map(venueToCandidate)
+  ]
     .filter((candidate) => matchesInput(candidate, input))
     .map((candidate) =>
       withRecall(candidate, inferRecallChannels(candidate, input), textScore(candidate, input))
@@ -660,7 +698,7 @@ async function loadActionableSupplementCandidates(input: RecommendInput): Promis
   };
 
   return dedupeCandidates([
-    ...events.map(eventToCandidate),
+    ...events.map((event) => eventToCandidate(event)),
     ...venues.map(venueToCandidate)
   ])
     .filter((candidate) => matchesInput(candidate, supplementInput))
@@ -698,13 +736,43 @@ async function loadCitySignalRows(input: RecommendInput): Promise<CitySignalCont
       take: 80
     });
 
+    const signalIds = signals.map((signal) => signal.id);
+    const matches =
+      signalIds.length > 0
+        ? await prisma.citySignalPlaceMatch.findMany({
+            where: {
+              source: { in: ["xiaohongshu", "damai"] },
+              status: "confirmed",
+              citySignalId: {
+                in: signalIds
+              },
+              venueId: {
+                not: null
+              }
+            }
+          })
+        : [];
+    const matchedVenueIdsBySignalId = new Map<string, string[]>();
+
+    for (const match of matches) {
+      if (!match.citySignalId || !match.venueId) {
+        continue;
+      }
+
+      const existing = matchedVenueIdsBySignalId.get(match.citySignalId) ?? [];
+      existing.push(match.venueId);
+      matchedVenueIdsBySignalId.set(match.citySignalId, existing);
+    }
+
     return signals.map((signal) => ({
+      id: signal.id,
       city: signal.city,
       area: signal.area,
       tag: signal.tag,
       heatScore: signal.heatScore,
       source: signal.source,
-      metadata: signal.metadata
+      metadata: signal.metadata,
+      matchedVenueIds: matchedVenueIdsBySignalId.get(signal.id) ?? []
     }));
   } catch {
     return [];
@@ -724,7 +792,9 @@ export async function retrieveDatabaseCandidates(input: RecommendInput): Promise
   const baseCandidates = baseResult.status === "fulfilled" ? baseResult.value : [];
   const textCandidates = textResult.status === "fulfilled" ? textResult.value : [];
   const citySignals = signalResult.status === "fulfilled" ? signalResult.value : [];
-  let recalledCandidates = dedupeCandidates([...baseCandidates, ...textCandidates]);
+  let recalledCandidates = dedupeCandidates([...baseCandidates, ...textCandidates]).filter(
+    isDirectRecommendationCandidate
+  );
 
   if (actionableClusterCount(recalledCandidates) < 6) {
     const supplementInput = input.area
@@ -738,7 +808,7 @@ export async function retrieveDatabaseCandidates(input: RecommendInput): Promise
       ...recalledCandidates,
       ...(await loadCityFallbackCandidates(input)),
       ...(await loadActionableSupplementCandidates(supplementInput))
-    ]);
+    ]).filter(isDirectRecommendationCandidate);
   }
 
   const merged = applySignalBackedContext(
@@ -756,5 +826,6 @@ export async function retrieveDatabaseCandidates(input: RecommendInput): Promise
 
 export const __testing = {
   matchesCandidateArea,
-  selectCandidateRecallWindow
+  selectCandidateRecallWindow,
+  candidateQuality
 };

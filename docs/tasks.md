@@ -812,6 +812,11 @@
 - 映射优化：大麦结果只产出 `Event`，保留 `sourceUrl`、演出时间、票价、类别、图片、售票状态和 `venueName` 场馆线索；`searchVenues` 明确返回空数组。
 - 降级：大麦返回 captcha / punish / `FAIL_SYS_USER_VALIDATE` 时抛出 `damai_requires_manual_verification`，供后续 source 页提示管理员重新验证。
 - 验证：新增 `tests/damai-adapter.test.ts` 覆盖 query 扩展、时间解析、未配置 cookie 降级、Event-only 映射和验证码阻断；`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 均通过。
+- 2026-06-14 第二阶段：新增 `server/sources/plugins/damai-session.ts` 与 `/api/admin/damai-session/status|start|save`，source 页增加大麦验证面板；管理员可打开浏览器验证窗口，完成验证码后保存过滤后的匿名大麦 cookie 到 `data/damai-session/cookies.json`。
+- 安全边界：API 和 UI 只展示 cookie 状态、数量、名称、保存时间和过期时间，不返回 cookie 值；过滤逻辑只接受 `damai.cn` 域 cookie，并丢弃明显账号态 cookie（如 nick/user/login/member/tracknick 等）。
+- adapter 读取顺序更新为：显式传入 cookie → `DAMAI_COOKIE_HEADER` → 本地保存 cookie 文件；`data/damai-session/` 已加入 git/eslint ignore。
+- 新增 `tests/damai-session.test.ts` 覆盖 cookie 过滤；验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 通过。真实大麦验证码窗口仍需管理员在本机浏览器做一次 smoke。
+- 2026-06-14 修正：打开大麦验证窗口后立即返回 UI，不再等待 DevTools target 导致按钮持续 loading；读取 cookie 时再懒连接浏览器。保存的匿名 cookie 文件作为持久凭据反复复用，不因本地 `expiresAt` 主动判废，直到大麦接口再次要求验证码时由管理员重新保存覆盖。
 
 ## P2：黑客松后的产品化打磨
 

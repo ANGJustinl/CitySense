@@ -91,6 +91,15 @@ test("candidate quality marks generic social listicles as signal-only", () => {
     lng: 121.459,
     tags: ["咖啡", "安静"]
   });
+  const concreteXiaohongshu = assessCandidateQuality({
+    name: "眠羊咖啡",
+    type: "venue",
+    source: "xiaohongshu",
+    address: "愚园路 300 号",
+    lat: 31.224,
+    lng: 121.459,
+    tags: ["咖啡", "安静"]
+  });
 
   assert.equal(generic.routeEligible, false);
   assert.ok(generic.qualityScore < 30);
@@ -99,6 +108,42 @@ test("candidate quality marks generic social listicles as signal-only", () => {
   assert.ok(generic.qualityFlags.includes("missing_coords"));
   assert.equal(actionable.routeEligible, true);
   assert.ok(actionable.qualityScore >= 85);
+  assert.equal(concreteXiaohongshu.routeEligible, false);
+  assert.ok(concreteXiaohongshu.qualityFlags.includes("social_signal_only"));
+});
+
+test("candidate recall recomputes stale default quality for actionable AMap POIs", () => {
+  const amapQuality = candidateRecallTesting.candidateQuality({
+    name: "万有集市(静安店)",
+    type: "venue",
+    source: "amap-poi",
+    address: "普济路45号",
+    lat: 31.242,
+    lng: 121.454,
+    tags: ["市集", "购物"],
+    row: {
+      qualityScore: 50,
+      qualityFlags: []
+    }
+  });
+  const xhsQuality = candidateRecallTesting.candidateQuality({
+    name: "小红书直出咖啡店",
+    type: "venue",
+    source: "xiaohongshu",
+    address: "愚园路300号",
+    lat: 31.224,
+    lng: 121.459,
+    tags: ["咖啡"],
+    row: {
+      qualityScore: 100,
+      qualityFlags: []
+    }
+  });
+
+  assert.equal(amapQuality.routeEligible, true);
+  assert.ok(amapQuality.qualityScore >= 85);
+  assert.equal(xhsQuality.routeEligible, false);
+  assert.ok(xhsQuality.qualityFlags.includes("social_signal_only"));
 });
 
 test("actionable places absorb matching city signals without adding route places", () => {
@@ -114,11 +159,13 @@ test("actionable places absorb matching city signals without adding route places
     ],
     [
       {
+        id: "signal-xhs-cafe",
         city: "上海",
         area: "静安",
         tag: "咖啡",
         heatScore: 92,
         source: "xiaohongshu",
+        matchedVenueIds: ["venue-cafe"],
         metadata: {
           title: "静安咖啡热度上升",
           sourceKey: "xiaohongshu:note-a"
@@ -141,6 +188,79 @@ test("actionable places absorb matching city signals without adding route places
   assert.equal(fused.id, "venue-cafe");
   assert.equal(fused.signalStrength, 92);
   assert.equal(fused.sourceSignals.some((item) => item.source === "xiaohongshu"), true);
+});
+
+test("Xiaohongshu signals without confirmed AMap venue matches do not back routes", () => {
+  const [fused] = applySignalBackedContext(
+    [
+      candidate({
+        id: "venue-cafe",
+        name: "具体咖啡馆",
+        tags: ["咖啡", "安静"],
+        qualityScore: 95,
+        routeEligible: true
+      })
+    ],
+    [
+      {
+        id: "signal-xhs-unmatched",
+        city: "上海",
+        area: "静安",
+        tag: "咖啡",
+        heatScore: 96,
+        source: "xiaohongshu",
+        matchedVenueIds: [],
+        metadata: {
+          title: "静安咖啡热度上升",
+          sourceKey: "xiaohongshu:note-unmatched"
+        }
+      }
+    ],
+    request
+  );
+
+  assert.equal(fused.signalStrength, 55);
+  assert.equal(fused.sourceSignals.some((item) => item.source === "xiaohongshu"), false);
+});
+
+test("Xiaohongshu confirmed matches only apply to their reviewed AMap venue", () => {
+  const fused = applySignalBackedContext(
+    [
+      candidate({
+        id: "venue-reviewed",
+        name: "已审查咖啡馆",
+        tags: ["咖啡"],
+        qualityScore: 95,
+        routeEligible: true
+      }),
+      candidate({
+        id: "venue-tag-peer",
+        name: "同标签咖啡馆",
+        tags: ["咖啡"],
+        qualityScore: 95,
+        routeEligible: true
+      })
+    ],
+    [
+      {
+        id: "signal-xhs-reviewed",
+        city: "上海",
+        area: "静安",
+        tag: "咖啡",
+        heatScore: 94,
+        source: "xiaohongshu",
+        matchedVenueIds: ["venue-reviewed"],
+        metadata: {
+          title: "已审查咖啡馆热度上升",
+          sourceKey: "xiaohongshu:note-reviewed"
+        }
+      }
+    ],
+    request
+  );
+
+  assert.equal(fused.find((item) => item.id === "venue-reviewed")?.signalStrength, 94);
+  assert.equal(fused.find((item) => item.id === "venue-tag-peer")?.signalStrength, 55);
 });
 
 test("generic social listicle signals are not exposed as route evidence", () => {

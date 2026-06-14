@@ -23,6 +23,7 @@ export type NormalizedEntityInput = {
   priceLevel?: number;
   quietness?: number;
   popularity?: number;
+  qualityFlags?: string[];
 };
 
 function parseDate(value?: string) {
@@ -64,7 +65,8 @@ export function toNormalizedEntityInput(
     confidence: item.confidence ?? 60,
     priceLevel: item.priceLevel,
     quietness: item.quietness,
-    popularity: item.popularity
+    popularity: item.popularity,
+    qualityFlags: item.qualityFlags
   };
 }
 
