@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit",
     "worker:ingest": "tsx workers/ingest-worker.ts",
     "worker:normalize": "tsx workers/normalize-worker.ts",
+    "mcp:server": "node --env-file=.env --import tsx server/mcp/server.ts",
+    "mcp:http": "node --env-file=.env --import tsx server/mcp/http-server.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed"
@@ -20,6 +22,7 @@
     "@prisma/client": "^6.19.3",
     "bullmq": "^5.78.0",
     "clsx": "^2.1.1",
+    "express": "^5.2.1",
     "ioredis": "^5.10.1",
     "lucide-react": "^1.17.0",
     "next": "^16.2.7",
@@ -30,6 +33,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
     "@tailwindcss/postcss": "^4.3.0",
+    "@types/express": "^5.0.6",
     "@types/node": "^25.9.1",
     "@types/react": "^19.2.16",
     "@types/react-dom": "^19.2.3",
