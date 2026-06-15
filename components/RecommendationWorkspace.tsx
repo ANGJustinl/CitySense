@@ -1,9 +1,6 @@
 "use client";
 
 import {
-  type CSSProperties,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -11,6 +8,7 @@ import {
 } from "react";
 import {
   Activity,
+  ChevronDown,
   Clock3,
   Crosshair,
   LocateFixed,
@@ -39,8 +37,8 @@ type WorkspaceProps = {
   initialUserId: string;
 };
 
-type WorkspacePanel = "controls" | "map" | "inspector" | "pulse";
-type WorkspacePanelWidths = Record<WorkspacePanel, number>;
+/** Identifiers for the floating dock panels that can be collapsed. */
+type FloatingPanelId = "controls" | "inspector" | "pulse";
 
 const interestOptions = ["咖啡", "展览", "书店", "漫画", "独立音乐", "夜生活"];
 const moodOptions: { value: Mood; label: string }[] = [
@@ -60,18 +58,6 @@ const budgetOptions: { value: Budget; label: string }[] = [
   { value: "medium", label: "中" },
   { value: "high", label: "高" }
 ];
-const defaultPanelWidths: WorkspacePanelWidths = {
-  controls: 300,
-  map: 960,
-  inspector: 560,
-  pulse: 360
-};
-const minPanelWidths: WorkspacePanelWidths = {
-  controls: 260,
-  map: 720,
-  inspector: 460,
-  pulse: 300
-};
 type OriginMode = "current" | "manual";
 type LocationStatus = "idle" | "locating" | "located" | "unavailable" | "blocked";
 type WorkspaceOrigin = {
@@ -127,8 +113,16 @@ export function RecommendationWorkspace({ initialData, initialUserId }: Workspac
     initialData.routes[0]?.id
   );
   const [isLoading, setIsLoading] = useState(false);
-  const [panelWidths, setPanelWidths] = useState<WorkspacePanelWidths>(defaultPanelWidths);
+  const [collapsedPanels, setCollapsedPanels] = useState<Record<FloatingPanelId, boolean>>({
+    controls: false,
+    inspector: true,
+    pulse: true
+  });
   const [mounted, setMounted] = useState(false);
+
+  const togglePanel = useCallback((id: FloatingPanelId) => {
+    setCollapsedPanels((current) => ({ ...current, [id]: !current[id] }));
+  }, []);
 
   useEffect(() => {
     setMounted(true);
@@ -373,102 +367,9 @@ export function RecommendationWorkspace({ initialData, initialUserId }: Workspac
     );
   }
 
-  function resizePanels(left: WorkspacePanel, right: WorkspacePanel, delta: number) {
-    setPanelWidths((current) => {
-      const total = current[left] + current[right];
-      const nextLeft = Math.min(
-        Math.max(current[left] + delta, minPanelWidths[left]),
-        total - minPanelWidths[right]
-      );
-
-      return {
-        ...current,
-        [left]: Math.round(nextLeft),
-        [right]: Math.round(total - nextLeft)
-      };
-    });
-  }
-
-  function startPanelResize(
-    left: WorkspacePanel,
-    right: WorkspacePanel,
-    event: ReactPointerEvent<HTMLButtonElement>
-  ) {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startLeft = panelWidths[left];
-    const startRight = panelWidths[right];
-    const total = startLeft + startRight;
-
-    function onPointerMove(moveEvent: globalThis.PointerEvent) {
-      const delta = moveEvent.clientX - startX;
-      const nextLeft = Math.min(
-        Math.max(startLeft + delta, minPanelWidths[left]),
-        total - minPanelWidths[right]
-      );
-
-      setPanelWidths((current) => ({
-        ...current,
-        [left]: Math.round(nextLeft),
-        [right]: Math.round(total - nextLeft)
-      }));
-    }
-
-    function onPointerUp() {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-    }
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp, { once: true });
-  }
-
-  function onResizeHandleKeyDown(
-    left: WorkspacePanel,
-    right: WorkspacePanel,
-    event: ReactKeyboardEvent<HTMLButtonElement>
-  ) {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-      return;
-    }
-
-    event.preventDefault();
-    resizePanels(left, right, event.key === "ArrowRight" ? 24 : -24);
-  }
-
-  const workspaceStyle = {
-    "--control-col": `${panelWidths.controls}px`,
-    "--map-col": `${panelWidths.map}px`,
-    "--inspector-col": `${panelWidths.inspector}px`,
-    "--pulse-col": `${panelWidths.pulse}px`
-  } as CSSProperties;
-
-  function renderColumnResizeHandle({
-    left,
-    right,
-    label
-  }: {
-    left: WorkspacePanel;
-    right: WorkspacePanel;
-    label: string;
-  }) {
-    return (
-      <button
-        aria-label={label}
-        aria-orientation="vertical"
-        className="column-resize-handle"
-        onKeyDown={(event) => onResizeHandleKeyDown(left, right, event)}
-        onPointerDown={(event) => startPanelResize(left, right, event)}
-        role="separator"
-        tabIndex={0}
-        type="button"
-      />
-    );
-  }
-
   return (
-    <main className="app-shell">
-      <header className="topbar">
+    <main className="app-shell map-fullscreen">
+      <header className="topbar floating-topbar">
         <div className="brand-lockup">
           <span className="brand-mark">
             <Activity size={20} />
@@ -486,13 +387,24 @@ export function RecommendationWorkspace({ initialData, initialUserId }: Workspac
         </nav>
       </header>
 
-      <section className="workspace map-first" style={workspaceStyle}>
-        <aside className="controls-panel resizable-panel" aria-label="recommendation controls">
-          <div className="section-heading">
-            <SlidersHorizontal size={18} />
+      <aside
+        aria-label="recommendation controls"
+        className="floating-panel dock-left controls-panel"
+        data-collapsed={collapsedPanels.controls ? "true" : "false"}
+      >
+        <button
+          aria-expanded={!collapsedPanels.controls}
+          className="panel-toggle"
+          onClick={() => togglePanel("controls")}
+          type="button"
+        >
+          <span className="panel-toggle-label">
+            <SlidersHorizontal size={16} />
             <span>推荐输入</span>
-          </div>
-
+          </span>
+          <ChevronDown className="panel-toggle-caret" size={16} />
+        </button>
+        <div className="panel-body">
           <label className="field">
             <span>城市</span>
             <input value={city} onChange={(event) => setCity(event.target.value)} />
@@ -648,81 +560,98 @@ export function RecommendationWorkspace({ initialData, initialUserId }: Workspac
             {isLoading ? <Loader2 className="spin" size={18} /> : <RefreshCw size={18} />}
             生成路线
           </button>
-        </aside>
+        </div>
+      </aside>
 
-        {renderColumnResizeHandle({
-          label: "调整输入和地图宽度",
-          left: "controls",
-          right: "map"
-        })}
+      {/* Fullscreen map: RouteMapCanvas renders its own .map-canvas-panel which is
+          promoted to position:fixed;inset:0 under .map-fullscreen. The metrics
+          strip, timeline, and dock panels below all float over it. */}
+      <div className="map-metrics floating-metrics" aria-label="recommendation pipeline metrics">
+        <div>
+          <MapPin size={16} />
+          <span>起点</span>
+          <strong>{originLabel}</strong>
+        </div>
+        <div className={isEstimatedTraffic ? "degraded" : ""}>
+          {isEstimatedTraffic ? <TriangleAlert size={16} /> : <Navigation size={16} />}
+          <span>高德 ETA</span>
+          <strong>
+            {isEstimatedTraffic ? "估算降级" : `${amapRouteCount}/${data.routes.length}`}
+          </strong>
+        </div>
+        <div>
+          <Navigation size={16} />
+          <span>路线</span>
+          <strong>{data.routes.length} 条 / {data.meta.candidateCount} 候选</strong>
+        </div>
+        <div>
+          <Clock3 size={16} />
+          <span>生成</span>
+          <strong>{mounted ? formatGeneratedAt(data.meta.generatedAt) : "…"}</strong>
+        </div>
+      </div>
 
-        <section className="map-stage resizable-panel" aria-label="route map workspace">
-          <div className="map-metrics" aria-label="recommendation pipeline metrics">
-            <div>
-              <MapPin size={16} />
-              <span>起点</span>
-              <strong>{originLabel}</strong>
-            </div>
-            <div className={isEstimatedTraffic ? "degraded" : ""}>
-              {isEstimatedTraffic ? <TriangleAlert size={16} /> : <Navigation size={16} />}
-              <span>高德 ETA</span>
-              <strong>
-                {isEstimatedTraffic ? "估算降级" : `${amapRouteCount}/${data.routes.length}`}
-              </strong>
-            </div>
-            <div>
-              <Navigation size={16} />
-              <span>路线</span>
-              <strong>{data.routes.length} 条 / {data.meta.candidateCount} 候选</strong>
-            </div>
-            <div>
-                  <Clock3 size={16} />
-                  <span>生成</span>
-                  <strong>{mounted ? formatGeneratedAt(data.meta.generatedAt) : "…"}</strong>
-                </div>
-          </div>
+      <RouteMapCanvas
+        heatContext={heatContext}
+        isLoading={isLoading}
+        onSelectRoute={setSelectedRouteId}
+        routes={data.routes}
+        selectedRouteId={selectedRoute?.id}
+      />
 
-          <RouteMapCanvas
-            heatContext={heatContext}
+      <div className="floating-timeline">
+        <RouteTimeline route={selectedRoute} />
+      </div>
+
+      <aside
+        aria-label="route inspector"
+        className="floating-panel dock-right-top inspector-panel"
+        data-collapsed={collapsedPanels.inspector ? "true" : "false"}
+      >
+        <button
+          aria-expanded={!collapsedPanels.inspector}
+          className="panel-toggle"
+          onClick={() => togglePanel("inspector")}
+          type="button"
+        >
+          <span className="panel-toggle-label">
+            <Navigation size={16} />
+            <span>路线详情</span>
+          </span>
+          <ChevronDown className="panel-toggle-caret" size={16} />
+        </button>
+        <div className="panel-body">
+          <RouteInspector
             isLoading={isLoading}
             onSelectRoute={setSelectedRouteId}
+            recommendationId={data.meta.recommendationId}
             routes={data.routes}
             selectedRouteId={selectedRoute?.id}
           />
+        </div>
+      </aside>
 
-          <RouteTimeline route={selectedRoute} />
-        </section>
-
-        {renderColumnResizeHandle({
-          label: "调整地图和路线面板宽度",
-          left: "map",
-          right: "inspector"
-        })}
-
-        <aside className="inspector-rail resizable-panel" aria-label="route inspector">
-          <div className="inspector-panel">
-            <RouteInspector
-              isLoading={isLoading}
-              onSelectRoute={setSelectedRouteId}
-              recommendationId={data.meta.recommendationId}
-              routes={data.routes}
-              selectedRouteId={selectedRoute?.id}
-            />
-          </div>
-        </aside>
-
-        {renderColumnResizeHandle({
-          label: "调整路线面板和城市信号宽度",
-          left: "inspector",
-          right: "pulse"
-        })}
-
-        <aside className="pulse-rail resizable-panel" aria-label="city pulse">
-          <div className="pulse-panel">
-            <CityPulsePanel area={area || undefined} city={city} response={data} />
-          </div>
-        </aside>
-      </section>
+      <aside
+        aria-label="city pulse"
+        className="floating-panel dock-right-bottom pulse-panel"
+        data-collapsed={collapsedPanels.pulse ? "true" : "false"}
+      >
+        <button
+          aria-expanded={!collapsedPanels.pulse}
+          className="panel-toggle"
+          onClick={() => togglePanel("pulse")}
+          type="button"
+        >
+          <span className="panel-toggle-label">
+            <Activity size={16} />
+            <span>城市脉动</span>
+          </span>
+          <ChevronDown className="panel-toggle-caret" size={16} />
+        </button>
+        <div className="panel-body">
+          <CityPulsePanel area={area || undefined} city={city} response={data} />
+        </div>
+      </aside>
     </main>
   );
 }

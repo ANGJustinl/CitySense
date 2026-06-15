@@ -2133,67 +2133,10 @@ p {
   width: 100%;
 }
 
-/* === TASK-P1-006: map-first workspace === */
-
-.workspace.map-first {
-  align-items: start;
-  gap: 6px;
-  grid-template-columns:
-    var(--control-col, 300px)
-    8px
-    var(--map-col, 960px)
-    8px
-    var(--inspector-col, 560px)
-    8px
-    var(--pulse-col, 360px);
-  justify-content: center;
-  margin: 0 auto;
-  max-width: none;
-  min-width: 100%;
-  padding: 18px 24px 36px;
-  width: max-content;
-}
-
-.resizable-panel {
-  max-width: 100%;
-  min-height: 220px;
-  overflow: auto;
-  resize: vertical;
-}
-
-.resizable-panel::-webkit-resizer {
-  background:
-    linear-gradient(135deg, transparent 55%, rgba(8, 127, 122, 0.32) 56%),
-    linear-gradient(135deg, transparent 70%, rgba(8, 127, 122, 0.18) 71%);
-}
-
-.column-resize-handle {
-  align-self: stretch;
-  background: transparent;
-  border: 0;
-  border-radius: 8px;
-  cursor: col-resize;
-  min-height: 220px;
-  padding: 0;
-  position: relative;
-  width: 8px;
-}
-
-.column-resize-handle::before {
-  background: rgba(8, 127, 122, 0.18);
-  border-radius: 999px;
-  content: "";
-  inset: 12px 3px;
-  opacity: 0.45;
-  position: absolute;
-  transition: background 160ms ease, opacity 160ms ease;
-}
-
-.column-resize-handle:hover::before,
-.column-resize-handle:focus-visible::before {
-  background: rgba(8, 127, 122, 0.48);
-  opacity: 1;
-}
+/* === Fullscreen map + floating dock panels (TASK-UI-OPT) ===
+   The old 4-column .workspace.map-first grid, .resizable-panel, and
+   .column-resize-handle rules were removed in favor of the .map-fullscreen
+   floating layout defined above. .map-stage is kept for non-workspace pages. */
 
 .map-stage {
   display: grid;
@@ -2262,6 +2205,329 @@ p {
   height: clamp(480px, calc(100svh - 300px), 700px);
   overflow: hidden;
   position: relative;
+}
+
+/* === Fullscreen map + floating dock panels (TASK-UI-OPT) === */
+
+/* Map fills the entire viewport under .map-fullscreen; inner .map-canvas
+   (100%/100%) and the AMap instance follow automatically. No z-index here:
+   position:fixed with z-index:auto does NOT create a stacking context, which
+   lets the legend/heat-control overlays (position:fixed, z-index:41) escape
+   into the root stacking context so they sit above the floating topbar (z:40)
+   and remain clickable. */
+.map-fullscreen .map-canvas-panel {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  height: 100svh;
+  inset: 0;
+  position: fixed;
+  width: 100vw;
+}
+
+/* Merge the in-map overlays into a centered control strip just under the
+   floating topbar. Kept OUT of the topbar's DOM/stacking so they are reliably
+   clickable. The topbar (z:40) holds brand + account/nav; this strip (z:42)
+   holds route selection + heat on/off.
+   - .map-legend (route selection): horizontal compact chips, left of center.
+   - .map-heat-control (heat on/off): right of center, only 关闭 + 脉搏 kept.
+   - .route-map-status (AMap logo): moved to bottom-left, clear of the pulse dock.
+   - .route-story-card: nudged up to clear the floating timeline. */
+
+.map-fullscreen .map-legend {
+  align-items: center;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  left: 50%;
+  opacity: 1;
+  position: fixed;
+  top: 86px;
+  transform: translateX(calc(-100% - 8px));
+  z-index: 42;
+}
+
+.map-fullscreen .map-legend-chip {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 6px;
+  grid-template-columns: none;
+  max-width: none;
+  min-height: 32px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+
+.map-fullscreen .map-legend-chip strong,
+.map-fullscreen .map-legend-chip small,
+.map-fullscreen .map-legend-tags {
+  display: none;
+}
+
+.map-fullscreen .map-legend-chip i {
+  flex-shrink: 0;
+  margin-top: 0;
+}
+
+.map-fullscreen .map-legend-chip em {
+  display: none;
+}
+
+.map-fullscreen .map-heat-control {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  left: 50%;
+  padding: 0;
+  position: fixed;
+  right: auto;
+  top: 86px;
+  transform: translateX(8px);
+  z-index: 42;
+}
+
+.map-fullscreen .map-heat-title,
+.map-fullscreen .map-heat-caption {
+  display: none;
+}
+
+/* Keep only 关闭 (off) + 脉搏 (pulse) → an on/off toggle. Hide trend/quiet/match. */
+.map-fullscreen .map-heat-control .segmented.compact {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: none;
+  flex-wrap: nowrap;
+  padding: 3px;
+}
+
+.map-fullscreen .map-heat-control .segmented.compact button:nth-child(n + 3) {
+  display: none;
+}
+
+.map-fullscreen .map-heat-control .segmented.compact button {
+  border-radius: 999px;
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 0 12px;
+}
+
+/* AMap logo status pill: move to bottom-left so it clears the pulse dock. */
+.map-fullscreen .route-map-status {
+  bottom: 18px;
+  left: 18px;
+  right: auto;
+  top: auto;
+}
+
+.map-fullscreen .map-canvas-panel.with-heat-layer .route-story-card {
+  bottom: 96px;
+}
+
+/* Floating translucent topbar — sits over the map, no longer consumes 78px */
+.map-fullscreen .topbar.floating-topbar {
+  align-items: center;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-bottom: none;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(24, 33, 29, 0.12);
+  display: flex;
+  justify-content: space-between;
+  left: 50%;
+  max-width: calc(100vw - 28px);
+  min-height: 60px;
+  padding: 10px 18px;
+  position: fixed;
+  top: 14px;
+  transform: translateX(-50%);
+  width: min(96vw, 1200px);
+  z-index: 40;
+}
+
+/* Floating dock panel base. Translucent so the map shows through; backdrop-blur
+   keeps text legible. */
+.floating-panel {
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 12px;
+  box-shadow: 0 14px 34px rgba(24, 33, 29, 0.15);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100svh - 130px);
+  overflow: hidden;
+  position: fixed;
+  z-index: 30;
+}
+
+/* Dock positions.
+   - dock-left (controls): top-left, below the topbar.
+   - dock-right-top (inspector): top-right, below the topbar; grows down to ~48% height.
+   - dock-right-bottom (pulse): bottom-right; grows up from the bottom to ~52%.
+   The two right docks meet near the vertical middle with a 10px gap. */
+.floating-panel.dock-left {
+  left: 14px;
+  top: 84px;
+  width: 300px;
+}
+
+.floating-panel.dock-right-top {
+  bottom: calc(52svh + 5px);
+  max-height: calc(48svh - 89px);
+  right: 14px;
+  top: 84px;
+  width: 360px;
+}
+
+.floating-panel.dock-right-bottom {
+  bottom: 14px;
+  max-height: calc(52svh - 33px);
+  right: 14px;
+  top: calc(48svh + 5px);
+  width: 320px;
+}
+
+/* Collapsed state: hide the body, keep only the toggle bar. */
+.floating-panel[data-collapsed="true"] {
+  max-height: none;
+  width: auto;
+}
+
+.floating-panel[data-collapsed="true"] .panel-body {
+  display: none;
+}
+
+.panel-toggle {
+  align-items: center;
+  background: transparent;
+  border-bottom: 1px solid var(--line);
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-shrink: 0;
+  font-weight: 600;
+  justify-content: space-between;
+  padding: 11px 14px;
+  text-align: left;
+}
+
+.floating-panel[data-collapsed="true"] .panel-toggle {
+  border-bottom: none;
+}
+
+.panel-toggle-label {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.panel-toggle-caret {
+  transition: transform 0.18s ease;
+}
+
+.floating-panel[data-collapsed="true"] .panel-toggle-caret {
+  transform: rotate(-90deg);
+}
+
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+}
+
+/* Neutralize the legacy layout rules on the panel classes when they double as
+   floating-panel containers. The surface (background/border/shadow/blur) is
+   provided by .floating-panel above, so only the positioning/padding/grid
+   leftovers from the old grid layout need to be reset. Scoped under
+   .map-fullscreen for safety. */
+.map-fullscreen .floating-panel.controls-panel,
+.map-fullscreen .floating-panel.inspector-panel,
+.map-fullscreen .floating-panel.pulse-panel {
+  align-self: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  top: auto;
+}
+
+.map-fullscreen .floating-panel.controls-panel .panel-body {
+  display: grid;
+  gap: 18px;
+}
+
+.map-fullscreen .floating-panel.inspector-panel .panel-body,
+.map-fullscreen .floating-panel.pulse-panel .panel-body {
+  display: block;
+  gap: 0;
+}
+
+/* Collapsed state MUST win over the per-panel display rules above, hence the
+   higher-specificity .map-fullscreen scope. */
+.map-fullscreen .floating-panel[data-collapsed="true"] .panel-body {
+  display: none;
+}
+
+/* Floating metrics strip (top-center) + timeline (bottom-center) over the map.
+   These reuse the existing .map-metrics / .route-timeline surfaces, made
+   translucent to match the dock panels. */
+.map-fullscreen .floating-metrics {
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(24, 33, 29, 0.12);
+  left: 50%;
+  max-width: calc(100vw - 700px);
+  min-width: 420px;
+  position: fixed;
+  top: 140px;
+  transform: translateX(-50%);
+  width: max-content;
+  z-index: 30;
+}
+
+/* When both dock panels on a side are collapsed, let metrics use more room. */
+.map-fullscreen .floating-metrics.metrics-wide {
+  max-width: calc(100vw - 56px);
+}
+
+.map-fullscreen .floating-timeline {
+  /* Positioning wrapper only — the inner .route-timeline provides the surface. */
+  bottom: 14px;
+  left: 50%;
+  max-width: calc(100vw - 700px);
+  min-width: 480px;
+  position: fixed;
+  transform: translateX(-50%);
+  width: max-content;
+  z-index: 30;
+}
+
+/* Translucent timeline surface (matches the dock panels). */
+.map-fullscreen .floating-timeline .route-timeline {
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.7);
 }
 
 .map-canvas {
@@ -3885,30 +4151,44 @@ p {
 }
 
 @media (max-width: 980px) {
-  .workspace.map-first {
-    gap: 22px;
-    grid-template-columns: minmax(220px, 256px) minmax(0, 1fr);
-    margin: 0 auto;
-    max-width: 1480px;
-    padding: 22px 28px 36px;
+  /* Fullscreen map + floating panels: collapse side docks to a single column
+     bottom-sheet stack and narrow the floating metrics/timeline. The map
+     itself stays fullscreen via the .map-fullscreen rule. */
+  .map-fullscreen .floating-panel.dock-left,
+  .map-fullscreen .floating-panel.dock-right-top,
+  .map-fullscreen .floating-panel.dock-right-bottom {
+    bottom: auto;
+    left: 14px;
+    right: 14px;
+    top: auto;
     width: auto;
   }
 
-  .column-resize-handle {
-    display: none;
+  .map-fullscreen .floating-panel.dock-left {
+    top: 96px;
   }
 
-  .inspector-rail {
-    grid-column: 2;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  .map-fullscreen .floating-panel.dock-right-top {
+    top: auto;
+    bottom: 168px;
+    max-height: 40svh;
   }
 
-  .pulse-rail {
-    grid-column: 1 / -1;
+  .map-fullscreen .floating-panel.dock-right-bottom {
+    bottom: 14px;
+    max-height: 40svh;
   }
 
-  .map-canvas-panel {
-    height: clamp(380px, 52svh, 540px);
+  .map-fullscreen .floating-metrics {
+    min-width: 0;
+    max-width: calc(100vw - 28px);
+    width: max-content;
+  }
+
+  .map-fullscreen .floating-timeline {
+    min-width: 0;
+    max-width: calc(100vw - 28px);
+    width: max-content;
   }
 
   .map-canvas-panel.with-heat-layer .route-story-card {
@@ -3929,63 +4209,54 @@ p {
 }
 
 @media (max-width: 780px) {
-  .workspace.map-first {
-    grid-template-columns: 1fr;
-    padding: 16px;
+  /* Narrow screens: floating docks become stacked sheets anchored to the
+     bottom of the viewport so the map stays usable. */
+  .map-fullscreen .floating-panel.dock-left,
+  .map-fullscreen .floating-panel.dock-right-top,
+  .map-fullscreen .floating-panel.dock-right-bottom {
+    bottom: auto;
+    left: 10px;
+    max-height: 38svh;
+    right: 10px;
+    top: auto;
+    width: auto;
   }
 
-  .resizable-panel {
-    max-width: none;
-    resize: none;
+  .map-fullscreen .floating-panel.dock-left {
+    top: 88px;
   }
 
-  .controls-panel {
-    order: 1;
+  .map-fullscreen .floating-panel.dock-right-top {
+    bottom: 128px;
+    top: auto;
   }
 
-  .inspector-rail,
-  .pulse-rail {
-    display: contents;
+  .map-fullscreen .floating-panel.dock-right-bottom {
+    bottom: 10px;
+    top: auto;
   }
 
-  .inspector-panel {
-    order: 2;
+  .map-fullscreen .floating-metrics,
+  .map-fullscreen .floating-timeline {
+    left: 10px;
+    max-width: calc(100vw - 20px);
+    min-width: 0;
+    right: 10px;
+    transform: none;
+    width: auto;
   }
 
-  .inspector-panel,
-  .route-inspector {
-    display: contents;
+  .map-fullscreen .floating-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    top: 88px;
   }
 
-  .route-choice-list {
-    order: 2;
-  }
-
-  .map-stage {
-    order: 3;
-  }
-
-  .route-selected-detail {
-    background: rgba(255, 255, 255, 0.82);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    box-shadow: var(--shadow);
-    grid-template-columns: 1fr;
-    order: 4;
-    padding: 16px;
-  }
-
-  .pulse-panel {
-    order: 5;
-    position: static;
+  .map-fullscreen .floating-timeline {
+    bottom: 10px;
   }
 
   .map-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .map-canvas-panel {
-    height: 420px;
   }
 
   .map-canvas-panel.with-heat-control .map-legend {
@@ -3994,6 +4265,15 @@ p {
 
   .map-canvas-panel.with-heat-layer .route-story-card {
     display: none;
+  }
+
+  .route-selected-detail {
+    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    grid-template-columns: 1fr;
+    padding: 16px;
   }
 
   .route-choice-list,
