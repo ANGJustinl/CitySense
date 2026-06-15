@@ -5,6 +5,8 @@ export type UserRecommendationSignals = {
   itemWeights: Map<string, number>;
   tagWeights: Map<string, number>;
   sourceWeights: Map<string, number>;
+  /** area 维度权重（TASK2-P0-004 激活，可选）。 */
+  areaWeights?: Map<string, number>;
 };
 
 type InteractionContext = {

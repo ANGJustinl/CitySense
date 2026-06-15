@@ -24,6 +24,7 @@ export type IngestStats = {
   sourcesSkipped: number;
   sourcesFailed: number;
   fetched: number;
+  preFiltered: number;  // 预过滤总数
   rawUpserted: number;
   normalized: number;
   citySignalsCreated: number;
@@ -37,6 +38,7 @@ export type SourceIngestResult = {
   rawUpserted: number;
   normalized: number;
   citySignalsCreated: number;
+  preFilteredCount?: number;  // 预过滤掉的低质量标题数量
   error?: string;
 };
 
@@ -47,6 +49,7 @@ export function createEmptyIngestStats(sourcesRequested: number): IngestStats {
     sourcesSkipped: 0,
     sourcesFailed: 0,
     fetched: 0,
+    preFiltered: 0,
     rawUpserted: 0,
     normalized: 0,
     citySignalsCreated: 0,
@@ -62,6 +65,7 @@ export function applySourceResult(stats: IngestStats, result: SourceIngestResult
     sourcesSkipped: stats.sourcesSkipped + (result.status === "skipped" ? 1 : 0),
     sourcesFailed: stats.sourcesFailed + (result.status === "failed" ? 1 : 0),
     fetched: stats.fetched + result.fetched,
+    preFiltered: stats.preFiltered + (result.preFilteredCount || 0),
     rawUpserted: stats.rawUpserted + result.rawUpserted,
     normalized: stats.normalized + result.normalized,
     citySignalsCreated: stats.citySignalsCreated + result.citySignalsCreated,

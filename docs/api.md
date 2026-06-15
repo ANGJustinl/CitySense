@@ -49,6 +49,8 @@ NEXT_PUBLIC_AMAP_SECURITY_JS_CODE="高德 JS API 安全密钥"
 ```ts
 type RecommendRequest = {
   userId?: string
+  // 匿名会话标识;profileKey = userId ?? sessionId,用于用户画像(TASK-P2-002)。
+  sessionId?: string
   city: string
   area?: string
   origin?: {
@@ -76,6 +78,16 @@ type RecommendResponse = {
     ranker: string
     rankerVersion: string
     recallChannels: string[]
+    // 用户画像 explain 摘要(TASK-P2-002)。source: profile=命中画像 / fallback=回退即时聚合 / empty=无画像。
+    userProfile?: {
+      version: string
+      source: "profile" | "fallback" | "empty"
+      updatedFrom: number
+      updatedAt?: string
+      topPositive: { dimension: string; key: string; weight: number }[]
+      topNegative: { dimension: string; key: string; weight: number }[]
+      recentExposureHits: number
+    }
     generatedAt: string
   }
 }
@@ -87,6 +99,8 @@ type RecommendResponse = {
 - 推荐接口只对粗排 Top 10 调用交通接口。
 - 推荐结果写入失败时，接口应返回错误，避免产生不可打开的路线详情链接。
 - 推荐结果应记录 ranker、rankerVersion、recallChannels 和 feature snapshot，用于后续评估。
+- `routes[*].places` 透传 `area/priceLevel/quietness/popularity`,供反馈写入画像聚合维度(TASK-P2-002)。
+- 画像只增强排序,不改变地点可执行性、城市信号匹配和交通重排原则。
 
 ## `POST /api/feedback`
 
@@ -127,6 +141,130 @@ type FeedbackResponse = {
 - `reason` 最长 80 字符，只接受字母、数字、下划线和短横线；不接受任意长文本。
 - `recommendation_feedbacks` 是 P0-004 反馈事实来源；`RecommendationLog.feedback` 回填失败不影响反馈写入成功。
 - 负反馈只做近期降权，不能永久屏蔽同类内容。
+
+## `GET` / `DELETE` `/api/user-profile`
+
+用途(TASK-P2-002)：
+
+- `GET` 返回指定 profileKey 的用户画像摘要,用于 UI explain 面板。
+- `DELETE` 清空画像快照及其驱动数据(UserInteraction),清空后推荐回退通用逻辑。
+- 不触发画像重算(重算只在 `/api/recommend` 读时懒重算 + TTL 失效)。
+
+查询参数：
+
+```ts
+type UserProfileQuery = {
+  // profileKey 或 userId 任选其一;匿名会话使用 recommend 请求时的 sessionId。
+  profileKey?: string
+  userId?: string
+}
+```
+
+`GET` 响应：
+
+```ts
+type UserProfileResponse = {
+  profileKey: string
+  // 画像快照是否过期(超过 30 分钟 TTL 或有新反馈)。
+  stale: boolean
+  profile: {
+    version: string
+    source: "profile" | "fallback" | "empty"
+    updatedFrom: number
+    updatedAt?: string
+    topPositive: { dimension: string; key: string; weight: number }[]
+    topNegative: { dimension: string; key: string; weight: number }[]
+    recentExposureHits: number
+  }
+}
+```
+
+`DELETE` 响应：
+
+```ts
+type UserProfileDeleteResponse = { ok: true; cleared: true } | { error: string }
+```
+
+约束：
+
+- 画像由 `UserInteraction` 聚合驱动,维度:tag / source / area / priceLevel / quietnessBand / popularityBand / venue。
+- 不保存精确浏览器坐标;area 仅区级粒度。
+- 清空画像会删除该 profileKey 的 `UserInteraction`(画像数据源),但保留 `RecommendationFeedback`(权威反馈事实表)和 `RecommendationLog`(审计日志)。
+
+## `POST` / `DELETE` `/api/chat`
+
+用途(TASK-P2-004)：
+
+- `POST` 流式返回 AI 助手回复(SSE),支持 function calling 工具调用。
+- `DELETE` 清空指定 sessionId 的对话历史。
+- 助手基于真实数据,绝不编造地点、活动、价格或评价。
+
+请求(`POST`):
+
+```ts
+type ChatRequest = {
+  sessionId?: string
+  message: string
+  context?: {
+    profileKey?: string
+    recommendationId?: string
+    city?: string
+    area?: string
+  }
+}
+```
+
+SSE 事件格式(每行 `data: {...}\n\n`):
+
+```ts
+// 助手回复增量
+{ "type": "delta", "content": "片段" }
+// 工具调用开始
+{ "type": "tool_start", "tool": "recommend_routes", "display": "查询推荐路线" }
+// 工具调用完成
+{ "type": "tool_end", "tool": "recommend_routes", "display": "找到 3 条路线:..." }
+// 错误(不中断流,助手会据此告知用户)
+{ "type": "error", "message": "工具执行失败: ..." }
+// 对话结束
+{ "type": "done" }
+```
+
+可用工具(助手通过 function calling 调用):
+
+- `recommend_routes` — 生成 3 条城市探索路线(复用 `recommend()`,会写 RecommendationLog)
+- `get_city_pulse` — 查询城市/区域信号趋势(只读)
+- `get_route_detail` — 查询已持久化路线详情(只读,需 routeId)
+- `get_user_profile` — 查询当前用户画像摘要(只读)
+
+`DELETE` 查询参数:
+
+```ts
+type ChatDeleteQuery = { sessionId: string }
+```
+
+`DELETE` 响应:
+
+```ts
+type ChatDeleteResponse = { ok: boolean; cleared: boolean }
+```
+
+约束:
+
+- 无 `OPENAI_API_KEY` 时返回错误 SSE 事件(不崩溃)。
+- 工具调用最多 3 轮,达到上限强制收尾。
+- 对话历史存 Redis(24h TTL,上限 20 条);Redis 不可用时退化为无历史单轮。
+- `recommend_routes` 工具默认 `useRealtimeTraffic: false`(路线耗时为估算值)。
+
+环境变量:
+
+```bash
+# 复用现有 OPENAI_API_KEY(智谱)
+OPENAI_API_KEY="你的智谱 API key"
+
+# 可选:指定 chat 专用 base url 和模型(默认 paas/v4 + glm-4-flash)
+CHAT_LLM_BASE_URL="https://open.bigmodel.cn/api/paas/v4"
+CHAT_LLM_MODEL="glm-4-flash"
+```
 
 ## `GET /api/city-pulse`
 

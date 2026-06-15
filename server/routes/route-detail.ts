@@ -188,7 +188,9 @@ export async function persistRecommendationSnapshot(
 ) {
   const log = await prisma.recommendationLog.create({
     data: {
-      userId: input.userId,
+      // TASK-P2-002:profileKey = userId ?? sessionId,与 feedback 链路对齐,
+      // 匿名会话推荐也写入 userId 列,作为后续画像曝光数据来源。
+      userId: input.userId ?? input.sessionId,
       input: toJson(input),
       recommendedRoutes: toJson(routes)
     }

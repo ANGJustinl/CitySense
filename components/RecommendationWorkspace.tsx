@@ -26,15 +26,20 @@ import type {
   TimeWindow
 } from "@/server/recommendation/types";
 import { AccountSwitcher } from "@/components/AccountSwitcher";
-import { DEMO_USER_PERSONA_INTERESTS } from "@/lib/demo-users";
 import { CityPulsePanel } from "@/components/city/CityPulsePanel";
 import { RouteInspector } from "@/components/city/RouteInspector";
 import { RouteMapCanvas } from "@/components/city/RouteMapCanvas";
 import { RouteTimeline } from "@/components/city/RouteTimeline";
+import { UserProfilePanel } from "@/components/city/UserProfilePanel";
+import { ChatDock } from "@/components/assistant/ChatDock";
+import { ChatDrawer } from "@/components/assistant/ChatDrawer";
+import { DEFAULT_DEMO_USER_ID, DEMO_USER_PERSONA_INTERESTS } from "@/lib/demo-users";
 
 type WorkspaceProps = {
   initialData: RecommendResponse;
-  initialUserId: string;
+  /** 页面传入的用户 ID（来自 URL ?userId=），兼容 initialUserId 别名。 */
+  userId?: string;
+  initialUserId?: string;
 };
 
 /** Identifiers for the floating dock panels that can be collapsed. */
@@ -60,6 +65,21 @@ const budgetOptions: { value: Budget; label: string }[] = [
 ];
 type OriginMode = "current" | "manual";
 type LocationStatus = "idle" | "locating" | "located" | "unavailable" | "blocked";
+
+/**
+ * TASK-P2-002:稳定匿名 sessionId 生成器(模块级外部状态)。
+ * 仅在事件处理器/请求体内调用,不参与 render,避免 React 纯净规则与 hydration 不匹配。
+ * 同一客户端模块实例内复用同一 sessionId,作为匿名画像 key。
+ */
+let cachedAnonymousSessionId: string | undefined;
+
+function getAnonymousSessionId() {
+  if (!cachedAnonymousSessionId) {
+    cachedAnonymousSessionId = `anon-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+  }
+
+  return cachedAnonymousSessionId;
+}
 type WorkspaceOrigin = {
   lat: number;
   lng: number;
@@ -94,7 +114,12 @@ function formatGeneratedAt(value: string) {
   });
 }
 
-export function RecommendationWorkspace({ initialData, initialUserId }: WorkspaceProps) {
+export function RecommendationWorkspace({ initialData, userId, initialUserId }: WorkspaceProps) {
+  // 兼容 main 的 initialUserId prop 和 ai-assistant 的 userId prop。
+  const initialResolvedUserId = userId ?? initialUserId ?? DEFAULT_DEMO_USER_ID;
+  const [activeUserId, setActiveUserId] = useState(initialResolvedUserId);
+  const resolvedUserId = activeUserId;
+  const [chatOpen, setChatOpen] = useState(false);
   const [city, setCity] = useState("上海");
   const [area, setArea] = useState("");
   const [originMode, setOriginMode] = useState<OriginMode>("current");
@@ -107,7 +132,7 @@ export function RecommendationWorkspace({ initialData, initialUserId }: Workspac
   const [budget, setBudget] = useState<Budget>("medium");
   const [timeWindow, setTimeWindow] = useState<TimeWindow>("tonight");
   const [useRealtimeTraffic, setUseRealtimeTraffic] = useState(false);
-  const [userId, setUserId] = useState(initialUserId);
+  const [waypointCount, setWaypointCount] = useState(3); // 途径点数量
   const [data, setData] = useState<RecommendResponse>(initialData);
   const [selectedRouteId, setSelectedRouteId] = useState<string | undefined>(
     initialData.routes[0]?.id
@@ -226,7 +251,8 @@ export function RecommendationWorkspace({ initialData, initialUserId }: Workspac
       const requestBody =
         originMode === "manual"
           ? {
-              userId,
+              userId: resolvedUserId,
+              sessionId: resolvedUserId ? undefined : getAnonymousSessionId(),
               city,
               area: area || undefined,
               originAddress: manualAddress,
@@ -238,7 +264,8 @@ export function RecommendationWorkspace({ initialData, initialUserId }: Workspac
               useSocialSignals: true
             }
           : {
-              userId,
+              userId: resolvedUserId,
+              sessionId: resolvedUserId ? undefined : getAnonymousSessionId(),
               city,
               area: area || undefined,
               origin: {
@@ -296,19 +323,15 @@ export function RecommendationWorkspace({ initialData, initialUserId }: Workspac
     }
   }
 
-  /**
-   * 账号切换：更新 userId 后立即用新 userId 重新拉推荐，
-   * 让用户看到画像差异（文艺静思 vs 热闹潮流）。
-   * 不复用 submitRecommendation 闭包（它会捕获旧 userId），直接用 nextUserId fetch。
-   */
   async function handleAccountChange(nextUserId: string) {
-    if (nextUserId === userId) return;
-    // 切换账号时同步 interests 到该 persona 的召回默认（与首页逻辑一致，
-    // 让候选池从源头分化）。用户仍可手动调整兴趣标签后重新生成。
+    if (nextUserId === activeUserId) return;
+
     const nextInterests = DEMO_USER_PERSONA_INTERESTS[nextUserId] ?? interests;
-    setUserId(nextUserId);
+
+    setActiveUserId(nextUserId);
     setInterests(nextInterests);
     setIsLoading(true);
+
     try {
       const requestBody =
         originMode === "manual"
@@ -348,7 +371,9 @@ export function RecommendationWorkspace({ initialData, initialUserId }: Workspac
         headers: { "content-type": "application/json" },
         body: JSON.stringify(requestBody)
       });
+
       if (!response.ok) throw new Error("recommend failed");
+
       const nextData = (await response.json()) as RecommendResponse;
       setData(nextData);
       setSelectedRouteId(nextData.routes[0]?.id);
@@ -380,10 +405,10 @@ export function RecommendationWorkspace({ initialData, initialUserId }: Workspac
           </div>
         </div>
         <nav className="top-actions" aria-label="primary">
-          <AccountSwitcher currentUserId={userId} onChange={handleAccountChange} />
+          <AccountSwitcher currentUserId={activeUserId} onChange={handleAccountChange} />
           <a href="/admin/sources">Sources</a>
           <a href="/discover">Discover</a>
-          <a href={`/profile?userId=${userId}`}>画像</a>
+          <a href={`/profile?userId=${activeUserId}`}>画像</a>
         </nav>
       </header>
 
@@ -547,6 +572,22 @@ export function RecommendationWorkspace({ initialData, initialUserId }: Workspac
             </div>
           </div>
 
+          <div className="field">
+            <span>途径点数量</span>
+            <div className="segmented">
+              {[2, 3, 4, 5, 6].map((count) => (
+                <button
+                  className={waypointCount === count ? "active" : ""}
+                  key={count}
+                  onClick={() => setWaypointCount(count)}
+                  type="button"
+                >
+                  {count}点
+                </button>
+              ))}
+            </div>
+          </div>
+
           <label className="toggle-row">
             <input
               checked={useRealtimeTraffic}
@@ -650,8 +691,21 @@ export function RecommendationWorkspace({ initialData, initialUserId }: Workspac
         </button>
         <div className="panel-body">
           <CityPulsePanel area={area || undefined} city={city} response={data} />
+          <UserProfilePanel profileKey={resolvedUserId} response={data} />
         </div>
       </aside>
+      <ChatDock open={chatOpen} onToggle={() => setChatOpen((v) => !v)} />
+      <ChatDrawer
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        sessionId={resolvedUserId || getAnonymousSessionId()}
+        context={{
+          profileKey: resolvedUserId,
+          recommendationId: data.meta.recommendationId,
+          city,
+          area: area || undefined
+        }}
+      />
     </main>
   );
 }

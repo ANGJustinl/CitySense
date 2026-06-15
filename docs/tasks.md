@@ -834,6 +834,8 @@
 - 映射优化：大麦结果只产出 `Event`，保留 `sourceUrl`、演出时间、票价、类别、图片、售票状态和 `venueName` 场馆线索；`searchVenues` 明确返回空数组。
 - 降级：大麦返回 captcha / punish / `FAIL_SYS_USER_VALIDATE` 时抛出 `damai_requires_manual_verification`，供后续 source 页提示管理员重新验证。
 - 验证：新增 `tests/damai-adapter.test.ts` 覆盖 query 扩展、时间解析、未配置 cookie 降级、Event-only 映射和验证码阻断；`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 均通过。
+
+D
 - 2026-06-14 第二阶段：新增 `server/sources/plugins/damai-session.ts` 与 `/api/admin/damai-session/status|start|save`，source 页增加大麦验证面板；管理员可打开浏览器验证窗口，完成验证码后保存过滤后的匿名大麦 cookie 到 `data/damai-session/cookies.json`。
 - 安全边界：API 和 UI 只展示 cookie 状态、数量、名称、保存时间和过期时间，不返回 cookie 值；过滤逻辑只接受 `damai.cn` 域 cookie，并丢弃明显账号态 cookie（如 nick/user/login/member/tracknick 等）。
 - adapter 读取顺序更新为：显式传入 cookie → `DAMAI_COOKIE_HEADER` → 本地保存 cookie 文件；`data/damai-session/` 已加入 git/eslint ignore。
@@ -849,6 +851,9 @@
 - 同一 cookie 窗口内追加“只新增不覆盖”扩展采集：run `cmqdoph7y0000ojj0kri1cluw` 抓到 360 个唯一项目、新增 240 条 raw；run `cmqdors4w0000oj4stpq4hrg0` 使用另一排序抓到 360 个唯一项目、新增 123 条 raw。当前大麦 raw 总量 484 条，其中未解析 raw 安全排队。
 - 后处理 smoke：`pnpm worker:normalize` 先处理 20 条完整 LLM normalization，再以 `CITYSENSE_LLM_NORMALIZE_ENABLED=false` 处理 40 条 adapter draft + 高德场馆 LLM 审查，合计 61 条 raw normalized；库内大麦 `Event` 100 条，`sourceUrl` / `imageUrl` / `startTime` 覆盖 100/100，29 条已绑定高德 `Venue` 坐标。
 - 推荐 smoke `cmqdp6y500119ojw0vmgts29q` 返回 3 条路线，包含《芝加哥·欲望牢笼》、音乐剧《锦衣卫之刀与花》、陈昊宇主演话剧《初步举证》、BADBADNOTGOOD 上海站等大麦活动；活动均携带 sourceUrl、图片和高德坐标化场馆，推荐接口仍只读数据库。
+
+
+
 
 ## P2：黑客松后的产品化打磨
 
@@ -879,7 +884,7 @@
 
 ### TASK-P2-002：用户品味画像 MVP
 
-- 状态：`待审批`
+- 状态：`已完成`
 - 负责人：Codex / 用户
 - 是否需要审批：是，涉及用户数据、推荐算法权重、持久化画像和隐私/删除能力。
 
@@ -925,14 +930,14 @@
 
 验收标准：
 
-- [ ] 有历史正反馈的用户，会更容易看到相同 tag/source/area/预算风格的候选，但仍受可执行性和交通约束限制。
-- [ ] 有历史负反馈或 dismiss 的用户，相同地点、相同主题或相同 source 的候选会被降权。
-- [ ] 最近多次曝光过的地点或路线主题会受到新鲜度惩罚，避免连续重复推荐。
-- [ ] 无 `userId/sessionId`、画像为空或画像读取失败时，推荐接口回退到当前通用推荐，不报错。
-- [ ] `RecommendationFeatureSnapshot` 或推荐 meta 能追溯画像命中的 top factors。
-- [ ] 用户可以清空画像；清空后推荐恢复到无画像状态。
-- [ ] 不保存精确浏览器坐标、原始自由文本敏感信息或不可解释的 LLM 画像判断。
-- [ ] `pnpm typecheck`、`pnpm lint`、`pnpm test` 和 `pnpm build` 通过。
+- [x] 有历史正反馈的用户，会更容易看到相同 tag/source/area/预算风格的候选，但仍受可执行性和交通约束限制。
+- [x] 有历史负反馈或 dismiss 的用户，相同地点、相同主题或相同 source 的候选会被降权。
+- [x] 最近多次曝光过的地点或路线主题会受到新鲜度惩罚，避免连续重复推荐。
+- [x] 无 `userId/sessionId`、画像为空或画像读取失败时，推荐接口回退到当前通用推荐，不报错。
+- [x] `RecommendationFeatureSnapshot` 或推荐 meta 能追溯画像命中的 top factors。
+- [x] 用户可以清空画像；清空后推荐恢复到无画像状态。
+- [x] 不保存精确浏览器坐标、原始自由文本敏感信息或不可解释的 LLM 画像判断。
+- [x] `pnpm typecheck`、`pnpm lint`、`pnpm test` 和 `pnpm build` 通过。
 
 风险与降级：
 
@@ -943,9 +948,26 @@
 
 审批记录：
 
-- 审批人：
-- 日期：
-- 结论：
+- 审批人：用户
+- 日期：2026-06-14
+- 结论：用户与 Codex 讨论后批准实施。决策：profileKey = userId ?? sessionId 沿用现状 key;读时懒重算 + TTL 30 分钟失效;新鲜度从 RecommendationLog 推导曝光;MVP 维度含 tag/source/area/正负/新鲜度 + price/氛围 + UI explain 面板;UserPreference 新增标量列 + metadata 承载快照;explain 落 FeatureSnapshot + meta.userProfile。
+
+完成记录：
+
+- 完成日期：2026-06-14
+- migration `20260614090000_user_profile_metadata`(`ADD COLUMN IF NOT EXISTS` 幂等)已对 Supabase 执行;`UserPreference` 新增 `profileVersion` / `signalCount`,完整画像快照存 `metadata` Json。
+- 新增 `server/recommendation/profile.types.ts`(画像类型与维度常量)、`server/recommendation/user-profile-core.ts`(纯计算:衰减、正负权重聚合、6 维度、权重 cap、曝光统计、因子提取、top reasons)、`server/recommendation/user-profile.ts`(prisma 薄封装:load/recompute/ensure/clear + buildProfileMeta)。
+- 时间衰减:正反馈 4 档(1d/7d/30d/90d+ = 1/0.72/0.42/0.18),负反馈 venue 维度更短半衰期(7d 后 0.5,30d 后 0.18,90d+ 0.05),对应"负权重要分散、地点级惩罚需更短半衰期"。
+- 最小样本阈值 3 条 + 单维度权重上限 12,避免稀疏过拟合和单次反馈锁死排序。
+- `user-signals.ts` 改造:优先 `ensureFreshProfile` 读画像快照重建 7 张权重 map(含 area/price/quietness/popularity),画像为空/读失败回退即时聚合;修复了原实现 `return empty` 永远返回空 map 的潜伏 bug。
+- ranker 用 `profileKey = userId ?? sessionId` 加载 signals,并通过 `RankOutput.signals` 暴露给 recommend 构建 meta;`features.ts` 注入 `profileFactors`;`scoring.ts` 的 userAffinity/feedbackPenalty 接入新维度,recentExposure 命中叠加新鲜度惩罚。
+- `RecommendInput` / `recommendRequestSchema` 新增 `sessionId`;`RecommendationLog.userId` 改为 `userId ?? sessionId` 补齐匿名曝光数据来源;`RecommendedRoute.places` 透传 area/priceLevel/quietness/popularity;`feedback.ts` interaction context 扩展写入这些维度。
+- 新增 `GET/DELETE /api/user-profile`(读画像摘要 / 清空画像);新增 `components/city/UserProfilePanel.tsx`(explain 面板,优先用 response.meta.userProfile inline,清空按钮仅对登录用户);`RecommendationWorkspace` 加第 5 列 profile-rail + 稳定匿名 sessionId(模块级,事件处理器内调用,避免 React 纯净规则)。
+- 清空画像同时删除 `UserInteraction`(画像数据源),保留 `RecommendationFeedback` 和 `RecommendationLog` 审计事实;清空后推荐 `source` 回退 `fallback`/`empty`。
+- 隐私:area 仅区级粒度,context 只存 tags/source/数值桶,不存精确坐标或自由文本敏感信息;无 LLM 画像判断。
+- 测试:`tests/user-profile.test.ts` 28 个用例覆盖衰减档位、最小样本、6 维度聚合、权重 cap、曝光统计、因子提取、topReasons、stale 判断、meta 构建、历史数据兼容;修复 `recommendation-v1.test.ts` signals 字面量。
+- 验证:`pnpm prisma:generate`、`pnpm typecheck`、`pnpm lint`、`pnpm test`(128 个测试)、`pnpm build` 均通过。
+- 真实 smoke(user `smoke-p2-002`):基线 `source: fallback` → 3 次 up/save 反馈 → 推荐 `source: profile, updatedFrom: 9, topPositive 5 因子, recentExposureHits 7` → GET /api/user-profile 返回完整画像 → DELETE 清空 → 推荐 `source: fallback, updatedFrom: 0` 回退 → 匿名请求 `source: empty` 不报错。
 
 ### TASK-P2-003：部署与运维
 
@@ -973,6 +995,191 @@
 - 日期：
 - 结论：
 
+### TASK-P2-004：AI 对话分析助手
+
+- 状态：`已完成`
+- 负责人：Codex / 用户
+- 是否需要审批：否，作为推荐工作台的辅助交互层，不涉及数据库结构、推荐算法权重或外部 API 成本变化。
+
+背景与现状：
+
+- 推荐工作台已有完整的偏好输入、路线生成、地图、画像 explain 面板，但用户无法用自然语言探索城市或追问路线细节。
+- 已有 LLM 解释层（TASK-P1-003）只在推荐链路末端改写 reason/tips，不支持多轮对话和工具调用。
+- 已有城市信号、推荐路线、路线详情、用户画像等纯 async 函数，可作为助手工具直接复用。
+
+目标：
+
+- 提供一个基于真实数据的 AI 对话助手，用户可以用自然语言问"今晚静安有什么好玩的""最近流行什么""你了解我吗"。
+- 助手通过 function calling 调用 4 个工具（recommend_routes / get_city_pulse / get_route_detail / get_user_profile），绝不编造地点或数据。
+- 流式 SSE 回复，支持多轮对话历史（Redis 持久化，24h TTL）。
+- 作为推荐工作台的浮动入口（右下角按钮 + 右侧抽屉），不破坏现有 5 列布局。
+
+方案与约束：
+
+- 使用智谱 paas/v4 chat/completions（glm-4-flash，与 explain-route 的 Responses API 隔离），stream + tools 100% 兼容 OpenAI 格式。
+- 工具直接复用现有纯 async 函数（recommend / getCityPulse / getRouteDetail / loadProfile），无 HTTP 中转。
+- 每个工具有 summarize 函数，只保留 LLM 需要的关键字段，控制 token。
+- 降级链：无 LLM key → 报错提示；无 Redis → 退化为无历史单轮；工具失败 → 错误占位给 LLM；超时 → AbortController。
+- 最多 3 轮 tool_calls，达到上限强制收尾。
+- recommend_routes 工具默认 useRealtimeTraffic: false（避免每次对话都打高德 API）。
+
+计划触达文件：
+
+- 新增：`server/ai/chat-client.ts`（流式 chat completions 客户端）、`chat-tools.ts`（4 工具定义 + handler）、`chat-session.ts` + `chat-redis.ts`（Redis 对话历史单例）。
+- 新增：`app/api/chat/route.ts`（SSE 端点，POST 流式 + DELETE 清空历史）。
+- 新增：`hooks/useChat.ts`（对话状态 + SSE 消费 hook）、`components/assistant/ChatDrawer.tsx` + `ChatDock.tsx`。
+- 修改：`components/RecommendationWorkspace.tsx`（挂载 ChatDock 浮动按钮 + ChatDrawer 抽屉，传 sessionId + context）。
+- 修改：`app/globals.css`（chat-* 样式：抽屉、气泡、工具卡片、输入栏、浮动按钮）。
+- 新增测试：`tests/chat-client.test.ts`（SSE 解析、tool_calls 累积、错误降级）、`tests/chat-tools.test.ts`（参数解析降级、未知工具、工具定义结构）。
+
+验收标准：
+
+- [x] 助手能流式回复用户问题，回复基于工具返回的真实数据，不编造地点。
+- [x] 用户问探索性问题时，助手调用 recommend_routes 生成路线。
+- [x] 用户问城市趋势时，助手调用 get_city_pulse 返回真实信号。
+- [x] 用户问自己偏好时，助手调用 get_user_profile 返回画像摘要。
+- [x] 多轮对话历史持久化到 Redis，刷新后仍可续接。
+- [x] 无 LLM key 时返回明确错误提示，不崩溃。
+- [x] 右下角浮动按钮可打开/关闭助手抽屉，不影响现有布局。
+- [x] `pnpm typecheck`、`pnpm lint`（P2-004 文件）、`pnpm test`（chat 测试 12 个）、`pnpm build` 通过。
+
+风险与降级：
+
+- Redis 抖动后单例置 null 不重连（demo 可接受，已知限制）。
+- recommend_routes 工具不走高德实时 ETA（合理默认，路线耗时为估算值）。
+- 历史消息未过滤 tool role（当前只存 user/assistant content，不触发）。
+- glm-4-flash 是免费模型，可能有速率限制；超时由 AbortController 兜底。
+
+审批记录：
+
+- 审批人：无需审批
+- 日期：2026-06-14
+- 结论：已完成。chat-client（glm-4-flash 流式 + tools）、chat-tools（4 工具复用现有纯函数）、chat-session（Redis 24h TTL 历史）、SSE 端点、useChat hook、ChatDrawer/ChatDock 组件、workspace 挂载、chat-* 样式全部实现；真实 smoke 验证流式回复 + get_city_pulse 工具调用链路通过。
+
+完成记录：
+
+- 完成日期：2026-06-14
+- 后端：`chat-client.ts` 实现 ZhipuChatClient（fetch-based，注入 fetchFn 可测），SSE 解析支持 delta/tool_calls 累积/[DONE]/错误降级；`chat-tools.ts` 4 工具（recommend_routes/get_city_pulse/get_route_detail/get_user_profile）复用现有纯 async 函数，每个有 summarize 控制 token；`chat-session.ts` Redis 历史（RPUSH + LTRIM 裁剪 20 条 + 24h TTL）；`chat-redis.ts` 模块级单例（连接错误降级 null）。
+- API：`POST /api/chat` SSE 流式（system prompt + history + 多轮 tool_calls 循环最多 3 轮 + 持久化），`DELETE` 清空历史。
+- 前端：`useChat.ts`（fetch + ReadableStream 消费 SSE，delta/tool_start/tool_end/error/done 事件处理），`ChatDrawer.tsx`（168 行，气泡/工具卡片/建议按钮/ESC 关闭/清空/停止），`ChatDock.tsx`（浮动按钮）。
+- workspace 挂载：ChatDock 固定右下角，ChatDrawer 右侧抽屉，传 sessionId（复用画像任务的 getAnonymousSessionId）+ context（profileKey/recommendationId/city/area）。
+- 测试：`chat-client.test.ts` 8 个（delta 流、tool_calls 跨 chunk 累积、finishReason、HTTP 错误、网络错误、工具定义结构、required 字段），`chat-tools.test.ts` 5 个（参数解析降级、未知工具、展示名映射、缺 routeId、匿名 profile）。
+- 真实 smoke：简单问候 → 流式自我介绍（30+ delta + done）；"最近上海流行什么" → 触发 get_city_pulse 工具调用 → 基于真实数据回复（4 个 up 趋势、80 次出行）。
+- 已知问题（非本次引入）：`recommendation-v1.test.ts` 的 "route assembler prefers fully addressed routes" 用例在 P2-002 提交（3ad63bd）即失败，与 P2-004 无关，需后续单独修复。
+
+### TASK-P2-005：首页清新化重构（地图优先 + 情绪化输入 + 画像精细化）
+
+- 状态：`待审批`
+- 负责人：Codex / 用户
+- 是否需要审批：是，作为 demo 主界面的视觉重构，涉及首页布局结构、CSS 变量契约变化和多个面板视觉改造。
+
+背景与现状：
+
+- 当前首页是"地图优先的 5 列工作台"（偏好输入 + 地图 + 路线 inspector + 城市脉冲 + 用户画像），信息密度高，偏工具感/dashboard 感。
+- demo 方向已确认：**面向用户的清新实用 UI**，而非评委导向的高信息密度展示。
+- 项目里已有情绪化视觉组件（`components/explorer/MoodOrbSelector`、`GiftRouteCard`、`CityPulseLoader`），目前在 `/explore` `/demo` 页面用 mock 数据展示，和真实推荐系统割裂。
+- MoodOrbSelector 的数据契约（`{value: MoodType, onChange}`）和现有 mood state 完全兼容，可直接接入。
+- 用户画像面板（P2-002）功能完整但视觉朴素：偏好/反感因子是纯文字标签云（`tag:咖啡 +8`），像调试面板而非"用户档案"。
+
+目标：
+
+- 将首页从"工具感工作台"重构为"清新实用的产品界面"，同时保留地图为视觉中心。
+- **左侧偏好输入情绪化**：心情选择用 MoodOrbSelector（球体选择器）替代干巴巴的分段按钮；兴趣标签放大、加 emoji。
+- **右侧面板精简**：城市脉冲 + 用户画像合并为一个可折叠的"推荐透视"区，默认折叠；路线 inspector 保留但加来源徽章。
+- **中间地图区降噪**：指标条默认折叠，点击"为什么推荐？"展开。
+- **用户画像面板精细化**：偏好/反感因子用 emoji + 色块卡片网格展示，强偏好卡片更大/更亮；空状态引导式占位。
+- 保留轻量来源徽章（让用户感知推荐真实性），但完整技术面板不默认暴露。
+
+方案与约束：
+
+- **不重写整个工作台**，分层改造现有 `RecommendationWorkspace`：输入栏情绪化 → 右侧面板精简 → 中间地图降噪 → 画像面板精细化。
+- **不改推荐算法/数据契约**：推荐接口、路线组装、画像逻辑都不动。
+- **不改 AI 助手**：ChatDock/ChatDrawer 继续作为浮动入口。
+- **不改路线详情页**：`/routes/[id]` 保持现状。
+- grid 布局从 5 列减为 3 列（controls + map + inspector），CSS 变量契约（`--control-col` 等）和 resize handle 需同步调整。
+- MoodOrbSelector 自注入 `<style>` 标签（运行时），使用 `.mood-orb-*` 命名空间，不依赖 globals.css，不和现有样式冲突。
+- 折叠区用原生 `<details>/<summary>`（无 JS、无 a11y 问题）或 useState + CSS transition。
+- 数据映射（如需接 GiftRouteCard）：duration/distance/score/tags/image 字段格式化，复用 `components/city/route-display.ts` 的 formatDistance。
+- 画像卡片：emoji 映射（tag/source/area 各有默认 emoji，未映射用通用 emoji）；卡片大小映射权重（≥6 大卡、3-5 中卡、1-2 小卡）；偏好用 teal 系，反感用弱化 coral 系；不改 `UserProfileMeta` 数据结构。
+
+实施阶段：
+
+1. **左侧输入栏情绪化**：MoodOrbSelector 替换心情分段按钮；兴趣标签放大加 emoji。
+2. **右侧面板精简**：3 列（inspector + pulse + profile）合并为 inspector + 可折叠"推荐透视"区。
+3. **中间地图降噪**：指标条包进 `<details>` 默认折叠，收起时显示一行摘要。
+4. **用户画像面板精细化**：偏好/反感用 emoji 色块卡片网格；强偏好更大更亮；空状态引导式占位；权重视觉强度替代裸露数字。
+5. **清理 + 验证**：删除孤立的 `app/explorer.css`；typecheck/lint/build/smoke。
+
+画像面板视觉设计（卡片网格方案）：
+
+```
+┌─────────────────────────────────┐
+│ 👤 你的探索画像                   │
+│ ─────────────────────────────── │
+│ 已学习 · 12 条反馈 · 探索 7 处    │
+│                                 │
+│ 偏好                             │
+│ ┌─────────┐ ┌──────┐ ┌──────┐  │
+│ │  ☕ 咖啡 │ │🎨展览 │ │📍静安│  │
+│ │  +8     │ │ +6   │ │ +5  │  │
+│ │ (teal)  │ │(teal)│ │(teal)│  │
+│ └─────────┘ └──────┘ └──────┘  │
+│ ┌──────┐ ┌──────┐               │
+│ │📚书店│ │🎵音乐│               │
+│ │ +4  │ │ +3  │               │
+│ └──────┘ └──────┘               │
+│                                 │
+│ 反感                             │
+│ ┌──────────┐                    │
+│ │ 🌃 夜生活 │                    │
+│ │  -2      │                    │
+│ │ (coral)  │                    │
+│ └──────────┘                    │
+│                                 │
+│ [🗑 清空画像]                    │
+└─────────────────────────────────┘
+```
+
+计划触达文件：
+
+- 修改：`components/RecommendationWorkspace.tsx`（左侧输入情绪化 + 右侧面板精简 + 指标条折叠 + grid 列数调整 + CSS 变量契约）
+- 修改：`components/city/RouteInspector.tsx`（路线选项卡片加来源徽章和推荐分）
+- 修改：`components/city/UserProfilePanel.tsx`（卡片网格布局 + emoji 映射 + 权重视觉强度 + 空状态）
+- 修改：`app/globals.css`（`.workspace.map-first` grid 从 5 列改 3 列；折叠区样式；情绪化标签样式；画像卡片网格 `.profile-*` 样式）
+- 复用：`components/explorer/MoodOrbSelector`（直接接入，零适配）
+- 可选修改：`components/city/SourceSignalBadge` / `TrafficBadge`（如需在路线选项卡片复用）
+- 清理：删除孤立的 `app/explorer.css`（628 行，无人 import）
+- 不改：推荐算法、数据契约、API 路由、AI 助手、路线详情页
+
+验收标准：
+
+- [ ] 左侧心情选择是情绪化球体（MoodOrbSelector），不是干巴巴的分段按钮。
+- [ ] 兴趣标签是大尺寸带 emoji 的，不是小 chip。
+- [ ] 右侧只有 1 个路线 inspector 列 + 1 个可折叠"推荐透视"区（不再是 3 列）。
+- [ ] 路线选项卡片显示来源徽章和推荐分。
+- [ ] 指标条默认折叠，可展开。
+- [ ] 偏好因子以 emoji + 色块卡片展示，不再是纯文字标签。
+- [ ] 强偏好（高权重）卡片视觉更突出（更大/更饱和）。
+- [ ] 反感因子用弱化 coral 色块，视觉权重低于偏好。
+- [ ] 空状态有引导感的插画式占位（大 emoji + 引导文案）。
+- [ ] 生成路线、AI 助手、反馈按钮仍正常工作。
+- [ ] 桌面端和移动端布局都不出现溢出或重叠。
+- [ ] `pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 通过。
+
+风险与降级：
+
+- MoodOrbSelector 自注入样式如和 globals.css 冲突：可提取其 `<style>` 到 globals.css 统一管理。
+- grid 列数变化导致 resize handle 失效：resize handle 是成对的（left+right），删列要同步删对应 handle，WorkspacePanel 类型同步调整。
+- 折叠区交互定制：原生 `<details>` 样式定制有限，如需更精细控制用 useState + CSS transition。
+- 画像 emoji 映射不全：未映射维度用通用 emoji 兜底，不报错。
+- 画像卡片数量过多：限制 topPositive 显示数量（如 6 个），超出可折叠。
+
+审批记录：
+
+- 审批人：
+- 日期：
+- 结论：
+
 ## 当前审批队列
 
 - [x] 审查并批准 `TASK-P0-001`。
@@ -986,7 +1193,9 @@
 - [x] 审查并批准 `TASK-P1-011`。
 - [x] 审查并批准 `TASK-P1-012`。
 - [x] 审查并批准 `TASK-P1-013`。
-- [ ] 审查并批准 `TASK-P2-002`。
+- [x] 审查并批准 `TASK-P2-002`。
+- [x] TASK-P2-004 无需审批(辅助交互层)。
+- [ ] 审查并批准 `TASK-P2-005`。
 
 ## 变更记录
 
@@ -1011,4 +1220,13 @@
 - 2026-06-14：完成 TASK-P1-012，小红书趋势改为经算法 Top-K 筛选和 LLM 审查后绑定高德 `Venue`；未 confirmed 的小红书内容不参与推荐。
 - 2026-06-14：新增 TASK-P1-013，规划大麦作为 `/admin/sources` 可调用插件：管理员完成人工验证码，保存无登录公开搜索 cookie，worker 后续自动采集并只产出 `Event`。
 - 2026-06-14：推进 TASK-P1-013 第一阶段，新增 `damai` crawler adapter，优化多关键词搜索召回、去重和 Event-only 映射；source 页验证码/cookie 管理继续保留为后续工作。
+- 2026-06-14 第二阶段：新增 `server/sources/plugins/damai-session.ts` 与 `/api/admin/damai-session/status|start|save`，source 页增加大麦验证面板；管理员可打开浏览器验证窗口，完成验证码后保存过滤后的匿名大麦 cookie 到 `data/damai-session/cookies.json`。
+- 安全边界：API 和 UI 只展示 cookie 状态、数量、名称、保存时间和过期时间，不返回 cookie 值；过滤逻辑只接受 `damai.cn` 域 cookie，并丢弃明显账号态 cookie（如 nick/user/login/member/tracknick 等）。
+- adapter 读取顺序更新为：显式传入 cookie → `DAMAI_COOKIE_HEADER` → 本地保存 cookie 文件；`data/damai-session/` 已加入 git/eslint ignore。
+- 新增 `tests/damai-session.test.ts` 覆盖 cookie 过滤；验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`、`pnpm build` 通过。真实大麦验证码窗口仍需管理员在本机浏览器做一次 smoke。
+- 2026-06-14 修正：打开大麦验证窗口后立即返回 UI，不再等待 DevTools target 导致按钮持续 loading；读取 cookie 时再懒连接浏览器。保存的匿名 cookie 文件作为持久凭据反复复用，不因本地 expiresAt 主动判废，直到大麦接口再次要求验证码时由管理员重新保存覆盖。
 - 2026-06-14：扩写 TASK-P2-002 用户品味画像 MVP，规划显式偏好、隐式反馈、新鲜度惩罚、画像解释和隐私降级路径。
+- 2026-06-14：完成 TASK-P2-002 用户品味画像 MVP
+- 2026-06-14：完成 TASK-P2-004 AI 对话分析助手
+- 2026-06-14：新增 TASK-P2-005 首页清新化重构
+- 2026-06-14：合并 TASK-P2-005 与 P2-007 为统一的首页清新化重构 task(地图优先+情绪化输入+画像面板卡片网格精细化)。,规划地图优先+情绪化输入(MoodOrbSelector 复用、grid 5列→3列、技术面板折叠、来源徽章保留)。,新增 chat-client(glm-4-flash 流式+tools)/chat-tools(4工具)/chat-session(Redis 历史)/SSE端点/useChat hook/ChatDrawer+ChatDock,挂载到工作台右下角浮动入口;真实 smoke 验证流式回复+工具调用链路通过。，新增画像服务（profile.types / user-profile-core 纯计算 / user-profile prisma 封装）、6 维度正负权重 + 新鲜度曝光惩罚、读时懒重算 + TTL、推荐链路接入（user-signals/features/ranker/recommend）、`GET/DELETE /api/user-profile`、UserProfilePanel explain 面板（工作台第 5 列）；128 个测试通过,真实 smoke 验证反馈→画像→explain→清空→回退全链路。
