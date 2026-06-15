@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, MapPinned, Route } from "lucide-react";
-import type { RecommendedRoute } from "@/server/recommendation/types";
+import type { Budget, Mood, RecommendedRoute } from "@/server/recommendation/types";
 import {
   buildRouteChoiceSummary,
   buildRoutePersona,
@@ -10,16 +10,91 @@ import {
   type RoutePersona
 } from "@/components/city/route-display";
 import {
+  aggregateHeatPoints,
+  buildRouteCorridorHeatPoints,
+  type HeatAggregatePoint,
+  type HeatRenderPoint,
+  type HeatRawPoint
+} from "@/components/city/heat-layer";
+import {
   loadAmap,
+  loadLoca,
   type AMapEventTarget,
   type AMapMap,
-  type AMapNamespace
+  type AMapNamespace,
+  type LocaContainer,
+  type LocaHexagonLayer,
+  type LocaNamespace
 } from "@/components/city/amap-loader";
 import { PreviewableImage } from "@/components/city/ImagePreview";
+import {
+  HEAT_CATEGORIES,
+  heatCategoryById,
+  heatCategoryForTags,
+  type HeatCategoryId
+} from "@/shared/heat-categories";
 
 export const ROUTE_TONES = ["teal", "coral", "amber"] as const;
 
 export type RouteTone = (typeof ROUTE_TONES)[number];
+
+export type HeatMode = "pulse" | "trend" | "quiet" | "match";
+
+export type HeatContext = {
+  city: string;
+  area?: string;
+  interests: string[];
+  mood: Mood;
+  budget: Budget;
+};
+
+const HEAT_MODE_OPTIONS: {
+  value: HeatMode | "off";
+  label: string;
+  caption: string;
+}[] = [
+  { value: "off", label: "关闭", caption: "" },
+  {
+    value: "pulse",
+    label: "脉搏",
+    caption: "路线周边热度（趋势×质量）"
+  },
+  {
+    value: "trend",
+    label: "趋势",
+    caption: "路线附近社交热度"
+  },
+  {
+    value: "quiet",
+    label: "安静",
+    caption: "路线附近安静聚集区"
+  },
+  {
+    value: "match",
+    label: "兴趣",
+    caption: "路线附近兴趣匹配度"
+  }
+];
+
+const HEAT_ROUTE_POINT_WEIGHT = 86;
+const HEAT_HEX_RADIUS_METERS = 260;
+const HEAT_LAYER_Z_INDEX = 42;
+const HEAT_INFO_MARKER_Z_INDEX = 48;
+const HEAT_INFO_MARKER_LIMIT = 5;
+const HEAT_INFO_MIN_VALUE = 58;
+
+type HeatCacheEntry = {
+  key: string;
+  points: HeatRawPoint[];
+};
+
+type HeatCategoryCounts = Partial<Record<HeatCategoryId, number>>;
+type HeatCategorySelection = {
+  key: string;
+  ids: HeatCategoryId[];
+};
+type HeatLocaPoint = HeatRenderPoint & { category: HeatCategoryId };
+type HeatDisplayPoint = HeatAggregatePoint & { category: HeatCategoryId };
 
 const TONE_COLORS: Record<RouteTone, string> = {
   teal: "#087f7a",
@@ -58,6 +133,7 @@ type RouteMapCanvasProps = {
   selectedRouteId?: string;
   onSelectRoute: (routeId: string) => void;
   isLoading?: boolean;
+  heatContext?: HeatContext;
 };
 
 function roundCoordinate(value: number) {
@@ -176,19 +252,317 @@ function markerContent(
   `;
 }
 
+function hexToRgb(hex: string) {
+  const normalized = hex.replace("#", "");
+  const value = Number.parseInt(normalized, 16);
+
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255
+  };
+}
+
+function rgba(color: string, alpha: number) {
+  const { r, g, b } = hexToRgb(color);
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function heatHexColor(color: string, value: number) {
+  if (value >= 88) {
+    return rgba(color, 0.98);
+  }
+
+  if (value >= 72) {
+    return rgba(color, 0.86);
+  }
+
+  if (value >= 52) {
+    return rgba(color, 0.68);
+  }
+
+  if (value >= 32) {
+    return rgba(color, 0.48);
+  }
+
+  return rgba(color, 0.28);
+}
+
+type LocaFeatureLike = {
+  value?: unknown;
+  max?: unknown;
+  properties?: Record<string, unknown>;
+  features?: unknown;
+  coordinates?: unknown;
+};
+
+function heatPointValueFromUnknown(input: unknown) {
+  if (typeof input !== "object" || input === null) {
+    return 0;
+  }
+
+  const record = input as Record<string, unknown>;
+  const properties = typeof record.properties === "object" && record.properties !== null
+    ? (record.properties as Record<string, unknown>)
+    : {};
+  const value = Number(record.value ?? properties.value ?? properties.count);
+
+  return Number.isFinite(value) ? value : 0;
+}
+
+function locaFeatureAggregateValue(feature?: LocaFeatureLike) {
+  if (!feature) {
+    return 0;
+  }
+
+  const properties = feature.properties ?? {};
+  const direct = Number(
+    feature.value ?? properties.value ?? properties.sum ?? properties.count ?? properties._sum
+  );
+
+  if (Number.isFinite(direct) && direct > 0) {
+    return direct;
+  }
+
+  for (const bucket of [
+    properties.rawData,
+    properties.data,
+    properties.children,
+    feature.features,
+    feature.coordinates
+  ]) {
+    if (!Array.isArray(bucket)) {
+      continue;
+    }
+
+    const total = bucket.reduce((sum, item) => sum + heatPointValueFromUnknown(item), 0);
+
+    if (total > 0) {
+      return total;
+    }
+
+    if (bucket.length > 0) {
+      return bucket.length * 32;
+    }
+  }
+
+  return 0;
+}
+
+function heatHexStyleValue(feature?: LocaFeatureLike) {
+  const value = locaFeatureAggregateValue(feature);
+  const max = Number(feature?.max);
+
+  if (Number.isFinite(max) && max > 100 && value <= max) {
+    return (value / max) * 100;
+  }
+
+  return Math.min(100, value);
+}
+
+function heatHexOptions(category: (typeof HEAT_CATEGORIES)[number]) {
+  return {
+    unit: "meter",
+    radius: HEAT_HEX_RADIUS_METERS,
+    gap: 0,
+    altitude: 0,
+    height: (_index: number, feature?: LocaFeatureLike) =>
+      Math.round(10 + heatHexStyleValue(feature) * 0.9),
+    value: (_index: number, feature?: LocaFeatureLike) => locaFeatureAggregateValue(feature),
+    topColor: (_index: number, feature?: LocaFeatureLike) =>
+      heatHexColor(category.color, heatHexStyleValue(feature)),
+    sideTopColor: (_index: number, feature?: LocaFeatureLike) =>
+      heatHexColor(category.color, heatHexStyleValue(feature) * 0.95),
+    sideBottomColor: rgba(category.color, 0.22)
+  };
+}
+
+function buildLocaHeatFeatures(points: HeatLocaPoint[]) {
+  return {
+    type: "FeatureCollection",
+    features: points.map((point) => ({
+      type: "Feature",
+      geometry: {
+        type: "Point",
+        coordinates: [point.lng, point.lat]
+      },
+      properties: {
+        value: point.value,
+        count: point.value,
+        category: point.category,
+        categoryLabel: point.categoryLabel,
+        name: point.name,
+        source: point.source
+      }
+    }))
+  };
+}
+
+function buildLocaHeatRows(points: HeatLocaPoint[]) {
+  return points.map((point) => ({
+    lnglat: [point.lng, point.lat],
+    value: point.value,
+    count: point.value,
+    category: point.category,
+    categoryLabel: point.categoryLabel,
+    name: point.name,
+    source: point.source
+  }));
+}
+
+function setLocaHexLayerData(
+  layer: LocaHexagonLayer,
+  Loca: LocaNamespace,
+  category: (typeof HEAT_CATEGORIES)[number],
+  points: HeatLocaPoint[]
+) {
+  const options = heatHexOptions(category);
+  const geoJson = buildLocaHeatFeatures(points);
+  const source = Loca.GeoJSONSource ? new Loca.GeoJSONSource({ data: geoJson }) : geoJson;
+
+  if (layer.setSource) {
+    layer.setSource(source);
+  } else if (layer.setData) {
+    layer.setData(buildLocaHeatRows(points), {
+      lnglat: "lnglat",
+      value: "value"
+    });
+  }
+
+  layer.setOptions?.(options);
+  layer.setStyle?.(options);
+}
+
+function sourceLabel(source?: string) {
+  if (!source) {
+    return "路线地点";
+  }
+
+  const labels: Record<string, string> = {
+    "amap-poi": "高德",
+    damai: "大麦",
+    xiaohongshu: "小红书",
+    "shanghai-gov": "政务",
+    "trends-hub": "趋势"
+  };
+
+  return labels[source] ?? source;
+}
+
+function heatInfoContent(
+  point: HeatDisplayPoint,
+  category: (typeof HEAT_CATEGORIES)[number]
+) {
+  const name = escapeHtml(
+    point.names.length > 1
+      ? `${point.names[0]} 等 ${point.count} 个地点`
+      : point.name ?? point.names[0] ?? category.label
+  );
+  const label = escapeHtml(point.categoryLabel ?? category.label);
+  const source = escapeHtml(
+    point.sources.length > 1
+      ? point.sources.map(sourceLabel).slice(0, 2).join(" / ")
+      : sourceLabel(point.source ?? point.sources[0])
+  );
+  const countLabel = point.count > 1 ? ` · ${point.count}点` : "";
+
+  return `
+    <div class="map-heat-info-marker" style="--heat-color: ${category.color}">
+      <span><i></i>${label} · ${Math.round(point.value)}${countLabel}</span>
+      <strong>${name}</strong>
+      <small>${source}</small>
+    </div>
+  `;
+}
+
+function buildRouteHeatSeeds(routes: RecommendedRoute[]): HeatRawPoint[] {
+  return routes.flatMap((route, routeIndex) =>
+    route.places.flatMap((place, placeIndex) => {
+      if (!Number.isFinite(place.lng) || !Number.isFinite(place.lat)) {
+        return [];
+      }
+
+      const category = heatCategoryForTags({
+        tags: place.tags,
+        source: place.source
+      });
+
+      return [
+        {
+          lng: place.lng as number,
+          lat: place.lat as number,
+          weight: Math.max(58, HEAT_ROUTE_POINT_WEIGHT - routeIndex * 8 - placeIndex * 3),
+          category,
+          categoryLabel: heatCategoryById(category).label,
+          name: place.name,
+          source: place.source ?? "route"
+        }
+      ];
+    })
+  );
+}
+
+function defaultHeatCategoriesForContext(context?: HeatContext): HeatCategoryId[] {
+  if (!context) {
+    return ["coffee", "food", "culture"];
+  }
+
+  const categories = new Set<HeatCategoryId>();
+
+  for (const interest of context.interests) {
+    categories.add(heatCategoryForTags({ tags: [interest] }));
+  }
+
+  if (context.mood === "quiet") {
+    categories.add("quiet");
+  }
+
+  if (categories.size === 0) {
+    return ["coffee", "food", "culture"];
+  }
+
+  return [...categories];
+}
+
+function heatCategorySelectionForContext(context?: HeatContext): HeatCategorySelection {
+  const ids = defaultHeatCategoriesForContext(context);
+
+  return {
+    key: ids.join("|"),
+    ids
+  };
+}
+
 export function RouteMapCanvas({
   routes,
   selectedRouteId,
   onSelectRoute,
-  isLoading
+  isLoading,
+  heatContext
 }: RouteMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<AMapMap | null>(null);
   const namespaceRef = useRef<AMapNamespace | null>(null);
+  const locaNamespaceRef = useRef<LocaNamespace | null>(null);
+  const locaContainerRef = useRef<LocaContainer | null>(null);
   const overlaysRef = useRef<unknown[]>([]);
   const fitSignatureRef = useRef<string>("");
   const onSelectRef = useRef(onSelectRoute);
+  const heatLayerRefs = useRef<Map<HeatCategoryId, LocaHexagonLayer>>(new Map());
+  const heatInfoOverlayRefs = useRef<unknown[]>([]);
+  const heatCacheRef = useRef<Map<string, HeatCacheEntry>>(new Map());
   const [status, setStatus] = useState<"static" | "loading" | "ready" | "error">("static");
+  const [heatMode, setHeatMode] = useState<HeatMode | "off">("off");
+  const [heatLoading, setHeatLoading] = useState(false);
+  const [heatCategorySelection, setHeatCategorySelection] = useState<HeatCategorySelection>(
+    () => heatCategorySelectionForContext(heatContext)
+  );
+  const [heatCategoryCounts, setHeatCategoryCounts] = useState<HeatCategoryCounts>({});
+  const activeHeatCaption =
+    heatMode === "off"
+      ? ""
+      : HEAT_MODE_OPTIONS.find((option) => option.value === heatMode)?.caption ?? "";
   const jsApiKey = process.env.NEXT_PUBLIC_AMAP_JS_API_KEY;
   const securityJsCode = process.env.NEXT_PUBLIC_AMAP_SECURITY_JS_CODE;
   const geometries = useMemo(() => buildGeometries(routes), [routes]);
@@ -200,10 +574,107 @@ export function RouteMapCanvas({
     geometries.find((geometry) => geometry.routeId === selectedRouteId) ?? geometries[0];
   const effectiveSelectedRouteId = selectedGeometry?.routeId;
   const canRenderAmap = Boolean(jsApiKey && drawableGeometries.length > 0);
+  const routeHeatSeeds = useMemo(() => buildRouteHeatSeeds(routes), [routes]);
+  const defaultHeatCategorySelection = useMemo(
+    () => heatCategorySelectionForContext(heatContext),
+    [heatContext]
+  );
+  const activeHeatCategories =
+    heatCategorySelection.key === defaultHeatCategorySelection.key
+      ? heatCategorySelection.ids
+      : defaultHeatCategorySelection.ids;
+  const activeHeatCategorySet = useMemo(
+    () => new Set(activeHeatCategories),
+    [activeHeatCategories]
+  );
+
+  const fetchHeatPoints = useCallback(
+    async (
+      mode: HeatMode,
+      context: HeatContext
+    ): Promise<{ points: HeatRawPoint[] } | null> => {
+      const params = new URLSearchParams({
+        city: context.city,
+        mode
+      });
+
+      if (context.area) {
+        params.set("area", context.area);
+      }
+
+      if (mode === "match") {
+        if (context.interests.length > 0) {
+          params.set("interests", context.interests.join(","));
+        }
+        params.set("mood", context.mood);
+        params.set("budget", context.budget);
+      }
+
+      try {
+        const response = await fetch(`/api/heat-points?${params.toString()}`);
+
+        if (!response.ok) {
+          return null;
+        }
+
+        const data = (await response.json()) as {
+          points: {
+            lng: number;
+            lat: number;
+            weight: number;
+            category?: HeatCategoryId;
+            categoryLabel?: string;
+            name?: string;
+            source?: string;
+          }[];
+        };
+        const points = data.points.filter(
+          (point) =>
+            Number.isFinite(point.lng) && Number.isFinite(point.lat) && point.weight > 0
+        );
+
+        if (points.length === 0) {
+          return { points: [] };
+        }
+
+        return {
+          points: points.map((point) => ({
+            lng: point.lng,
+            lat: point.lat,
+            weight: point.weight,
+            category: heatCategoryById(point.category).id,
+            categoryLabel: point.categoryLabel,
+            name: point.name,
+            source: point.source
+          }))
+        };
+      } catch {
+        return null;
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     onSelectRef.current = onSelectRoute;
   }, [onSelectRoute]);
+
+  const toggleHeatCategory = useCallback((categoryId: HeatCategoryId) => {
+    setHeatCategorySelection((current) => {
+      const baseIds =
+        current.key === defaultHeatCategorySelection.key
+          ? current.ids
+          : defaultHeatCategorySelection.ids;
+      const nextIds = baseIds.includes(categoryId)
+        ? baseIds.filter((id) => id !== categoryId)
+        : [...baseIds, categoryId];
+
+      return {
+        key: defaultHeatCategorySelection.key,
+        ids: nextIds
+      };
+    });
+  }, [defaultHeatCategorySelection]);
 
   useEffect(() => {
     if (!canRenderAmap || !containerRef.current || !jsApiKey) {
@@ -212,6 +683,7 @@ export function RouteMapCanvas({
     }
 
     const key = jsApiKey;
+    const heatLayers = heatLayerRefs.current;
     let disposed = false;
 
     async function createMap() {
@@ -228,7 +700,12 @@ export function RouteMapCanvas({
           center: drawableGeometries[0]?.points[0]?.position ?? [121.459, 31.224],
           zoom: 12,
           mapStyle: "amap://styles/whitesmoke",
-          viewMode: "2D"
+          viewMode: "3D",
+          features: ["bg", "road", "point"],
+          resizeEnable: true,
+          pitch: 0,
+          rotation: 0,
+          showBuildingBlock: false
         });
 
         instance.addControl(new AMap.Scale());
@@ -247,6 +724,26 @@ export function RouteMapCanvas({
     return () => {
       disposed = true;
       overlaysRef.current = [];
+      if (heatInfoOverlayRefs.current.length > 0) {
+        try {
+          mapRef.current?.remove(heatInfoOverlayRefs.current);
+        } catch {
+          // 忽略销毁错误，地图实例也会被销毁。
+        }
+        heatInfoOverlayRefs.current = [];
+      }
+      for (const layer of heatLayers.values()) {
+        try {
+          locaContainerRef.current?.remove(layer);
+          layer.destroy();
+        } catch {
+          // 忽略销毁错误，地图实例也会被销毁。
+        }
+      }
+      heatLayers.clear();
+      locaContainerRef.current?.destroy?.();
+      locaContainerRef.current = null;
+      locaNamespaceRef.current = null;
       namespaceRef.current = null;
       mapRef.current?.destroy();
       mapRef.current = null;
@@ -333,8 +830,235 @@ export function RouteMapCanvas({
     }
   }, [drawableGeometries, effectiveSelectedRouteId, status]);
 
+  // 热力图层独立 effect：只在 heatMode !== "off" 且地图就绪时拉取并渲染，
+  // 不干扰上方路线 overlay effect。fetch 结果按 cacheKey 缓存，避免切换模式时重复请求。
+  useEffect(() => {
+    const AMap = namespaceRef.current;
+    const map = mapRef.current;
+
+    if (status !== "ready" || !AMap || !map || !jsApiKey) {
+      return;
+    }
+
+    const mapInstance = map;
+    const AMapNamespace = AMap;
+    const key = jsApiKey;
+    let cancelled = false;
+
+    function clearHeatLayers() {
+      if (heatInfoOverlayRefs.current.length > 0) {
+        mapInstance.remove(heatInfoOverlayRefs.current);
+        heatInfoOverlayRefs.current = [];
+      }
+
+      for (const layer of heatLayerRefs.current.values()) {
+        try {
+          locaContainerRef.current?.remove(layer);
+          layer.destroy();
+        } catch {
+          // Loca 图层销毁失败不应影响下一次重绘。
+        }
+      }
+
+      heatLayerRefs.current.clear();
+    }
+
+    async function ensureLoca() {
+      if (locaNamespaceRef.current && locaContainerRef.current) {
+        return {
+          Loca: locaNamespaceRef.current,
+          container: locaContainerRef.current
+        };
+      }
+
+      const Loca = await loadLoca({ key });
+
+      if (cancelled) {
+        return null;
+      }
+
+      const container = new Loca.Container({ map: mapInstance });
+      locaNamespaceRef.current = Loca;
+      locaContainerRef.current = container;
+
+      return { Loca, container };
+    }
+
+    async function applyHeat() {
+      if (heatMode === "off") {
+        clearHeatLayers();
+        setHeatCategoryCounts({});
+        setHeatLoading(false);
+        return;
+      }
+
+      if (!heatContext) {
+        clearHeatLayers();
+        setHeatCategoryCounts({});
+        setHeatLoading(false);
+        return;
+      }
+
+      const cacheKey = [
+        heatMode,
+        heatContext.city,
+        heatContext.area ?? "",
+        heatMode === "match" ? heatContext.interests.join(",") : "",
+        heatMode === "match" ? heatContext.mood : "",
+        heatMode === "match" ? heatContext.budget : ""
+      ].join("|");
+
+      let entry = heatCacheRef.current.get(cacheKey);
+
+      if (!entry) {
+        setHeatLoading(true);
+        const fetched = await fetchHeatPoints(heatMode, heatContext);
+
+        if (cancelled) {
+          return;
+        }
+
+        if (!fetched) {
+          clearHeatLayers();
+          setHeatLoading(false);
+          return;
+        }
+
+        entry = { key: cacheKey, points: fetched.points };
+        heatCacheRef.current.set(cacheKey, entry);
+      }
+
+      const heatPoints: HeatLocaPoint[] = buildRouteCorridorHeatPoints(
+        [...entry.points, ...routeHeatSeeds],
+        drawableGeometries
+      ).map((point) => {
+        const category = heatCategoryById(point.category);
+
+        return {
+          ...point,
+          category: category.id,
+          categoryLabel: point.categoryLabel ?? category.label
+        };
+      });
+
+      if (cancelled || heatPoints.length === 0) {
+        clearHeatLayers();
+        setHeatCategoryCounts({});
+        setHeatLoading(false);
+        return;
+      }
+
+      const counts = HEAT_CATEGORIES.reduce<HeatCategoryCounts>((accumulator, category) => {
+        accumulator[category.id] = 0;
+
+        return accumulator;
+      }, {});
+
+      for (const point of heatPoints) {
+        counts[point.category] = (counts[point.category] ?? 0) + 1;
+      }
+
+      setHeatCategoryCounts(counts);
+      if (activeHeatCategorySet.size === 0) {
+        clearHeatLayers();
+        setHeatLoading(false);
+        return;
+      }
+
+      setHeatLoading(true);
+      clearHeatLayers();
+
+      const loca = await ensureLoca();
+
+      if (cancelled || !loca) {
+        setHeatLoading(false);
+        return;
+      }
+
+      for (const category of HEAT_CATEGORIES) {
+        const categoryPoints = heatPoints.filter((point) => point.category === category.id);
+
+        if (categoryPoints.length === 0 || !activeHeatCategorySet.has(category.id)) {
+          continue;
+        }
+
+        const layer = new loca.Loca.HexagonLayer({
+          loca: loca.container,
+          zIndex: HEAT_LAYER_Z_INDEX,
+          opacity: 0.92,
+          visible: true,
+          zooms: [10, 18],
+          depth: false,
+          acceptLight: false,
+          hasSide: true
+        });
+
+        setLocaHexLayerData(layer, loca.Loca, category, categoryPoints);
+        loca.container.add(layer);
+        layer.show();
+        heatLayerRefs.current.set(category.id, layer);
+      }
+
+      loca.container.requestRender?.();
+      loca.container.render?.();
+
+      const infoMarkers = aggregateHeatPoints(heatPoints)
+        .map((point) => ({
+          ...point,
+          category: heatCategoryById(point.category).id
+        }))
+        .filter((point): point is HeatDisplayPoint => activeHeatCategorySet.has(point.category))
+        .filter((point) => point.name && point.value >= HEAT_INFO_MIN_VALUE)
+        .sort((a, b) => b.value - a.value)
+        .slice(0, HEAT_INFO_MARKER_LIMIT)
+        .map((point) => {
+          const category = heatCategoryById(point.category);
+
+          return new AMapNamespace.Marker({
+            position: [point.lng, point.lat],
+            anchor: "bottom-left",
+            content: heatInfoContent(point, category),
+            zIndex: HEAT_INFO_MARKER_Z_INDEX
+          });
+        });
+
+      if (infoMarkers.length > 0) {
+        mapInstance.add(infoMarkers);
+        heatInfoOverlayRefs.current = infoMarkers;
+      }
+
+      setHeatLoading(false);
+    }
+
+    void applyHeat().catch(() => {
+      clearHeatLayers();
+      setHeatLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    heatMode,
+    heatContext,
+    drawableGeometries,
+    routeHeatSeeds,
+    activeHeatCategorySet,
+    status,
+    jsApiKey,
+    fetchHeatPoints
+  ]);
+
   return (
-    <div className="map-canvas-panel">
+    <div
+      className={[
+        "map-canvas-panel",
+        heatContext && status === "ready" ? "with-heat-control" : "",
+        heatMode !== "off" && status === "ready" ? "with-heat-layer" : ""
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <div className="map-canvas" ref={containerRef}>
         {status !== "ready" ? (
           <StaticMultiRouteMap
@@ -371,6 +1095,54 @@ export function RouteMapCanvas({
               {index === 0 ? <em>Top</em> : null}
             </button>
           ))}
+        </div>
+      ) : null}
+
+      {heatContext && status === "ready" ? (
+        <div className="map-heat-control" role="group" aria-label="heat layer mode">
+          <div className="map-heat-title">
+            <span>路线热度</span>
+            {heatLoading ? <Loader2 className="spin" size={11} /> : null}
+          </div>
+          <div className="segmented compact">
+            {HEAT_MODE_OPTIONS.map((option) => (
+              <button
+                className={heatMode === option.value ? "active" : ""}
+                key={option.value}
+                onClick={() => setHeatMode(option.value)}
+                type="button"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {activeHeatCaption ? (
+            <p className="map-heat-caption">{activeHeatCaption}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {heatMode !== "off" && status === "ready" ? (
+        <div className="map-heat-legend" aria-label="heat category filter">
+          <div className="map-heat-legend-title">颜色分类</div>
+          <div className="map-heat-category-list">
+            {HEAT_CATEGORIES.map((category) => {
+              const active = activeHeatCategorySet.has(category.id);
+
+              return (
+                <button
+                  className={active ? "active" : ""}
+                  key={category.id}
+                  onClick={() => toggleHeatCategory(category.id)}
+                  type="button"
+                >
+                  <i style={{ background: category.color }} />
+                  <span>{category.label}</span>
+                  <strong>{heatCategoryCounts[category.id] ?? 0}</strong>
+                </button>
+              );
+            })}
+          </div>
         </div>
       ) : null}
 
