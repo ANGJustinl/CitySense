@@ -15,7 +15,7 @@
 const DEFAULT_CHAT_MODEL = "glm-4-flash";
 const DEFAULT_CHAT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
 const DEFAULT_CHAT_TIMEOUT_MS = 30_000;
-const MAX_TOOL_ROUNDS = 3;
+const MAX_TOOL_ROUNDS = 5;
 
 /** OpenAI/智谱兼容的 chat message 格式。 */
 export type ChatMessage = {

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Loader2, Send, Sparkles, Trash2, Wrench, X } from "lucide-react";
 import { useChat, type ChatContext } from "@/hooks/useChat";
+import { ChatCards } from "@/components/assistant/ChatCards";
 
 type ChatDrawerProps = {
   open: boolean;
@@ -108,6 +109,15 @@ export function ChatDrawer({ open, onClose, sessionId, context }: ChatDrawerProp
                 <button type="button" onClick={() => send("帮我推荐一条适合约会的路线")}>
                   帮我推荐一条适合约会的路线
                 </button>
+                <button type="button" onClick={() => send("今天天气怎么样?适合出去玩吗?")}>
+                  今天天气怎么样?
+                </button>
+                <button type="button" onClick={() => send("最近有什么展览或活动?")}>
+                  最近有什么展览?
+                </button>
+                <button type="button" onClick={() => send("帮我规划周末两天的行程")}>
+                  帮我规划两天行程
+                </button>
               </div>
             </div>
           ) : (
@@ -128,6 +138,9 @@ export function ChatDrawer({ open, onClose, sessionId, context }: ChatDrawerProp
                       </div>
                     ))}
                   </div>
+                ) : null}
+                {message.cards && message.cards.length > 0 ? (
+                  <ChatCards cards={message.cards} />
                 ) : null}
               </div>
             ))

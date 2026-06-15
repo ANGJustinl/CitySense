@@ -5199,3 +5199,25 @@ D
 @media(hover:hover){.chat-send.stop:hover{background:#a8482f}}
 @media(max-width:780px){.chat-drawer{width:100vw;max-width:100vw}}
 
+/* ── AI 助手富文本卡片 ── */
+.chat-cards{display:flex;flex-direction:column;gap:8px;margin-top:8px;width:100%}
+.chat-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;transition:border-color 150ms}
+@media(hover:hover){.chat-card:hover{border-color:var(--accent)}}
+.chat-card-head{align-items:center;display:flex;gap:8px;margin-bottom:6px}
+.chat-card-head svg{color:var(--accent);flex-shrink:0}
+.chat-card-title{flex:1;font-size:14px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-card-score{align-items:center;background:rgba(8,127,122,0.1);border-radius:8px;color:var(--accent-strong);display:flex;font-size:12px;font-weight:700;gap:3px;padding:2px 8px}
+.chat-card-score svg{color:var(--amber)}
+.chat-card-places{color:var(--muted);font-size:13px;line-height:1.5;margin:0 0 4px}
+.chat-card-meta{color:var(--muted);font-size:12px;margin:0}
+.route-card{cursor:pointer;text-decoration:none}
+.weather-card{background:linear-gradient(135deg,rgba(8,127,122,0.06),rgba(8,127,122,0.02))}
+.weather-card .chat-card-head svg{color:var(--accent)}
+.weather-forecast{display:flex;gap:8px;margin-top:8px;overflow-x:auto}
+.forecast-day{align-items:center;background:var(--surface-muted);border-radius:8px;display:flex;flex-direction:column;font-size:11px;gap:2px;min-width:56px;padding:6px 8px}
+.forecast-date{color:var(--muted);font-size:10px}
+.forecast-temp{color:var(--accent-strong);font-weight:600}
+.activity-card{border-left:3px solid var(--accent)}
+.chat-card-tags{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px}
+.chat-tag{background:var(--surface-muted);border-radius:6px;color:var(--muted);font-size:11px;padding:2px 8px}
+

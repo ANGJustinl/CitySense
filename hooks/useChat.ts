@@ -17,7 +17,15 @@ export type ChatMessage = {
   content: string;
   /** 工具调用展示(可选)。 */
   tools?: Array<{ name: string; display: string; status: "running" | "done" }>;
+  /** 结构化卡片数据(路线/天气等,可选,供富文本渲染)。 */
+  cards?: ChatCard[];
 };
+
+/** 富文本卡片类型。 */
+export type ChatCard =
+  | { kind: "route"; title: string; score: number; places: string[]; duration: number; reason: string; routeId?: string }
+  | { kind: "weather"; city: string; phenomenon: string; temperature: string; forecast: Array<{ date: string; dayWeather: string; dayTemp: string }> }
+  | { kind: "activity"; title: string; area?: string; tags: string[]; trendScore: number; startTime?: string };
 
 export type ChatContext = {
   profileKey?: string;
@@ -121,6 +129,7 @@ export function useChat({ sessionId, context }: UseChatOptions) {
                 tool?: string;
                 display?: string;
                 message?: string;
+                cards?: ChatCard[];
               };
 
               if (event.type === "delta" && event.content) {
@@ -136,6 +145,16 @@ export function useChat({ sessionId, context }: UseChatOptions) {
                     t.name === event.tool ? { ...t, status: "done" as const, display: event.display ?? t.display } : t
                   )
                 );
+                // tool_end 可携带结构化卡片数据,附加到消息上供富文本渲染。
+                if (event.cards && event.cards.length > 0) {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantMessage.id
+                        ? { ...m, cards: [...(m.cards ?? []), ...event.cards!] }
+                        : m
+                    )
+                  );
+                }
               } else if (event.type === "error" && event.message) {
                 setError(event.message);
                 appendAssistant(`\n\n⚠️ ${event.message}`);
