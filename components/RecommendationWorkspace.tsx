@@ -125,6 +125,11 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [panelWidths, setPanelWidths] = useState<WorkspacePanelWidths>(defaultPanelWidths);
 
+  const heatContext = useMemo(
+    () => ({ city, area: area || undefined, interests, mood, budget }),
+    [area, budget, city, interests, mood]
+  );
+
   const amapRouteCount = useMemo(
     () => data.routes.filter((route) => route.traffic.provider === "amap").length,
     [data.routes]
@@ -602,6 +607,7 @@ export function RecommendationWorkspace({ initialData }: WorkspaceProps) {
           </div>
 
           <RouteMapCanvas
+            heatContext={heatContext}
             isLoading={isLoading}
             onSelectRoute={setSelectedRouteId}
             routes={data.routes}
