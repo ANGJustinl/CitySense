@@ -458,7 +458,23 @@
 - `RouteMapCanvas` 用真实高德 JS 地图同时渲染 3 条路线 polyline 与编号 marker，选中路线高亮（teal/coral/amber），点击地图路线、图例或 inspector tab 均可切换；无 key / 无坐标时降级为 SVG 静态路线画布（按真实坐标投影，非装饰图）。
 - 反馈逻辑抽出为共享组件 `RouteFeedbackButtons`，`RouteCard` 与 `RouteInspector` 共用同一 `/api/feedback` 契约；时间轴只展示路线级聚合耗时与出行方式，不虚构分段耗时（API 响应无分段数据）。
 - 估算交通降级状态在指标条（“估算降级”琥珀色）与 inspector 文案中均显式提示，不误导为真实高德数据。
-- 验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`（79 个测试）、`pnpm build` 均通过；浏览器实测桌面 1440x1024 与移动 390x844 布局无溢出，真实高德地图渲染（状态徽章“高德地图”）、路线切换、反馈“已记录”、生成路线加载态均正常，控制台无错误。
+- 验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`（79 个测试）、`pnpm build` 均通过；浏览器实测桌面 1440x1024 与移动 390x844 布局无溢出，真实高德地图渲染（状态徽章"高德地图"）、路线切换、反馈"已记录"、生成路线加载态均正常，控制台无错误。
+
+续推进记录（2026-06-14：地图热力图层）：
+
+- 新增 `GET /api/heat-points` 与 `server/recommendation/heat-points.ts`：复用候选召回的 `entitySourceFilter`（mock/demo 过滤）查询 `Venue` + `Event`（`lat/lng` 非空），按 trendScore desc 取 Venue 70 + Event 50，按 sourceUrl / 名称+area+坐标簇去重，上限 120 点；weight 按 4 种模式计算：`pulse`（trendScore*0.6 + qualityScore*0.4）、`trend`（trendScore）、`quiet`（quietness，缺失则跳过）、`match`（复用 `calculateTasteScore` 纯函数，无 interests 时退化为 pulse）；0 权重与缺失字段点被过滤。
+- `amap-loader.ts` 追加 `AMap.HeatMap` 插件与 `AMapHeatMapLayer` 类型；`RouteMapCanvas` 新增 `heatContext` prop 与独立 heat effect（fetch 结果按 city/area/mode/interests/mood/budget 缓存，切换模式不重复请求），热力层 `zIndex: 35`、radius 45、teal→amber→coral→深红渐变（复用 `:root` 色系），与现有路线 overlay effect 解耦。
+- 右上角热力控件（`.map-heat-control`，`top:14/right:14, z-index:21`）复用 `.segmented.compact` 样式：关闭 / 脉搏 / 趋势 / 安静 / 兴趣五段，仅在 `status==="ready"` 且 `heatContext` 存在时渲染；`RecommendationWorkspace` 通过 useMemo 注入 `{city, area, interests, mood, budget}`。
+- 降级链：无前端 JS key → 静态画布且不显示热力控件；API 返回空 points → 隐藏 heatLayer；fetch 失败 → 控件回到 off；推荐接口与 `/api/feedback` 契约未变，不新增数据库 migration。
+- 验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`（138 个测试，含新增 `tests/heat-points.test.ts` 13 个用例覆盖 pulse/trend/quiet/match weight、sourceUrl/name+area 簇去重、120 上限、0 权重过滤、match 退化）均通过；`pnpm build` 在 `✓ Compiled` + `Finished TypeScript` 阶段通过，`/_not-found`/`/_global-error` 预渲染 useContext null 错误为预存在基线问题（stash 热力图改动后同样复现，与本次改动无关）。
+- 2026-06-14 续优化热力图视觉语义：前端新增路线走廊过滤与距离衰减，只渲染当前 3 条路线附近约 900m 内的 POI 热度，避免全城散点变成与路线无关的孤岛噪声；HexagonLayer 色阶改为低值透明、热点暖色高亮，移除蓝青硬边和中心发灰断层；蜂窝半径调为 260m、热力层 zIndex 降到路线下方，保持街区级连续感且不遮挡主路线。
+- 验证：新增 `tests/heat-layer.test.ts` 覆盖等权重不归零、路线距离计算、远离路线点过滤、同权重点按路线距离衰减和无路线几何回退；`pnpm typecheck`、`pnpm lint`、`pnpm test`（144 个测试）均通过。Playwright 在 `localhost:3000` 验证真实高德地图 ready、热力控件可切换；桌面 1440x1024 与移动 390x844 无热力控件/路线图例重叠。`127.0.0.1:3000` 在当前高德 JS key 域名配置下会降级为静态预览，测试与演示使用 `localhost:3000`。
+- 2026-06-14 继续按截图反馈修正可见性：热力层从单一 Loca HexagonLayer 调整为高德原生 `AMap.HeatMap` 多分类图层，按咖啡/美食/文化/书店/演出/安静分别着色；当前路线站点作为高权重热力种子，与 API 点一起进入路线走廊过滤，避免“图例亮但地图空”。右下角图例改为颜色分类筛选，显示每类点数，点击分类即可开启/关闭对应热力层。
+- 验证：新增共享分类规则 `shared/heat-categories.ts`，服务端热力点返回 `category/categoryLabel`；`tests/heat-points.test.ts` 与 `tests/heat-layer.test.ts` 覆盖分类元数据与归一化保留分类。`pnpm typecheck`、`pnpm lint`、`pnpm test`（145 个测试）、`git diff --check` 均通过；Playwright 在 `localhost:3000` 验证兴趣热力可见、分类按钮可切换、835x633 与 390x844 视口不重叠，控制台无业务错误。
+- 2026-06-14 再次按视觉反馈收敛：多分类 `AMap.HeatMap` 高斯层会在浅色底图上产生脏色混合、视网膜失焦和路名吞噬，已改为高德 `CircleMarker` 矢量分类热点：外圈低透明轮廓 + 内核高对比色点，取消大面积模糊晕染；默认只开启当前兴趣/心情相关分类，其余分类仍可在右下角手动打开。路线 polyline 与 marker 继续位于热点层上方，小屏热力开启时隐藏地图内故事卡，减少控件堆叠。
+- 验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`（145 个测试）、`git diff --check` 均通过；Playwright 验证 835x633、1440x1024、390x844 视口下真实高德地图 ready、兴趣热点可见、分类开关生效、移动端故事卡隐藏且无业务控制台错误。
+- 2026-06-14 继续增强热力质感与信息可读性：每个热点改为外层场域圈、中层等值线、内核亮点三层结构；高权重点放大后显示信息卡（分类、热度值、地点名、来源），上限 5 个并按地点去重，避免 API 点与路线种子重复标注。热力归一化保留 `name/source/categoryLabel` 元数据，路线站点种子也带地点名和来源。
+- 验证：新增 `normalizeHeatWeights preserves point detail metadata` 测试；`pnpm typecheck`、`pnpm lint`、`pnpm test`（146 个测试）均通过。Playwright 验证 835x633 与 390x844 视口下兴趣热力显示 5 个信息卡，分类图例正常，移动端故事卡隐藏。
 
 ### TASK-P1-007：入库内容使用 LLM 解析归一化
 
