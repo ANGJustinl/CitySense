@@ -55,6 +55,8 @@ export const recommendRequestSchema = z.object({
   timeWindow: z.enum(["now", "tonight", "weekend"]).default("tonight"),
   useRealtimeTraffic: z.boolean().default(true),
   useSocialSignals: z.boolean().default(true),
+  // 每条路线途径点数量（2-6），控制路线紧凑/丰富程度。
+  waypointCount: z.number().int().min(2).max(6).optional(),
   // 匿名用户冷启动多样性补偿（TASK2-P0-004）：前端可传入上次推荐的 placeId/title。
   recentExposure: z
     .object({

@@ -27,6 +27,11 @@ export type RecommendInput = {
   useRealtimeTraffic?: boolean;
   useSocialSignals?: boolean;
   /**
+   * 每条路线的途径点数量（2-6，默认 2-3 由候选池自动决定）。
+   * 用户可在前端调整，控制路线的紧凑/丰富程度。
+   */
+  waypointCount?: number;
+  /**
    * 匿名用户冷启动多样性补偿（TASK2-P0-004）：
    * 调用方传入最近已曝光的 place/route title 列表（如前端记录的上次推荐结果），
    * 对命中的候选施加轻量 exposurePenalty，避免无画像用户反复看到相同 Top 路线。
@@ -103,7 +108,15 @@ export type ScoreBreakdown = {
 
 // TASK2-P0-001：画像归因，写入 CandidateFeatures.profileFactors 供追溯。
 export type ProfileFactor = {
-  dimension: "tag" | "source" | "area" | "budget" | "quietness" | "mood";
+  dimension:
+    | "venue"
+    | "tag"
+    | "source"
+    | "area"
+    | "budget"
+    | "quietness"
+    | "popularity"
+    | "mood";
   key: string;
   delta: number;
 };
@@ -183,6 +196,9 @@ export type RecommendedRoute = {
     lat?: number;
     lng?: number;
     tags: string[];
+    priceLevel?: number;
+    quietness?: number;
+    popularity?: number;
     source?: string;
     sourceUrl?: string;
     imageUrl?: string;

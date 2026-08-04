@@ -48,16 +48,19 @@ function buildProfile(overrides: Partial<UserProfileSnapshot> = {}): UserProfile
   };
 }
 
-test("calculateUserAffinityFromProfile: 空画像或低样本返回中性 50，不命中", () => {
+test("calculateUserAffinityFromProfile: 低样本按置信度缩放，但明确偏好仍可生效", () => {
   const c = candidate("v1", ["展览"]);
-  // sampleSize < 5
-  const lowSample = buildProfile({ sampleSize: 3 });
+  const lowSample = buildProfile({
+    sampleSize: 3,
+    confidence: "low",
+    positiveWeights: [
+      { dimension: "tag", key: "展览", weight: POSITIVE_PREFERENCE_HARD_CAP, sampleSize: 1 }
+    ]
+  });
   const result = calculateUserAffinityFromProfile(c, lowSample);
-  assert.equal(result.score, AFFINITY_NEUTRAL);
-  assert.equal(result.profileHit, false);
-  assert.equal(result.factors.length, 0);
+  assert.ok(result.score > AFFINITY_NEUTRAL);
+  assert.equal(result.profileHit, true);
 
-  // 空画像
   const emptyResult = calculateUserAffinityFromProfile(c, EMPTY_USER_PROFILE);
   assert.equal(emptyResult.score, AFFINITY_NEUTRAL);
   assert.equal(emptyResult.profileHit, false);
@@ -105,15 +108,18 @@ test("calculateFeedbackPenaltyFromProfile: 命中负偏好 tag 时惩罚在硬�
   assert.ok(tagFactor!.delta < 0, "negative delta");
 });
 
-test("约束 3：单次 down/dismiss（sampleSize<2）不应进入 negativeWeights（在 recompute 阶段过滤），故 penalty 为 0", () => {
-  // 此测试模拟 recompute 已应用 applyNegativeSampleFloor 后的状态：
-  // 单次负反馈产生的负偏好（sampleSize=1）已被过滤，negativeWeights 不含该项。
+test("单次 venue 负反馈立即生效，不泛化为单次 tag 惩罚", () => {
   const c = candidate("v1", ["单人"]);
   const profile = buildProfile({
-    negativeWeights: [] // 单次负反馈已被 floor 过滤掉
+    sampleSize: 1,
+    confidence: "low",
+    negativeWeights: [
+      { dimension: "venue", key: "v1", weight: 15, sampleSize: 1, source: "feedback" }
+    ]
   });
   const result = calculateFeedbackPenaltyFromProfile(c, profile);
-  assert.equal(result.score, 0);
+  assert.ok(result.score > 0);
+  assert.ok(result.factors.some((factor) => factor.dimension === "venue"));
 });
 
 test("calculateExposurePenalty: 命中最近曝光 itemId 给轻惩罚", () => {

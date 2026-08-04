@@ -36,7 +36,7 @@ export async function GET(request: Request) {
     const userId = searchParams.get("userId") ?? "";
     const view = searchParams.get("view");
 
-    // view=summary → v2 画像摘要（隐私边界：只返回派生标签/权重）。
+    // view=summary 保留兼容，但摘要与完整视图都来自统一画像引擎。
     if (view === "summary") {
       const parsed = userIdQuery.parse({ userId });
       const summary = await getUserProfileSummary(parsed.userId);
@@ -76,7 +76,7 @@ const preferenceSchema = z.object({
 /**
  * POST /api/user-profile
  * Body: { userId, tag, action: "approve"|"disapprove"|"skip" }
- * 记录用户的显式标签偏好。`skip` 只记历史。驱动 v1 标签表态 UI。
+ * 记录显式标签态度并触发统一画像重算。skip 会保留审计但不再出现在待表态列表。
  * 返回重算后的完整画像（含 dimensions），供前端即时刷新六维雷达图。
  */
 export async function POST(request: Request) {
@@ -119,7 +119,7 @@ export async function POST(request: Request) {
 
 /**
  * DELETE /api/user-profile?userId=...
- * 清空 v2 画像（UserPreference.metadata 置空，保留行）。清空后推荐回到无画像状态。
+ * 使用 reset epoch 清空画像：历史事实保留审计，但 resetAt 之前的行为永久不再参与推荐。
  */
 export async function DELETE(request: Request) {
   try {

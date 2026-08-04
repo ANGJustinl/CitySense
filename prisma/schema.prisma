@@ -25,9 +25,9 @@ model SourceConnector {
 }
 
 model RawSourceItem {
-  id                   String   @id @default(cuid())
+  id                   String    @id @default(cuid())
   source               String
-  sourceKey            String   @unique
+  sourceKey            String    @unique
   sourceId             String?
   sourceUrl            String?
   title                String
@@ -43,9 +43,9 @@ model RawSourceItem {
   normalizedEntityType String?
   normalizedEntityId   String?
   ingestRunId          String?
-  firstSeenAt          DateTime @default(now())
-  lastSeenAt           DateTime @default(now())
-  createdAt            DateTime @default(now())
+  firstSeenAt          DateTime  @default(now())
+  lastSeenAt           DateTime  @default(now())
+  createdAt            DateTime  @default(now())
 
   @@index([source])
   @@index([city])
@@ -53,30 +53,30 @@ model RawSourceItem {
 }
 
 model Event {
-  id          String   @id @default(cuid())
-  sourceKey   String?  @unique
-  title       String
-  description String?
-  city        String
-  area        String?
-  address     String?
-  lat         Float?
-  lng         Float?
-  startTime   DateTime?
-  endTime     DateTime?
-  tags        String[]
-  source      String?
-  sourceUrl   String?
-  imageUrl    String?
-  imageSource String?
-  venueId     String?
-  venue       Venue?   @relation("EventVenue", fields: [venueId], references: [id], onDelete: SetNull)
-  trendScore  Float    @default(0)
-  confidence  Float    @default(0)
-  qualityScore Float    @default(50)
-  qualityFlags String[] @default([])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String    @id @default(cuid())
+  sourceKey    String?   @unique
+  title        String
+  description  String?
+  city         String
+  area         String?
+  address      String?
+  lat          Float?
+  lng          Float?
+  startTime    DateTime?
+  endTime      DateTime?
+  tags         String[]
+  source       String?
+  sourceUrl    String?
+  imageUrl     String?
+  imageSource  String?
+  venueId      String?
+  venue        Venue?    @relation("EventVenue", fields: [venueId], references: [id], onDelete: SetNull)
+  trendScore   Float     @default(0)
+  confidence   Float     @default(0)
+  qualityScore Float     @default(50)
+  qualityFlags String[]  @default([])
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([city])
   @@index([area])
@@ -86,30 +86,30 @@ model Event {
 }
 
 model Venue {
-  id          String   @id @default(cuid())
-  sourceKey   String?  @unique
-  name        String
-  description String?
-  city        String
-  area        String?
-  address     String?
-  lat         Float?
-  lng         Float?
-  tags        String[]
-  priceLevel  Int?
-  quietness   Int?
-  popularity  Int?
-  source      String?
-  sourceUrl   String?
-  imageUrl    String?
-  imageSource String?
-  trendScore  Float    @default(0)
-  confidence  Float    @default(0)
+  id           String   @id @default(cuid())
+  sourceKey    String?  @unique
+  name         String
+  description  String?
+  city         String
+  area         String?
+  address      String?
+  lat          Float?
+  lng          Float?
+  tags         String[]
+  priceLevel   Int?
+  quietness    Int?
+  popularity   Int?
+  source       String?
+  sourceUrl    String?
+  imageUrl     String?
+  imageSource  String?
+  trendScore   Float    @default(0)
+  confidence   Float    @default(0)
   qualityScore Float    @default(50)
   qualityFlags String[] @default([])
-  events      Event[]  @relation("EventVenue")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  events       Event[]  @relation("EventVenue")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([city])
   @@index([area])
@@ -133,20 +133,20 @@ model CitySignal {
 }
 
 model CitySignalPlaceMatch {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   source          String
   rawSourceItemId String?
   citySignalId    String?
   venueId         String?
   status          String
-  algorithmScore  Float    @default(0)
+  algorithmScore  Float     @default(0)
   llmConfidence   Float?
-  matchedFields   String[] @default([])
+  matchedFields   String[]  @default([])
   reason          String?
   metadata        Json?
   reviewedAt      DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([source])
   @@index([status])
@@ -196,18 +196,19 @@ model TrafficSnapshot {
 }
 
 model UserPreference {
-  id             String   @id @default(cuid())
-  userId         String   @unique
+  id             String    @id @default(cuid())
+  userId         String    @unique
   interests      String[]
   mood           String?
   budget         String?
   metadata       Json?
-  // 画像 MVP 快照元数据,便于 SQL 排查画像版本与稀疏度。
-  // 完整画像快照(profileVersion/weights/recentExposure/topReasons)写在 metadata Json 列。
+  // 画像快照元数据，便于 SQL 排查画像版本、稀疏度和最近一次重置边界。
+  // 完整画像快照写在 metadata.profile；profileResetAt 之前的行为只保留审计，不再参与重算。
   profileVersion Int?
   signalCount    Int?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  profileResetAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
 
 model RecommendationLog {
@@ -231,13 +232,18 @@ model UserInteraction {
   itemType         String?
   action           String
   weight           Float    @default(1)
+  feedbackId       String?
+  signalKey        String?  @unique
+  signalKind       String?
   context          Json?
   createdAt        DateTime @default(now())
 
   @@index([userId])
+  @@index([userId, createdAt])
   @@index([recommendationId])
   @@index([itemId])
   @@index([action])
+  @@index([feedbackId])
   @@index([createdAt])
 }
 

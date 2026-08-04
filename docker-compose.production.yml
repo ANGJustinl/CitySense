@@ -1,0 +1,102 @@
+name: citysense
+
+x-app-environment: &app-environment
+  NODE_ENV: production
+  DATABASE_URL: ${DATABASE_URL}
+  DATABASE_CONNECTION_LIMIT: ${DATABASE_CONNECTION_LIMIT:-5}
+  DATABASE_POOL_TIMEOUT: ${DATABASE_POOL_TIMEOUT:-20}
+  CITYSENSE_RELEASE: ${CITYSENSE_RELEASE}
+  CITYSENSE_DEMO_MODE: ${CITYSENSE_DEMO_MODE:-false}
+  REDIS_URL: ${REDIS_URL:-}
+  AMAP_API_KEY: ${AMAP_API_KEY:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.5}
+  OPENAI_TIMEOUT_MS: ${OPENAI_TIMEOUT_MS:-8000}
+  OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+  CHAT_LLM_BASE_URL: ${CHAT_LLM_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}
+  CHAT_LLM_MODEL: ${CHAT_LLM_MODEL:-glm-4-flash}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - citysense-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - backend
+    logging: *default-logging
+
+  migrate:
+    profiles: ["ops"]
+    image: citysense/migrate:${CITYSENSE_RELEASE}
+    build:
+      context: .
+      dockerfile: dockerfiles/citysense-web.Dockerfile
+      target: migrate
+    depends_on:
+      db:
+        condition: service_healthy
+    environment: *app-environment
+    networks:
+      - backend
+    logging: *default-logging
+
+  web:
+    image: citysense/web:${CITYSENSE_RELEASE}
+    build:
+      context: .
+      dockerfile: dockerfiles/citysense-web.Dockerfile
+      target: runner
+      args:
+        NEXT_PUBLIC_AMAP_JS_API_KEY: ${NEXT_PUBLIC_AMAP_JS_API_KEY:-}
+        NEXT_PUBLIC_AMAP_SECURITY_JS_CODE: ${NEXT_PUBLIC_AMAP_SECURITY_JS_CODE:-}
+    restart: unless-stopped
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    environment: *app-environment
+    ports:
+      - "127.0.0.1:34000:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - backend
+      - outbound
+    mem_limit: 2g
+    cpus: 1.5
+    logging: *default-logging
+
+networks:
+  backend:
+    internal: true
+  outbound:
+
+volumes:
+  citysense-postgres:

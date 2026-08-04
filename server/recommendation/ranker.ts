@@ -10,7 +10,11 @@ import {
 } from "@/server/recommendation/scoring";
 import { buildCandidateFeatures } from "@/server/recommendation/features";
 import { loadUserRecommendationSignals } from "@/server/recommendation/user-signals";
-import { loadUserProfileForRanking, type UserProfileSnapshot } from "@/server/recommendation/user-profile-v2";
+import {
+  loadUserProfileForRanking,
+  PROFILE_VERSION,
+  type UserProfileSnapshot
+} from "@/server/recommendation/user-profile-v2";
 
 export type RankerResult = {
   ranked: ScoredCandidate[];
@@ -51,10 +55,10 @@ export const weightedRanker: CandidateRanker & {
   version: WEIGHTED_RANKER_VERSION,
   profile: undefined,
   async rank({ request, candidates }) {
-    const { profile, degraded } = await loadUserProfileForRanking(request.userId);
+    const { profile, degraded } = await loadUserProfileForRanking(request.userId ?? request.sessionId);
     // 画像不可用时回退即时 interaction 聚合（保持改造前行为）。
     const signals = degraded ? await loadUserRecommendationSignals(request.userId) : undefined;
-    this.profile = degraded ? undefined : profile;
+    this.profile = degraded || profile.sampleSize === 0 ? undefined : profile;
 
     return candidates
       .map((candidate) => {
@@ -111,7 +115,7 @@ export async function rankCandidates(
           degraded: false
         }
       : {
-          version: 1,
+          version: PROFILE_VERSION,
           topFactors: [],
           sampleSize: 0,
           confidence: "low",

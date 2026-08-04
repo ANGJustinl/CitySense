@@ -30,6 +30,9 @@ type RouteInspectorProps = {
   selectedRouteId?: string;
   onSelectRoute: (routeId: string) => void;
   recommendationId?: string;
+  userId?: string;
+  sessionId?: string;
+  onFeedbackRecorded?: () => void;
   isLoading?: boolean;
 };
 
@@ -38,6 +41,9 @@ export function RouteInspector({
   selectedRouteId,
   onSelectRoute,
   recommendationId,
+  userId,
+  sessionId,
+  onFeedbackRecorded,
   isLoading
 }: RouteInspectorProps) {
   const selectedRoute =
@@ -226,6 +232,9 @@ export function RouteInspector({
           key={selectedRoute.id}
           recommendationId={recommendationId}
           routeId={selectedRoute.id}
+          userId={userId}
+          sessionId={sessionId}
+          onRecorded={onFeedbackRecorded}
         />
 
         <Link className="text-link" href={`/routes/${selectedRoute.id}`}>

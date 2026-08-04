@@ -67,7 +67,7 @@ test("computeDimensionScores: implicit positive weight boosts dimension", () => 
   assert.ok(culture.topTags.includes("展览"));
 });
 
-test("computeDimensionScores: city heat fills dimensions for new users", () => {
+test("computeDimensionScores: city heat alone does not become personal taste", () => {
   const result = computeDimensionScores({
     explicitApproved: {},
     implicitTagWeights: new Map(),
@@ -77,20 +77,12 @@ test("computeDimensionScores: city heat fills dimensions for new users", () => {
     ]
   });
 
-  const coffee = dimByKey(result, "coffee");
-  assert.ok(coffee);
-  assert.ok(coffee.value > 50, `coffee ${coffee.value} should reflect city heat`);
-
-  const culture = dimByKey(result, "culture");
-  assert.ok(culture);
-  assert.ok(culture.value > 50, `culture should reflect city heat`);
-
-  // nightlife has no matching city tag → stays neutral.
-  const nightlife = dimByKey(result, "nightlife");
-  assert.equal(nightlife?.value, 50);
+  for (const dimension of result) {
+    assert.equal(dimension.value, 50);
+  }
 });
 
-test("computeDimensionScores: all three sources combine for a dimension", () => {
+test("computeDimensionScores: personal explicit and implicit signals combine without city heat", () => {
   const result = computeDimensionScores({
     explicitApproved: { 咖啡: 0.9 },
     implicitTagWeights: new Map([["咖啡", 1.0]]),
@@ -99,9 +91,7 @@ test("computeDimensionScores: all three sources combine for a dimension", () => 
 
   const coffee = dimByKey(result, "coffee");
   assert.ok(coffee);
-  // explicit(30) + implicit(25) + city(28) = 83
-  assert.ok(coffee.value >= 80, `coffee ${coffee.value} should combine all sources`);
-  assert.ok(coffee.value <= 100);
+  assert.equal(coffee.value, 75);
 });
 
 test("computeDimensionScores: values are clamped to 0-100", () => {
@@ -132,18 +122,16 @@ test("computeDimensionScores: DIMENSIONS constant is well-formed", () => {
   // Quiet dimension intentionally overlaps with culture (书店/漫画) — that's fine.
 });
 
-test("computeDimensionScores: disapproved tags do not contribute (only approved counted)", () => {
-  // computeDimensionScores only reads explicitApproved, not disapprovedTags.
-  // A disapproved tag should not boost the dimension.
+test("computeDimensionScores: disapproved tags lower the matching dimension", () => {
   const result = computeDimensionScores({
     explicitApproved: {},
+    explicitDisapproved: { 夜生活: -1 },
     implicitTagWeights: new Map(),
     cityTopTags: []
   });
 
-  // All neutral since no approved, no implicit, no city.
-  const quiet = dimByKey(result, "quiet");
-  assert.equal(quiet?.value, 50);
+  const nightlife = dimByKey(result, "nightlife");
+  assert.ok((nightlife?.value ?? 50) < 50);
 });
 
 test("computeDimensionScores: 复合标签通过子串匹配贡献到维度（展览休闲 → culture）", () => {

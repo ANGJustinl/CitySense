@@ -5425,6 +5425,17 @@ D
 
 /* ── AI 助手富文本卡片 ── */
 .chat-cards{display:flex;flex-direction:column;gap:8px;margin-top:8px;width:100%}
+
+/* ── 兴趣关键词分组（可折叠） ── */
+.chip-groups{display:flex;flex-direction:column;gap:8px}
+.chip-group{border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.chip-group-header{align-items:center;background:var(--surface-muted);border:0;cursor:pointer;display:flex;gap:6px;padding:8px 10px;transition:background 120ms ease;width:100%}
+.chip-group-header:hover{background:rgba(8,127,122,0.08)}
+.chip-group-chevron{color:var(--muted);flex-shrink:0;transition:transform 150ms ease}
+.chip-group-header.collapsed .chip-group-chevron{transform:rotate(-90deg)}
+.chip-group-label{color:var(--ink);flex:1;font-size:12px;font-weight:700;text-align:left}
+.chip-group-count{align-items:center;background:var(--accent);border-radius:10px;color:#fff;display:flex;font-size:11px;font-weight:700;height:18px;justify-content:center;min-width:18px;padding:0 5px}
+.chip-group .chip-grid{padding:8px}
 .chat-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;transition:border-color 150ms}
 @media(hover:hover){.chat-card:hover{border-color:var(--accent)}}
 .chat-card-head{align-items:center;display:flex;gap:8px;margin-bottom:6px}

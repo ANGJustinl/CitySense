@@ -379,7 +379,8 @@ const DIMENSION_LABELS: Record<ProfileDimension, string> = {
   area: "area",
   priceLevel: "priceLevel",
   quietnessBand: "quietnessBand",
-  popularityBand: "popularityBand"
+  popularityBand: "popularityBand",
+  mood: "mood"
 };
 
 function formatFactor(factor: ProfileFactor) {

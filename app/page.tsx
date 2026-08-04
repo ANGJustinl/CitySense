@@ -53,5 +53,11 @@ export default async function Home({
     useSocialSignals: true
   });
 
-  return <RecommendationWorkspace initialData={initialData} initialUserId={userId} />;
+  return (
+    <RecommendationWorkspace
+      initialData={initialData}
+      initialInterests={interests}
+      initialUserId={userId}
+    />
+  );
 }

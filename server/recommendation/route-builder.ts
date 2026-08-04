@@ -352,34 +352,79 @@ function scoreRouteGroup(candidates: TrafficCandidate[], input: RecommendInput) 
 
 function generateRouteGroups(candidates: TrafficCandidate[], input: RecommendInput) {
   const eligible = candidates.filter(isRouteEligible);
-  const top = (eligible.length > 0 ? eligible : candidates).slice(0, 20);
+  const allTop = (eligible.length > 0 ? eligible : candidates).slice(0, 20);
   const groups: RouteCandidateGroup[] = [];
-  const preferPairsOnly = top.length < 9;
 
-  for (let first = 0; first < top.length; first += 1) {
-    for (let second = first + 1; second < top.length; second += 1) {
-      const pair = orderCandidatesForRoute([top[first], top[second]], input);
+  // 途径点数量（2-6）。未指定时保持原有行为：候选<9 只生成 pairs，否则 pairs+triples。
+  const requestedSize = input.waypointCount && input.waypointCount >= 2 ? input.waypointCount : 0;
+
+  if (requestedSize > 0) {
+    // 指定了途径点数量：按大小生成组合。
+    // 组合数 C(n, k) 随 k 指数增长，需限制候选池大小避免爆炸。
+    // n=2 → top 20（C(20,2)=190）；n=3 → top 20（C(20,3)=1140）；
+    // n=4 → top 12（C(12,4)=495）；n=5 → top 10（C(10,5)=252）；n=6 → top 8（C(8,6)=28）。
+    const poolLimit = Math.min(allTop.length, [20, 20, 20, 12, 10, 8, 8][requestedSize] ?? 8);
+    const top = allTop.slice(0, poolLimit);
+
+    // 生成 C(top.length, requestedSize) 的所有组合。
+    const indices = Array.from({ length: requestedSize }, (_, i) => i);
+    const last = requestedSize - 1;
+
+    while (indices[0] <= top.length - requestedSize) {
+      const combo = indices.map((i) => top[i]);
+      const ordered = orderCandidatesForRoute(combo, input);
       groups.push({
-        candidates: pair,
-        routeScore: scoreRouteGroup(pair, input)
+        candidates: ordered,
+        routeScore: scoreRouteGroup(ordered, input)
       });
 
-      if (preferPairsOnly) {
-        continue;
+      // 组合递增：从最后一位开始进位。
+      let pos = last;
+      while (pos >= 0) {
+        indices[pos] += 1;
+        if (indices[pos] <= top.length - (requestedSize - 1 - pos)) {
+          // 重置后续位到最小合法值。
+          for (let j = pos + 1; j < requestedSize; j += 1) {
+            indices[j] = indices[j - 1] + 1;
+          }
+          break;
+        }
+        pos -= 1;
       }
 
-      for (let third = second + 1; third < top.length; third += 1) {
-        const triple = orderCandidatesForRoute([top[first], top[second], top[third]], input);
+      if (pos < 0) {
+        break;
+      }
+    }
+  } else {
+    // 未指定途径点：原有行为（pairs + 可选 triples）。
+    const preferPairsOnly = allTop.length < 9;
+
+    for (let first = 0; first < allTop.length; first += 1) {
+      for (let second = first + 1; second < allTop.length; second += 1) {
+        const pair = orderCandidatesForRoute([allTop[first], allTop[second]], input);
         groups.push({
-          candidates: triple,
-          routeScore: scoreRouteGroup(triple, input)
+          candidates: pair,
+          routeScore: scoreRouteGroup(pair, input)
         });
+
+        if (preferPairsOnly) {
+          continue;
+        }
+
+        for (let third = second + 1; third < allTop.length; third += 1) {
+          const triple = orderCandidatesForRoute([allTop[first], allTop[second], allTop[third]], input);
+          groups.push({
+            candidates: triple,
+            routeScore: scoreRouteGroup(triple, input)
+          });
+        }
       }
     }
   }
 
   if (groups.length === 0) {
-    return top.slice(0, 3).map((candidate) => ({
+    return allTop.slice(0, 3).map((candidate) => ({
       candidates: [candidate],
       routeScore: candidate.adjustedScore
     }));
@@ -608,6 +653,9 @@ export function buildRoutes(
         lat: candidate.lat,
         lng: candidate.lng,
         tags: candidate.tags,
+        priceLevel: candidate.priceLevel,
+        quietness: candidate.quietness,
+        popularity: candidate.popularity,
         source: candidate.source,
         sourceUrl: candidate.sourceUrl,
         imageUrl: candidate.imageUrl

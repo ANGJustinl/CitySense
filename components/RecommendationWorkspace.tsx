@@ -12,8 +12,6 @@ import {
 import {
   Activity,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Clock3,
   Crosshair,
   LocateFixed,
@@ -35,6 +33,8 @@ import { RouteInspector } from "@/components/city/RouteInspector";
 import { RouteMapCanvas } from "@/components/city/RouteMapCanvas";
 import { RouteTimeline } from "@/components/city/RouteTimeline";
 import { UserProfilePanel } from "@/components/city/UserProfilePanel";
+import { AccountSwitcher } from "@/components/AccountSwitcher";
+import { DEMO_USERS } from "@/lib/demo-users";
 import { ChatDock } from "@/components/assistant/ChatDock";
 import { ChatDrawer } from "@/components/assistant/ChatDrawer";
 
@@ -43,12 +43,42 @@ type WorkspaceProps = {
   /** 页面传入的用户 ID（来自 URL ?userId=），兼容 initialUserId 别名。 */
   userId?: string;
   initialUserId?: string;
+  initialInterests?: string[];
 };
 
 type WorkspacePanel = "controls" | "map" | "inspector" | "pulse" | "profile";
 type WorkspacePanelWidths = Record<WorkspacePanel, number>;
 
-const interestOptions = ["咖啡", "展览", "书店", "漫画", "独立音乐", "夜生活"];
+/**
+ * 兴趣关键词选项（按类别分组），覆盖后端 DIMENSIONS 标签体系 + seed 数据。
+ * 分类便于浏览，每类精选高频标签，确保选择后能匹配到真实候选数据。
+ */
+const interestOptions: { group: string; tags: string[] }[] = [
+  {
+    group: "文化静思",
+    tags: ["展览", "书店", "艺术", "美术馆", "漫画"]
+  },
+  {
+    group: "咖啡生活",
+    tags: ["咖啡", "甜品", "烘焙"]
+  },
+  {
+    group: "夜生活",
+    tags: ["独立音乐", "livehouse", "酒吧", "夜生活"]
+  },
+  {
+    group: "市集美食",
+    tags: ["市集", "美食", "小吃", "快闪"]
+  },
+  {
+    group: "户外休闲",
+    tags: ["公园", "滨江", "运动", "宠物友好"]
+  },
+  {
+    group: "热门潮流",
+    tags: ["购物", "潮流", "演出", "电影"]
+  }
+];
 const moodOptions: { value: Mood; label: string }[] = [
   { value: "solo", label: "Solo" },
   { value: "quiet", label: "安静" },
@@ -131,7 +161,12 @@ function formatGeneratedAt(value: string) {
   });
 }
 
-export function RecommendationWorkspace({ initialData, userId, initialUserId }: WorkspaceProps) {
+export function RecommendationWorkspace({
+  initialData,
+  userId,
+  initialUserId,
+  initialInterests
+}: WorkspaceProps) {
   // 兼容 main 的 initialUserId prop 和 ai-assistant 的 userId prop。
   const resolvedUserId = userId ?? initialUserId;
   const [chatOpen, setChatOpen] = useState(false);
@@ -142,7 +177,15 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
   const [originAddress, setOriginAddress] = useState("");
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
   const [originMessage, setOriginMessage] = useState<string | undefined>();
-  const [interests, setInterests] = useState(["咖啡", "展览", "书店", "漫画", "独立音乐"]);
+  const [interests, setInterests] = useState(
+    initialInterests && initialInterests.length > 0
+      ? initialInterests
+      : ["咖啡", "展览", "书店", "独立音乐"]
+  );
+  // 兴趣分组折叠状态：默认"咖啡生活"展开（含高频默认选中），其余折叠。
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+    () => new Set(["夜生活", "市集美食", "户外休闲", "热门潮流"])
+  );
   const [mood, setMood] = useState<Mood>("solo");
   const [budget, setBudget] = useState<Budget>("medium");
   const [timeWindow, setTimeWindow] = useState<TimeWindow>("tonight");
@@ -153,6 +196,8 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
     initialData.routes[0]?.id
   );
   const [isLoading, setIsLoading] = useState(false);
+  const [recommendationError, setRecommendationError] = useState<string | undefined>();
+  const [profileRevision, setProfileRevision] = useState(0);
   const [panelWidths, setPanelWidths] = useState<WorkspacePanelWidths>(defaultPanelWidths);
 
   const heatContext = useMemo(
@@ -247,6 +292,7 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
     }
 
     setOriginMessage(undefined);
+    setRecommendationError(undefined);
     setIsLoading(true);
 
     try {
@@ -263,7 +309,8 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
               budget,
               timeWindow,
               useRealtimeTraffic,
-              useSocialSignals: true
+              useSocialSignals: true,
+              waypointCount
             }
           : {
               userId: resolvedUserId,
@@ -283,7 +330,8 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
               budget,
               timeWindow,
               useRealtimeTraffic,
-              useSocialSignals: true
+              useSocialSignals: true,
+              waypointCount
             };
       const response = await fetch("/api/recommend", {
         method: "POST",
@@ -320,6 +368,8 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
       } else if (originMode === "manual") {
         setOriginMessage("未找到该起点，已按城市级路线返回");
       }
+    } catch (cause) {
+      setRecommendationError(cause instanceof Error ? cause.message : "路线生成失败，请重试");
     } finally {
       setIsLoading(false);
     }
@@ -331,6 +381,18 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
         ? current.filter((item) => item !== interest)
         : [...current, interest]
     );
+  }
+
+  function toggleGroup(group: string) {
+    setCollapsedGroups((current) => {
+      const next = new Set(current);
+      if (next.has(group)) {
+        next.delete(group);
+      } else {
+        next.add(group);
+      }
+      return next;
+    });
   }
 
   function resizePanels(left: WorkspacePanel, right: WorkspacePanel, delta: number) {
@@ -440,6 +502,15 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
           </div>
         </div>
         <nav className="top-actions" aria-label="primary">
+          {resolvedUserId && DEMO_USERS.some((item) => item.userId === resolvedUserId) ? (
+            <AccountSwitcher
+              currentUserId={resolvedUserId}
+              onChange={(nextUserId) => {
+                window.location.href = `/?userId=${encodeURIComponent(nextUserId)}`;
+              }}
+            />
+          ) : null}
+          {resolvedUserId ? <a href={`/profile?userId=${encodeURIComponent(resolvedUserId)}`}>画像</a> : null}
           <a href="/admin/sources">Sources</a>
           <a href="/discover">Discover</a>
         </nav>
@@ -532,17 +603,40 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
 
           <div className="field">
             <span>兴趣</span>
-            <div className="chip-grid">
-              {interestOptions.map((interest) => (
-                <button
-                  className={interests.includes(interest) ? "chip active" : "chip"}
-                  key={interest}
-                  onClick={() => toggleInterest(interest)}
-                  type="button"
-                >
-                  {interest}
-                </button>
-              ))}
+            <div className="chip-groups">
+              {interestOptions.map((group) => {
+                const collapsed = collapsedGroups.has(group.group);
+                const activeInGroup = group.tags.filter((t) => interests.includes(t)).length;
+                return (
+                  <div className="chip-group" key={group.group}>
+                    <button
+                      className={`chip-group-header ${collapsed ? "collapsed" : ""}`}
+                      onClick={() => toggleGroup(group.group)}
+                      type="button"
+                    >
+                      <ChevronDown size={14} className="chip-group-chevron" />
+                      <span className="chip-group-label">{group.group}</span>
+                      {activeInGroup > 0 ? (
+                        <span className="chip-group-count">{activeInGroup}</span>
+                      ) : null}
+                    </button>
+                    {collapsed ? null : (
+                      <div className="chip-grid">
+                        {group.tags.map((interest) => (
+                          <button
+                            className={interests.includes(interest) ? "chip active" : "chip"}
+                            key={interest}
+                            onClick={() => toggleInterest(interest)}
+                            type="button"
+                          >
+                            {interest}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -619,6 +713,11 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
             <span>高德实时 ETA</span>
           </label>
 
+          {recommendationError ? (
+            <p className="profile-error" role="alert">
+              {recommendationError}
+            </p>
+          ) : null}
           <button className="primary-button" disabled={isLoading} onClick={submitRecommendation} type="button">
             {isLoading ? <Loader2 className="spin" size={18} /> : <RefreshCw size={18} />}
             生成路线
@@ -680,6 +779,9 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
               isLoading={isLoading}
               onSelectRoute={setSelectedRouteId}
               recommendationId={data.meta.recommendationId}
+              userId={resolvedUserId}
+              sessionId={resolvedUserId ? undefined : getAnonymousSessionId()}
+              onFeedbackRecorded={() => setProfileRevision((value) => value + 1)}
               routes={data.routes}
               selectedRouteId={selectedRoute?.id}
             />
@@ -706,7 +808,11 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
 
         <aside className="profile-rail resizable-panel" aria-label="user profile">
           <div className="pulse-panel">
-            <UserProfilePanel profileKey={resolvedUserId} response={data} />
+            <UserProfilePanel
+              profileKey={resolvedUserId ?? getAnonymousSessionId()}
+              profileRevision={profileRevision}
+              response={data}
+            />
           </div>
         </aside>
       </section>

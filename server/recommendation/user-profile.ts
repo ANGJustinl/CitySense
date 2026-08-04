@@ -2,6 +2,11 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db/prisma";
 import { loadUserRecommendationSignals } from "@/server/recommendation/user-signals";
 import { getCityProfile } from "@/server/recommendation/city-profile";
+import {
+  loadUserProfile,
+  recomputeUserProfile,
+  type UserProfileSnapshot
+} from "@/server/recommendation/user-profile-v2";
 
 /**
  * Per-user interest profile, built from three fused sources:
@@ -14,7 +19,7 @@ import { getCityProfile } from "@/server/recommendation/city-profile";
  */
 
 export type TagSource = "explicit" | "implicit" | "city";
-export type TagStatus = "approved" | "disapproved" | "pending";
+export type TagStatus = "approved" | "disapproved" | "pending" | "skipped";
 export type TagAction = "approve" | "disapprove" | "skip";
 
 export type TagCandidate = {
@@ -47,6 +52,7 @@ export type UserProfileResponse = {
   dimensions: DimensionScore[];
   stats: UserProfileStats;
   generatedAt: string;
+  profileSnapshot?: UserProfileSnapshot;
 };
 
 /**
@@ -123,14 +129,15 @@ function clampScore(value: number): number {
  */
 export function computeDimensionScores(input: {
   explicitApproved: Record<string, number>;
+  explicitDisapproved?: Record<string, number>;
   implicitTagWeights: Map<string, number>;
-  cityTopTags: { label: string; value: number }[];
+  cityTopTags?: { label: string; value: number }[];
 }): DimensionScore[] {
-  const { explicitApproved, implicitTagWeights, cityTopTags } = input;
-  const cityHeatByTag = new Map<string, number>();
-  for (const metric of cityTopTags) {
-    cityHeatByTag.set(metric.label, metric.value);
-  }
+  const {
+    explicitApproved,
+    explicitDisapproved = {},
+    implicitTagWeights
+  } = input;
 
   return DIMENSIONS.map((dimension) => {
     const tagSet = new Set(dimension.tags);
@@ -146,46 +153,32 @@ export function computeDimensionScores(input: {
       );
     }
 
-    // Explicit approved tags — strongest signal, capped so multi-tag dimensions
-    // don't saturate instantly.
-    let explicitScore = 0;
+    let explicitPositive = 0;
+    let explicitNegative = 0;
     for (const tag of Object.keys(explicitApproved)) {
       if (tagMatchesDimension(tag)) {
-        explicitScore += 15;
+        explicitPositive += 15;
         matchedTags.push(tag);
       }
     }
-    explicitScore = Math.min(35, explicitScore);
+    for (const tag of Object.keys(explicitDisapproved)) {
+      if (tagMatchesDimension(tag)) {
+        explicitNegative += 15;
+        if (!matchedTags.includes(tag)) matchedTags.push(tag);
+      }
+    }
+    explicitPositive = Math.min(35, explicitPositive);
+    explicitNegative = Math.min(35, explicitNegative);
 
-    // Implicit feedback weights.
     let implicitSum = 0;
     for (const [tag, weight] of implicitTagWeights) {
-      if (tagMatchesDimension(tag) && weight > 0) {
+      if (tagMatchesDimension(tag)) {
         implicitSum += weight;
         if (!matchedTags.includes(tag)) matchedTags.push(tag);
       }
     }
-    const implicitScore = Math.min(15, implicitSum * 10);
-
-    // City heat average across matching tags present in city topTags.
-    let citySum = 0;
-    let cityCount = 0;
-    for (const tag of dimension.tags) {
-      const heat = cityHeatByTag.get(tag);
-      if (typeof heat === "number") {
-        citySum += heat;
-        cityCount += 1;
-        if (!matchedTags.includes(tag)) matchedTags.push(tag);
-      }
-    }
-    const cityScore = cityCount > 0 ? (citySum / cityCount) * 0.35 : 0;
-
-    const hasAnySignal = explicitScore > 0 || implicitScore > 0 || cityScore > 0;
-    // NEUTRAL_SCORE is the baseline; the three sources are additive bonuses
-    // so any positive signal lifts the dimension above neutral, never below.
-    const value = hasAnySignal
-      ? clampScore(NEUTRAL_SCORE + explicitScore + implicitScore + cityScore)
-      : NEUTRAL_SCORE;
+    const implicitScore = Math.max(-20, Math.min(20, implicitSum * 10));
+    const value = clampScore(NEUTRAL_SCORE + explicitPositive - explicitNegative + implicitScore);
 
     return {
       key: dimension.key,
@@ -322,8 +315,7 @@ export function fuseCandidateTags(input: {
       };
     })
     .sort((a, b) => {
-      // Pending first (those the user hasn't decided on yet), then approved, then disapproved.
-      const order: Record<TagStatus, number> = { pending: 0, approved: 1, disapproved: 2 };
+      const order: Record<TagStatus, number> = { pending: 0, skipped: 1, approved: 2, disapproved: 3 };
       if (order[a.status] !== order[b.status]) {
         return order[a.status] - order[b.status];
       }
@@ -344,29 +336,52 @@ export async function getUserProfile(input: {
   const generatedAt = new Date().toISOString();
   const { userId, city, area } = input;
 
-  const [preference, implicitSignals, cityProfile] = await Promise.all([
+  const [preference, implicitSignals, cityProfile, unifiedProfile] = await Promise.all([
     prisma.userPreference
       .findUnique({ where: { userId } })
       .catch(() => null),
     loadUserRecommendationSignals(userId),
-    getCityProfile({ city, area })
+    getCityProfile({ city, area }),
+    loadUserProfile(userId)
   ]);
 
   const metadata = readMetadata(preference?.metadata);
+  const explicitApproved = Object.fromEntries(
+    unifiedProfile.explicitTags.approved.map((tag) => [tag, 1])
+  );
+  const explicitDisapproved = Object.fromEntries(
+    unifiedProfile.explicitTags.disapproved.map((tag) => [tag, -1])
+  );
+  const approvedSource = unifiedProfile.explicitTags.approved.length > 0
+    ? explicitApproved
+    : metadata.approvedTags;
+  const disapprovedSource = unifiedProfile.explicitTags.disapproved.length > 0
+    ? explicitDisapproved
+    : metadata.disapprovedTags;
+  const unifiedTagWeights = new Map<string, number>();
+  for (const weight of unifiedProfile.positiveWeights.filter((item) => item.dimension === "tag")) {
+    unifiedTagWeights.set(weight.key, (unifiedTagWeights.get(weight.key) ?? 0) + weight.weight / 10);
+  }
+  for (const weight of unifiedProfile.negativeWeights.filter((item) => item.dimension === "tag")) {
+    unifiedTagWeights.set(weight.key, (unifiedTagWeights.get(weight.key) ?? 0) - weight.weight / 10);
+  }
+  const implicitTagWeights = unifiedTagWeights.size > 0 ? unifiedTagWeights : implicitSignals.tagWeights;
   const candidateTags = fuseCandidateTags({
-    explicitApproved: metadata.approvedTags,
-    explicitDisapproved: metadata.disapprovedTags,
-    implicitTagWeights: implicitSignals.tagWeights,
+    explicitApproved: approvedSource,
+    explicitDisapproved: disapprovedSource,
+    implicitTagWeights,
     cityTopTags: cityProfile.topTags.slice(0, CITY_TAG_FALLBACK_LIMIT)
-  }).slice(0, CANDIDATE_LIMIT);
+  })
+    .filter((candidate) => !unifiedProfile.explicitTags.skipped.includes(candidate.tag))
+    .slice(0, CANDIDATE_LIMIT);
 
-  const approvedTags = Object.keys(metadata.approvedTags);
-  const disapprovedTags = Object.keys(metadata.disapprovedTags);
+  const approvedTags = Object.keys(approvedSource);
+  const disapprovedTags = Object.keys(disapprovedSource);
   const pendingCount = candidateTags.filter((c) => c.status === "pending").length;
   const dimensions = computeDimensionScores({
-    explicitApproved: metadata.approvedTags,
-    implicitTagWeights: implicitSignals.tagWeights,
-    cityTopTags: cityProfile.topTags.slice(0, CITY_TAG_FALLBACK_LIMIT)
+    explicitApproved: approvedSource,
+    explicitDisapproved: disapprovedSource,
+    implicitTagWeights
   });
 
   return {
@@ -381,10 +396,11 @@ export async function getUserProfile(input: {
       approvedCount: approvedTags.length,
       disapprovedCount: disapprovedTags.length,
       pendingCount,
-      implicitTagCount: implicitSignals.tagWeights.size,
-      hasHistory: preference !== null || implicitSignals.tagWeights.size > 0
+      implicitTagCount: implicitTagWeights.size,
+      hasHistory: unifiedProfile.sampleSize > 0 || preference !== null
     },
-    generatedAt
+    generatedAt,
+    profileSnapshot: unifiedProfile
   };
 }
 
@@ -406,6 +422,20 @@ export async function setTagPreference(input: {
   if (!trimmedTag) {
     throw new Error("tag must not be empty");
   }
+
+  const now = new Date();
+  const actionName = action === "approve" ? "tag_approve" : action === "disapprove" ? "tag_disapprove" : "tag_skip";
+  const weight = action === "approve" ? 2 : action === "disapprove" ? -2 : 0;
+  await prisma.userInteraction.create({
+    data: {
+      userId,
+      action: actionName,
+      weight,
+      signalKind: "explicit_tag",
+      signalKey: `explicit:${userId}:${now.getTime()}:${trimmedTag}:${action}`,
+      context: toJson({ tags: [trimmedTag], explicitAction: action })
+    }
+  });
 
   const existing = await prisma.userPreference
     .findUnique({ where: { userId } })
@@ -453,6 +483,7 @@ export async function setTagPreference(input: {
     create: data,
     update: { interests: approvedTags, metadata: data.metadata }
   });
+  await recomputeUserProfile(userId);
 
   return { ok: true, status };
 }

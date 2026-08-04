@@ -146,35 +146,43 @@ type FeedbackResponse = {
 
 用途(TASK-P2-002)：
 
-- `GET` 返回指定 profileKey 的用户画像摘要,用于 UI explain 面板。
-- `DELETE` 清空画像快照及其驱动数据(UserInteraction),清空后推荐回退通用逻辑。
-- 不触发画像重算(重算只在 `/api/recommend` 读时懒重算 + TTL 失效)。
+- `GET` 返回统一站内画像；`view=summary` 保留为工作台的兼容摘要视图。
+- `POST` 记录显式标签表态并立即重算画像。
+- `DELETE` 写入 `profileResetAt` 重置边界：历史行为继续保留审计，但重置前的行为永久不再参与画像。
+- 路线反馈和标签表态成功后会同步尝试刷新画像；失败时事实仍已保存，后续读取会修复。
 
 查询参数：
 
 ```ts
 type UserProfileQuery = {
-  // profileKey 或 userId 任选其一;匿名会话使用 recommend 请求时的 sessionId。
-  profileKey?: string
-  userId?: string
+  userId: string
+  // 可选兼容视图；省略时返回标签候选、六维雷达和统一画像快照。
+  view?: "summary"
 }
 ```
 
 `GET` 响应：
 
 ```ts
-type UserProfileResponse = {
-  profileKey: string
-  // 画像快照是否过期(超过 30 分钟 TTL 或有新反馈)。
-  stale: boolean
-  profile: {
-    version: string
-    source: "profile" | "fallback" | "empty"
-    updatedFrom: number
-    updatedAt?: string
-    topPositive: { dimension: string; key: string; weight: number }[]
-    topNegative: { dimension: string; key: string; weight: number }[]
-    recentExposureHits: number
+type UserProfileSummaryResponse = {
+  userId: string
+  profileVersion: number
+  hasProfile: boolean
+  degraded: boolean
+  state: "empty" | "building" | "ready" | "reset" | "degraded"
+  summary: null | {
+    sampleSize: number
+    confidence: "low" | "medium" | "high"
+    effectiveFrom: string | null
+    generatedAt: string
+    topPositiveTags: { tag: string; weight: number; sampleSize: number }[]
+    topNegativeTags: { tag: string; weight: number; sampleSize: number }[]
+    topSources: { source: string; weight: number }[]
+    topAreas: { area: string; weight: number }[]
+    budgetAffinity: number
+    quietnessAffinity: number
+    popularityAffinity: number
+    topReasons: string[]
   }
 }
 ```
@@ -182,14 +190,21 @@ type UserProfileResponse = {
 `DELETE` 响应：
 
 ```ts
-type UserProfileDeleteResponse = { ok: true; cleared: true } | { error: string }
+type UserProfileDeleteResponse = {
+  ok: true
+  userId: string
+  resetAt: string
+  profileVersion: number
+  signalCount: 0
+  state: "reset"
+}
 ```
 
 约束：
 
-- 画像由 `UserInteraction` 聚合驱动,维度:tag / source / area / priceLevel / quietnessBand / popularityBand / venue。
-- 不保存精确浏览器坐标;area 仅区级粒度。
-- 清空画像会删除该 profileKey 的 `UserInteraction`(画像数据源),但保留 `RecommendationFeedback`(权威反馈事实表)和 `RecommendationLog`(审计日志)。
+- 画像由统一信号引擎聚合，维度包括 venue / tag / source / area / budget / quietness / popularity / mood。
+- 不保存精确浏览器坐标；area 只保留规范化区级粒度。
+- 清空画像不会物理删除 `RecommendationFeedback`、`RecommendationLog` 或 `UserInteraction`；所有读取使用 `createdAt > profileResetAt`，所以旧事实仅保留审计且不会复活画像。
 
 ## `POST` / `DELETE` `/api/chat`
 

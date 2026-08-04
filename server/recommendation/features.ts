@@ -34,18 +34,18 @@ export function buildCandidateFeatures(
   sources: FeatureBuildSources = {}
 ): CandidateFeatures {
   const base = createDefaultFeatures(candidate, request);
-  const profile = sources.profile && sources.profile.sampleSize >= 5 ? sources.profile : undefined;
+  const profile = sources.profile && sources.profile.sampleSize > 0 ? sources.profile : undefined;
 
   if (profile) {
-    const affinity = calculateUserAffinityFromProfile(candidate, profile);
-    const penalty = calculateFeedbackPenaltyFromProfile(candidate, profile);
+    const affinity = calculateUserAffinityFromProfile(candidate, profile, request);
+    const penalty = calculateFeedbackPenaltyFromProfile(candidate, profile, request);
     const exposure = calculateExposurePenalty(candidate, profile);
     const profileFactors: ProfileFactor[] = [
       ...affinity.factors,
       ...penalty.factors
     ];
     if (exposure.reason) {
-      profileFactors.push({ dimension: "tag", key: exposure.reason, delta: -exposure.penalty });
+      profileFactors.push({ dimension: "venue", key: exposure.reason, delta: -exposure.penalty });
     }
 
     return {

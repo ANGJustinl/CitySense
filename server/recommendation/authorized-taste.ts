@@ -90,8 +90,21 @@ function hashSourceItemId(source: string, sourceItemId: string | undefined) {
   return `hash:${(hash >>> 0).toString(16)}`;
 }
 
+const IMPORT_ACTION_WEIGHT: Record<AuthorizedTasteAction, number> = {
+  liked: 1,
+  saved: 1.4,
+  rated: 1.2,
+  watched: 0.8,
+  followed: 1
+};
+
+function parseOccurredAt(value: string | undefined) {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
 /**
- * 脱敏 mapper：把 AuthorizedTasteItem 转成 UserInteraction 写入 payload。
  * - title 截断到 60 字符，不保存原始全文。
  * - tags 限制到 10 个、每个 40 字符。
  * - sourceItemId 仅保留哈希摘要。
@@ -114,7 +127,9 @@ export function mapAuthorizedTasteItemToInteraction(
     action: item.action,
     itemType: item.itemType,
     itemId: hashSourceItemId(context.source, item.sourceItemId),
-    weight: 1, // recomputeUserProfile 内 IMPORT_ACTION_WEIGHT 会按 action 重定权重
+    weight: IMPORT_ACTION_WEIGHT[item.action],
+    createdAt: parseOccurredAt(item.occurredAt),
+    signalKind: "authorized_import",
     context: {
       tags: sanitizedTags,
       source: context.source,
@@ -165,6 +180,8 @@ export async function ingestAuthorizedTasteImport(
           itemType: row.itemType,
           itemId: row.itemId,
           weight: row.weight,
+          signalKind: row.signalKind,
+          createdAt: row.createdAt,
           context: toJson(row.context)
         }))
       });

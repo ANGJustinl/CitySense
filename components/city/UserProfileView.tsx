@@ -41,12 +41,6 @@ const sourceLabel: Record<TagCandidate["source"], string> = {
   city: "城市热度"
 };
 
-const statusLabel: Record<TagCandidate["status"], string> = {
-  approved: "认可",
-  disapproved: "不认可",
-  pending: "待表态"
-};
-
 const traceKindIcon: Record<TraceKind, typeof Activity> = {
   recall: User,
   signal: Sparkles,
@@ -313,7 +307,7 @@ export function UserProfileView({
     for (const c of profile.candidateTags) {
       if (c.status === "approved") approved.push(c);
       else if (c.status === "disapproved") disapproved.push(c);
-      else pending.push(c);
+      else if (c.status === "pending") pending.push(c);
     }
     return { pending, approved, disapproved };
   }, [profile.candidateTags]);
@@ -321,6 +315,7 @@ export function UserProfileView({
   const handleAction = useCallback(
     async (tag: string, action: TagAction) => {
       const actionKey = `${tag}:${action}`;
+      const previousProfile = profile;
       setPendingAction(actionKey);
       setError(undefined);
 
@@ -331,7 +326,12 @@ export function UserProfileView({
           c.tag === tag
             ? {
                 ...c,
-                status: action === "approve" ? "approved" : action === "disapprove" ? "disapproved" : "pending",
+                status:
+                  action === "approve"
+                    ? "approved"
+                    : action === "disapprove"
+                      ? "disapproved"
+                      : "skipped",
                 source: "explicit"
               }
             : c
@@ -376,12 +376,12 @@ export function UserProfileView({
       } catch (e) {
         // Rollback optimistic update on failure.
         setError(e instanceof Error ? e.message : "保存失败，已回滚");
-        setProfile(initialProfile);
+        setProfile(previousProfile);
       } finally {
         setPendingAction(undefined);
       }
     },
-    [initialProfile, profile.userId, city, area]
+    [profile, city, area]
   );
 
   const stats = profile.stats;
@@ -415,7 +415,7 @@ export function UserProfileView({
             <Activity size={18} />
             <span>你的品味画像</span>
             <em className="profile-source-tag">
-              基于认可标签 · 行为反馈 · 城市热度
+              基于你的显式表态与站内路线反馈
             </em>
           </div>
           <RadarChart dimensions={profile.dimensions} />
@@ -443,7 +443,7 @@ export function UserProfileView({
                 {pending.map((candidate) => (
                   <TagCard
                     candidate={candidate}
-                    disabled={pendingAction?.startsWith(candidate.tag) ?? false}
+                    disabled={pendingAction?.split(":")[0] === candidate.tag}
                     key={candidate.tag}
                     onAction={(action) => handleAction(candidate.tag, action)}
                   />
@@ -465,7 +465,7 @@ export function UserProfileView({
                 {approved.map((c) => (
                   <button
                     className="chip approved"
-                    disabled={pendingAction?.startsWith(c.tag)}
+                    disabled={pendingAction?.split(":")[0] === c.tag}
                     key={c.tag}
                     onClick={() => handleAction(c.tag, "disapprove")}
                     title="点击改为不认可"
@@ -489,7 +489,7 @@ export function UserProfileView({
                 {disapproved.map((c) => (
                   <button
                     className="chip disapproved"
-                    disabled={pendingAction?.startsWith(c.tag)}
+                    disabled={pendingAction?.split(":")[0] === c.tag}
                     key={c.tag}
                     onClick={() => handleAction(c.tag, "approve")}
                     title="点击撤销，改为认可"
@@ -539,8 +539,8 @@ export function UserProfileView({
         <section className="profile-section">
           <div className="section-heading">
             <Sparkles size={18} />
-            <span>推荐推理日志</span>
-            <em className="profile-source-tag">当前画像如何影响推荐</em>
+            <span>城市信号与推荐组装日志</span>
+            <em className="profile-source-tag">画像命中见工作台路线与画像面板</em>
           </div>
           <ul className="trace-list">
             {trace.entries.map((entry, index) => (
