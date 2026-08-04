@@ -35,7 +35,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm prisma:generate
 CMD ["pnpm", "prisma:migrate:deploy"]
 
-FROM node:22-slim AS runner
+FROM base AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
