@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db/prisma";
 import { isDemoModeEnabled, MOCK_SOURCE_NAMES } from "@/server/config/demo-mode";
+import { publishedVenueWhere, publishedVenueSql } from "@/server/venues/publication";
 import {
   areaVariants,
   areasMatch,
@@ -435,6 +436,7 @@ function venueWhere(input: RecommendInput): Prisma.VenueWhereInput {
   const area = areaWhere(input.area);
 
   return {
+    ...publishedVenueWhere(),
     city: input.city,
     ...(area ? { area } : {}),
     ...(isDemoModeEnabled()
@@ -482,7 +484,9 @@ async function loadBaseCandidates(input: RecommendInput) {
   const venueIds = new Set(events.map((event) => event.venueId).filter(Boolean) as string[]);
   const venueById = new Map<string, DbVenue>();
   if (venueIds.size > 0) {
-    const matchedVenues = await prisma.venue.findMany({ where: { id: { in: [...venueIds] } } });
+    const matchedVenues = await prisma.venue.findMany({
+      where: { id: { in: [...venueIds] }, ...publishedVenueWhere() }
+    });
     for (const venue of matchedVenues) {
       venueById.set(venue.id, venue);
     }
@@ -510,6 +514,7 @@ async function loadTextRecallRows(input: RecommendInput): Promise<TextRecallRow[
     ? Prisma.sql`AND "area" IN (${Prisma.join(variants)})`
     : Prisma.empty;
   const sourceClause = nonMockSourceSql();
+  const venuePublicationClause = Prisma.sql`AND ${publishedVenueSql()}`;
 
   try {
     const [eventRows, venueRows] = await Promise.all([
@@ -544,6 +549,7 @@ async function loadTextRecallRows(input: RecommendInput): Promise<TextRecallRow[
         WHERE "city" = ${input.city}
           ${areaClause}
           ${sourceClause}
+          ${venuePublicationClause}
           AND similarity(
             lower(concat_ws(' ', "name", coalesce("description", ''), coalesce("address", ''), array_to_string("tags", ' '))),
             lower(${query})

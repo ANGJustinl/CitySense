@@ -511,6 +511,8 @@ export function RecommendationWorkspace({
             />
           ) : null}
           {resolvedUserId ? <a href={`/profile?userId=${encodeURIComponent(resolvedUserId)}`}>画像</a> : null}
+          <a href="/submit-place">分享地点</a>
+          <a href="/my-submissions">我的投稿</a>
           <a href="/admin/sources">Sources</a>
           <a href="/discover">Discover</a>
         </nav>

@@ -401,6 +401,8 @@ export function UserProfileView({
         <nav className="top-actions" aria-label="primary">
           <AccountSwitcher currentUserId={profile.userId} onChange={handleAccountChange} />
           <a href={`/?userId=${profile.userId}`}>工作台</a>
+          <a href="/submit-place">分享地点</a>
+          <a href="/my-submissions">我的投稿</a>
           <a href="/admin/sources">Sources</a>
         </nav>
       </header>

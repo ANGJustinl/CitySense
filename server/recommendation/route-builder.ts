@@ -350,7 +350,19 @@ function scoreRouteGroup(candidates: TrafficCandidate[], input: RecommendInput) 
   );
 }
 
-function generateRouteGroups(candidates: TrafficCandidate[], input: RecommendInput) {
+type GeneratedRouteGroups = {
+  groups: RouteCandidateGroup[];
+  // 实际生效的途径点个数。前端/MCP 可据此告知用户"因候选不足已从 6 点降级为 N 点"。
+  // - 未指定 waypointCount（走 pairs/triples 路径）→ 沿用每条路线 2-3 点，记 null。
+  // - 候选池连 2 个都凑不齐 → 退化为单点兜底，记 1。
+  appliedWaypointCount: number | null;
+};
+
+// 组合数 C(n, k) 随 k 指数增长，需按途径点大小限制候选池规模避免爆炸。
+// 索引即为 requestedSize（2-6）：2→20, 3→20, 4→12, 5→10, 6→8。
+const POOL_LIMIT_BY_SIZE = [0, 0, 20, 20, 12, 10, 8];
+
+function generateRouteGroups(candidates: TrafficCandidate[], input: RecommendInput): GeneratedRouteGroups {
   const eligible = candidates.filter(isRouteEligible);
   const allTop = (eligible.length > 0 ? eligible : candidates).slice(0, 20);
   const groups: RouteCandidateGroup[] = [];
@@ -360,17 +372,31 @@ function generateRouteGroups(candidates: TrafficCandidate[], input: RecommendInp
 
   if (requestedSize > 0) {
     // 指定了途径点数量：按大小生成组合。
-    // 组合数 C(n, k) 随 k 指数增长，需限制候选池大小避免爆炸。
-    // n=2 → top 20（C(20,2)=190）；n=3 → top 20（C(20,3)=1140）；
-    // n=4 → top 12（C(12,4)=495）；n=5 → top 10（C(10,5)=252）；n=6 → top 8（C(8,6)=28）。
-    const poolLimit = Math.min(allTop.length, [20, 20, 20, 12, 10, 8, 8][requestedSize] ?? 8);
-    const top = allTop.slice(0, poolLimit);
+    // 关键修复：候选池不足时做 clamping，而非静默退化为单点路线。
+    // 例：用户要 6 点但候选池只有 4 个 → 生成 4 点路线组合，保留多地点诉求。
+    const poolLimitBySize = POOL_LIMIT_BY_SIZE[requestedSize] ?? 8;
+    const cappedPool = Math.min(allTop.length, poolLimitBySize);
+    const effectiveSize = Math.min(requestedSize, cappedPool);
 
-    // 生成 C(top.length, requestedSize) 的所有组合。
-    const indices = Array.from({ length: requestedSize }, (_, i) => i);
-    const last = requestedSize - 1;
+    // effectiveSize < 2：候选池连两点路线都凑不齐 → 走最后的单点兜底。
+    if (effectiveSize < 2) {
+      return {
+        groups: allTop.slice(0, 3).map((candidate) => ({
+          candidates: [candidate],
+          routeScore: candidate.adjustedScore
+        })),
+        appliedWaypointCount: 1
+      };
+    }
 
-    while (indices[0] <= top.length - requestedSize) {
+    const top = allTop.slice(0, cappedPool);
+
+    // 生成 C(top.length, effectiveSize) 的所有组合。
+    // effectiveSize 已保证 <= top.length，故至少产出 1 个组合，不再落入单点兜底。
+    const indices = Array.from({ length: effectiveSize }, (_, i) => i);
+    const last = effectiveSize - 1;
+
+    while (indices[0] <= top.length - effectiveSize) {
       const combo = indices.map((i) => top[i]);
       const ordered = orderCandidatesForRoute(combo, input);
       groups.push({
@@ -379,12 +405,15 @@ function generateRouteGroups(candidates: TrafficCandidate[], input: RecommendInp
       });
 
       // 组合递增：从最后一位开始进位。
+      // 修复 off-by-one：原条件 `<= top.length - (effectiveSize - 1 - pos)` 会允许越界索引
+      // （如 top.length=8、effectiveSize=6 时允许 indices[5]=8，而 top[8] 不存在）。
+      // pos 位最大合法索引 = top.length - effectiveSize + pos（标准组合进位）。
       let pos = last;
       while (pos >= 0) {
         indices[pos] += 1;
-        if (indices[pos] <= top.length - (requestedSize - 1 - pos)) {
+        if (indices[pos] <= top.length - effectiveSize + pos) {
           // 重置后续位到最小合法值。
-          for (let j = pos + 1; j < requestedSize; j += 1) {
+          for (let j = pos + 1; j < effectiveSize; j += 1) {
             indices[j] = indices[j - 1] + 1;
           }
           break;
@@ -396,55 +425,72 @@ function generateRouteGroups(candidates: TrafficCandidate[], input: RecommendInp
         break;
       }
     }
-  } else {
-    // 未指定途径点：原有行为（pairs + 可选 triples）。
-    const preferPairsOnly = allTop.length < 9;
 
-    for (let first = 0; first < allTop.length; first += 1) {
-      for (let second = first + 1; second < allTop.length; second += 1) {
-        const pair = orderCandidatesForRoute([allTop[first], allTop[second]], input);
+    const nonDuplicateAddressGroups = groups.filter((group) => !hasDuplicateAddress(group.candidates));
+    const sorted = (nonDuplicateAddressGroups.length > 0 ? nonDuplicateAddressGroups : groups).sort(
+      (a, b) => b.routeScore - a.routeScore
+    );
+
+    return { groups: sorted, appliedWaypointCount: effectiveSize };
+  }
+
+  // 未指定途径点：原有行为（pairs + 可选 triples）。
+  const preferPairsOnly = allTop.length < 9;
+
+  for (let first = 0; first < allTop.length; first += 1) {
+    for (let second = first + 1; second < allTop.length; second += 1) {
+      const pair = orderCandidatesForRoute([allTop[first], allTop[second]], input);
+      groups.push({
+        candidates: pair,
+        routeScore: scoreRouteGroup(pair, input)
+      });
+
+      if (preferPairsOnly) {
+        continue;
+      }
+
+      for (let third = second + 1; third < allTop.length; third += 1) {
+        const triple = orderCandidatesForRoute([allTop[first], allTop[second], allTop[third]], input);
         groups.push({
-          candidates: pair,
-          routeScore: scoreRouteGroup(pair, input)
+          candidates: triple,
+          routeScore: scoreRouteGroup(triple, input)
         });
-
-        if (preferPairsOnly) {
-          continue;
-        }
-
-        for (let third = second + 1; third < allTop.length; third += 1) {
-          const triple = orderCandidatesForRoute([allTop[first], allTop[second], allTop[third]], input);
-          groups.push({
-            candidates: triple,
-            routeScore: scoreRouteGroup(triple, input)
-          });
-        }
       }
     }
   }
 
+  // pairs 路径仍可能因候选不足（<2）产出空组 → 单点兜底。
   if (groups.length === 0) {
-    return allTop.slice(0, 3).map((candidate) => ({
-      candidates: [candidate],
-      routeScore: candidate.adjustedScore
-    }));
+    return {
+      groups: allTop.slice(0, 3).map((candidate) => ({
+        candidates: [candidate],
+        routeScore: candidate.adjustedScore
+      })),
+      appliedWaypointCount: 1
+    };
   }
 
   const nonDuplicateAddressGroups = groups.filter((group) => !hasDuplicateAddress(group.candidates));
-
-  return (nonDuplicateAddressGroups.length > 0 ? nonDuplicateAddressGroups : groups).sort(
+  const sorted = (nonDuplicateAddressGroups.length > 0 ? nonDuplicateAddressGroups : groups).sort(
     (a, b) => b.routeScore - a.routeScore
   );
+
+  return { groups: sorted, appliedWaypointCount: null };
 }
 
-function selectRouteGroups(candidates: TrafficCandidate[], input: RecommendInput) {
+type SelectedRouteGroups = {
+  selected: RouteCandidateGroup[];
+  appliedWaypointCount: number | null;
+};
+
+function selectRouteGroups(candidates: TrafficCandidate[], input: RecommendInput): SelectedRouteGroups {
   const selected: RouteCandidateGroup[] = [];
   const usedKeys = new Set<string>();
   const usedPlaceIds = new Set<string>();
   const usedCandidates: TrafficCandidate[] = [];
   const firstPlaceIds = new Set<string>();
   const tagSignatures = new Set<string>();
-  const groups = generateRouteGroups(candidates, input);
+  const { groups, appliedWaypointCount } = generateRouteGroups(candidates, input);
   const preferredGroups = groups.filter((group) =>
     group.candidates.every((candidate) => Boolean(candidate.address) && isRouteEligible(candidate))
   );
@@ -571,7 +617,9 @@ function selectRouteGroups(candidates: TrafficCandidate[], input: RecommendInput
     }
   }
 
-  return selected.length > 0 ? selected : groups.slice(0, 1);
+  const finalSelected = selected.length > 0 ? selected : groups.slice(0, 1);
+
+  return { selected: finalSelected, appliedWaypointCount };
 }
 
 function uniqueSignals(candidates: TrafficCandidate[]): SourceSignal[] {
@@ -633,11 +681,14 @@ function titleFor(index: number, input: RecommendInput) {
   return names[index] ?? `${input.city} 探索线`;
 }
 
-export function buildRoutes(
-  candidates: TrafficCandidate[],
-  input: RecommendInput
-): RecommendedRoute[] {
-  return selectRouteGroups(candidates, input)
+export type BuiltRoutes = {
+  routes: RecommendedRoute[];
+  // 实际生效的途径点个数：null 表示未指定（沿用 pairs/triples 自适应），1 表示候选极度不足的单点兜底。
+  appliedWaypointCount: number | null;
+};
+
+function mapGroupsToRoutes(selected: RouteCandidateGroup[], input: RecommendInput): RecommendedRoute[] {
+  return selected
     .filter((group) => group.candidates.length > 0)
     .map((group, index) => {
       const slice = group.candidates;
@@ -676,4 +727,28 @@ export function buildRoutes(
       };
     })
     .slice(0, 3);
+}
+
+export function buildRoutes(
+  candidates: TrafficCandidate[],
+  input: RecommendInput
+): RecommendedRoute[] {
+  const { selected } = selectRouteGroups(candidates, input);
+  return mapGroupsToRoutes(selected, input);
+}
+
+/**
+ * 与 buildRoutes 相同，但同时返回实际生效的途径点个数。
+ * recommend() 用它把 appliedWaypointCount 透出到 meta，
+ * 让前端/MCP 能告知用户"因候选不足已从 6 点降级为 N 点"（诚实降级）。
+ */
+export function buildRoutesWithMeta(
+  candidates: TrafficCandidate[],
+  input: RecommendInput
+): BuiltRoutes {
+  const { selected, appliedWaypointCount } = selectRouteGroups(candidates, input);
+  return {
+    routes: mapGroupsToRoutes(selected, input),
+    appliedWaypointCount
+  };
 }

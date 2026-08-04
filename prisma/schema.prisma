@@ -1,3 +1,53 @@
+enum AppRole {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+enum VenuePublicationStatus {
+  PUBLISHED
+  UNLISTED
+  REMOVED
+}
+
+enum VenueSubmissionStatus {
+  DRAFT
+  SUBMITTED
+  PROCESSING
+  AUTO_PUBLISHED
+  NEEDS_REVIEW
+  CHANGES_REQUESTED
+  APPROVED
+  REJECTED
+  WITHDRAWN
+  REMOVED
+}
+
+enum SubmissionMatchType {
+  EXISTING_EXACT
+  EXISTING_PROBABLE
+  AMAP_EXACT
+  AMAP_PROBABLE
+  NOVEL
+  AMBIGUOUS
+}
+
+enum SubmissionImageStatus {
+  RESERVED
+  UPLOADED
+  VALIDATING
+  SAFE
+  FAILED
+  DELETED
+}
+
+enum ModerationActorType {
+  SYSTEM
+  MODERATOR
+  ADMIN
+  USER
+}
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -5,6 +55,125 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model AppUser {
+  id                String                       @id @db.Uuid
+  role              AppRole                      @default(USER)
+  emailSnapshot     String?
+  disabledAt        DateTime?
+  lastSignedInAt    DateTime?
+  submissions       VenueSubmission[]
+  moderationActions SubmissionModerationAction[]
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+}
+
+model VenueSubmission {
+  id                   String                       @id @default(cuid())
+  submitterId          String                       @db.Uuid
+  submitter            AppUser                      @relation(fields: [submitterId], references: [id], onDelete: Cascade)
+  status               VenueSubmissionStatus        @default(DRAFT)
+  version              Int                          @default(1)
+  idempotencyKey       String?
+  name                 String
+  description          String?
+  city                 String
+  area                 String?
+  address              String
+  userLat              Float?
+  userLng              Float?
+  verifiedAddress      String?
+  verifiedLat          Float?
+  verifiedLng          Float?
+  tags                 String[]
+  accessTips           String?
+  selectedAmapPoiId    String?
+  selectedAmapSnapshot Json?
+  matchType            SubmissionMatchType?
+  matchedVenueId       String?
+  matchedVenue         Venue?                       @relation("SubmissionMatchedVenue", fields: [matchedVenueId], references: [id], onDelete: SetNull)
+  resultingVenueId     String?
+  resultingVenue       Venue?                       @relation("SubmissionResultingVenue", fields: [resultingVenueId], references: [id], onDelete: SetNull)
+  contentHash          String?
+  technicalFlags       String[]                     @default([])
+  automatedResult      Json?
+  publicStatusMessage  String?
+  submittedAt          DateTime?
+  processingStartedAt  DateTime?
+  processingLeaseUntil DateTime?
+  reviewedAt           DateTime?
+  publishedAt          DateTime?
+  withdrawnAt          DateTime?
+  images               SubmissionImage[]
+  moderationActions    SubmissionModerationAction[]
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+
+  @@unique([submitterId, idempotencyKey])
+  @@index([submitterId, createdAt])
+  @@index([status, submittedAt])
+  @@index([city, status])
+  @@index([contentHash])
+  @@index([matchedVenueId])
+  @@index([resultingVenueId])
+}
+
+model SubmissionImage {
+  id                  String                @id @default(cuid())
+  submissionId        String
+  submission          VenueSubmission       @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  originalObjectPath  String                @unique
+  processedObjectPath String?
+  status              SubmissionImageStatus @default(RESERVED)
+  declaredMimeType    String?
+  detectedMimeType    String?
+  byteSize            Int?
+  width               Int?
+  height              Int?
+  sha256              String?
+  validationError     String?
+  createdAt           DateTime              @default(now())
+  validatedAt         DateTime?
+
+  @@index([submissionId, status])
+  @@index([sha256])
+}
+
+model VenueImage {
+  id           String   @id @default(cuid())
+  venueId      String
+  venue        Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  submissionId String?
+  objectPath   String   @unique
+  publicUrl    String
+  width        Int
+  height       Int
+  isPrimary    Boolean  @default(false)
+  published    Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@index([venueId, published])
+  @@index([submissionId])
+}
+
+model SubmissionModerationAction {
+  id           String                 @id @default(cuid())
+  submissionId String
+  submission   VenueSubmission        @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  actorUserId  String?                @db.Uuid
+  actorUser    AppUser?               @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorType    ModerationActorType
+  action       String
+  fromStatus   VenueSubmissionStatus?
+  toStatus     VenueSubmissionStatus
+  reasonCode   String?
+  reasonText   String?
+  metadata     Json?
+  createdAt    DateTime               @default(now())
+
+  @@index([submissionId, createdAt])
+  @@index([actorUserId, createdAt])
 }
 
 model SourceConnector {
@@ -86,34 +255,44 @@ model Event {
 }
 
 model Venue {
-  id           String   @id @default(cuid())
-  sourceKey    String?  @unique
-  name         String
-  description  String?
-  city         String
-  area         String?
-  address      String?
-  lat          Float?
-  lng          Float?
-  tags         String[]
-  priceLevel   Int?
-  quietness    Int?
-  popularity   Int?
-  source       String?
-  sourceUrl    String?
-  imageUrl     String?
-  imageSource  String?
-  trendScore   Float    @default(0)
-  confidence   Float    @default(0)
-  qualityScore Float    @default(50)
-  qualityFlags String[] @default([])
-  events       Event[]  @relation("EventVenue")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                      String                 @id @default(cuid())
+  sourceKey               String?                @unique
+  name                    String
+  description             String?
+  city                    String
+  area                    String?
+  address                 String?
+  lat                     Float?
+  lng                     Float?
+  tags                    String[]
+  priceLevel              Int?
+  quietness               Int?
+  popularity              Int?
+  source                  String?
+  sourceUrl               String?
+  imageUrl                String?
+  imageSource             String?
+  trendScore              Float                  @default(0)
+  confidence              Float                  @default(0)
+  qualityScore            Float                  @default(50)
+  qualityFlags            String[]               @default([])
+  publicationStatus       VenuePublicationStatus @default(PUBLISHED)
+  publishedAt             DateTime?
+  unpublishedAt           DateTime?
+  publicationReason       String?
+  publicationVersion      Int                    @default(1)
+  createdFromSubmissionId String?                @unique
+  events                  Event[]                @relation("EventVenue")
+  matchedSubmissions      VenueSubmission[]      @relation("SubmissionMatchedVenue")
+  resultingSubmissions    VenueSubmission[]      @relation("SubmissionResultingVenue")
+  images                  VenueImage[]
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
 
   @@index([city])
   @@index([area])
   @@index([qualityScore])
+  @@index([publicationStatus, city, area])
 }
 
 model CitySignal {

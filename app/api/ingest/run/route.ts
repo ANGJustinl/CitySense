@@ -3,11 +3,14 @@ import { ZodError } from "zod";
 import { enqueueIngestRun, isIngestQueueConfigured, resolveIngestSources } from "@/server/ingest/queue";
 import { ingestRunRequestSchema } from "@/server/ingest/types";
 import { getSourceAdapters } from "@/server/sources/source-registry";
+import { requireAdmin } from "@/server/auth/current-user";
+import { authErrorResponse } from "@/server/auth/http";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
+    await requireAdmin();
     const body = await request.json().catch(() => ({}));
     const input = ingestRunRequestSchema.parse(body);
     const knownSources = new Set(getSourceAdapters().map((adapter) => adapter.source));
@@ -39,6 +42,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result, { status: 202 });
   } catch (error) {
+    const authResponse = authErrorResponse(error);
+    if (authResponse) return authResponse;
     if (error instanceof ZodError) {
       return NextResponse.json(
         {

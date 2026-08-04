@@ -1,5 +1,6 @@
 import type { CitySourceAdapter, RawSourceItemDetail } from "@/server/sources/source.types";
 import { BaseCitySourceAdapter } from "@/server/sources/adapters/adapter-utils";
+import { searchAmapPlaces } from "@/server/maps/amap-place-search";
 
 type FetchLike = typeof fetch;
 
@@ -106,29 +107,28 @@ export async function searchAmapPoiVenueItems(input: AmapPoiSearchInput) {
     return [];
   }
 
-  const fetchFn = input.fetchFn ?? fetch;
   const keywords = input.keywords.length > 0 ? input.keywords : ["咖啡", "展览", "书店"];
   const results = await Promise.all(
     keywords.map(async (keyword) => {
       const searchKeyword = searchKeywordFor(keyword);
-      const params = new URLSearchParams({
-        key: apiKey,
-        keywords: input.area ? `${input.area} ${searchKeyword}` : searchKeyword,
+      const places = await searchAmapPlaces({
         city: input.city,
-        output: "json",
-        extensions: "all",
-        offset: String(input.limitPerKeyword ?? 6),
-        page: "1"
+        query: input.area ? `${input.area} ${searchKeyword}` : searchKeyword,
+        limit: input.limitPerKeyword ?? 6,
+        fetchFn: input.fetchFn
       });
-
-      const response = await fetchFn(`https://restapi.amap.com/v3/place/text?${params.toString()}`, {
-        next: { revalidate: 60 * 30 }
-      });
-      const data = (await response.json()) as { pois?: AmapPoi[] };
-
-      return (data.pois ?? []).map((poi) => ({
+      return places.map((place) => ({
         keyword,
-        poi
+        poi: {
+          id: place.id,
+          name: place.name,
+          address: place.address,
+          location: Number.isFinite(place.lng) && Number.isFinite(place.lat) ? `${place.lng},${place.lat}` : undefined,
+          type: place.type,
+          cityname: place.city,
+          adname: place.area,
+          photos: place.imageUrl ? [{ url: place.imageUrl }] : []
+        } satisfies AmapPoi
       }));
     })
   );

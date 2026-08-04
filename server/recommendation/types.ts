@@ -232,6 +232,14 @@ export type RecommendResponse = {
       confidence: "low" | "medium" | "high";
       degraded: boolean;
     };
+    /**
+     * 实际生效的每条路线途径点个数。
+     * - null：未指定 waypointCount，沿用 pairs/triples 自适应（每条 2-3 点）。
+     * - 1：候选池极度不足，退化为单点兜底路线。
+     * - 2-6：用户指定且（经候选规模 clamping 后）生效的途径点数。
+     * 当与请求值不一致时，前端/MCP 可据此提示"因候选不足已从 N 点降级"。
+     */
+    appliedWaypointCount?: number | null;
     generatedAt: string;
   };
 };

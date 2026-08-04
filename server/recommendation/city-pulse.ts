@@ -1,5 +1,6 @@
 import { prisma } from "@/server/db/prisma";
 import { isDemoModeEnabled, MOCK_SOURCE_NAMES } from "@/server/config/demo-mode";
+import { publishedVenueWhere } from "@/server/venues/publication";
 
 export type PulseMetric = {
   label: string;
@@ -132,6 +133,7 @@ export async function getCityPulse(input: {
         }),
         prisma.venue.findMany({
           where: {
+            ...publishedVenueWhere(),
             city: input.city,
             ...(input.area ? { area: input.area } : {}),
             ...entitySourceFilter

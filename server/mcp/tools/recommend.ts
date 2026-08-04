@@ -58,6 +58,15 @@ const inputSchema = {
     .optional()
     .describe(
       "Whether to call AMap for real-time ETA. Defaults to true; falls back to estimation if AMAP_API_KEY is unset."
+    ),
+  waypointCount: z
+    .number()
+    .int()
+    .min(2)
+    .max(6)
+    .optional()
+    .describe(
+      "Number of places (waypoints) per route (2-6). Controls how compact vs rich each route is. When omitted the pipeline auto-picks 2-3. If the candidate pool is smaller than requested, the effective size is clamped down (returned in meta.appliedWaypointCount)."
     )
 } satisfies Record<string, z.ZodType>;
 
@@ -67,7 +76,7 @@ export function registerRecommendTool(server: McpServer) {
     {
       title: "Recommend city routes",
       description:
-        "Generate 3 executable city exploration routes from CitySense. Each route has 2-3 places, traffic duration, source signals (e.g. 小红书热度, 高德POI), and an AI-explained reason. Writes a recommendation snapshot so route ids can be opened later via get_route_detail.",
+        "Generate 3 executable city exploration routes from CitySense. Each route has 2-6 places (configurable via waypointCount; clamped down if the candidate pool is too small, see meta.appliedWaypointCount), traffic duration, source signals (e.g. 小红书热度, 高德POI), and an AI-explained reason. Writes a recommendation snapshot so route ids can be opened later via get_route_detail.",
       inputSchema,
       annotations: {
         readOnlyHint: false, // persists a RecommendationLog row
