@@ -27,6 +27,11 @@ import {
 } from "@/server/ai/chat-client";
 import { CHAT_TOOLS, executeChatTool, TOOL_DISPLAY_NAMES } from "@/server/ai/chat-tools";
 import { appendChatMessages, clearChatHistory, loadChatHistory } from "@/server/ai/chat-session";
+import {
+  ProfileAccessError,
+  normalizeProfileKey,
+  requireOwnedProfileKey
+} from "@/server/auth/profile-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -160,10 +165,33 @@ export async function POST(request: Request) {
     );
   }
 
-  const sessionId = body.sessionId;
+  let sessionId: string | undefined;
+  let profileKey: string | undefined;
+
+  try {
+    sessionId = normalizeProfileKey(body.sessionId);
+    profileKey = requireOwnedProfileKey({
+      requestedProfileKey: body.context?.profileKey ?? sessionId,
+      sessionId,
+      allowEmpty: true
+    });
+  } catch (error) {
+    if (error instanceof ProfileAccessError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code
+        },
+        { status: error.status }
+      );
+    }
+
+    throw error;
+  }
+
   const context = {
     sessionId,
-    profileKey: body.context?.profileKey ?? sessionId,
+    profileKey,
     recommendationId: body.context?.recommendationId,
     city: body.context?.city || "上海",
     area: body.context?.area

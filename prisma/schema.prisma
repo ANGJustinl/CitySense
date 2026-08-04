@@ -374,6 +374,31 @@ model TrafficSnapshot {
   @@index([capturedAt])
 }
 
+model CityConditionSnapshot {
+  id         String   @id @default(cuid())
+  city       String
+  area       String?
+  venueId    String?
+  condition  String
+  score      Float
+  label      String?
+  source     String
+  confidence Float
+  metadata   Json?
+  capturedAt DateTime @default(now())
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([city])
+  @@index([area])
+  @@index([venueId])
+  @@index([condition])
+  @@index([capturedAt])
+  @@index([expiresAt])
+  @@index([city, area, condition, expiresAt])
+}
+
 model UserPreference {
   id             String    @id @default(cuid())
   userId         String    @unique

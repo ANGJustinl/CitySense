@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db/prisma";
+import { enqueueNormalizeJob } from "@/server/ingest/queue";
 import {
   buildCitySignalRows,
   type NormalizedEntityInput
@@ -23,11 +24,15 @@ import type { RawSourceItemDetail } from "@/server/sources/source.types";
 
 type IngestRunRecord = NonNullable<Awaited<ReturnType<typeof prisma.ingestRun.findUnique>>>;
 type RawSourceItemRecord = NonNullable<Awaited<ReturnType<typeof prisma.rawSourceItem.findUnique>>>;
+type AdapterWithPreFilterStats = {
+  getLastPreFilteredCount: () => number;
+};
 
 export type NormalizePendingRawSourceItemsInput = {
   source?: string;
   ingestRunId?: string;
   limit?: number;
+  itemConcurrency?: number;
 };
 
 export type NormalizePendingRawSourceItemsResult = {
@@ -38,6 +43,38 @@ export type NormalizePendingRawSourceItemsResult = {
   citySignalsCreated: number;
   errors: string[];
 };
+
+function boundedConcurrency(value: unknown, fallback = 1) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.max(1, Math.min(8, Math.floor(parsed)));
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(items.length, boundedConcurrency(concurrency));
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(items[index]);
+      }
+    })
+  );
+
+  return results;
+}
 
 function toJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -84,8 +121,11 @@ async function collectAdapterItems(run: IngestRunRecord, source: string) {
 
   // 尝试获取预过滤统计（仅支持此功能的适配器，如小红书）
   let preFilteredCount = 0;
-  if ('getLastPreFilteredCount' in adapter && typeof adapter.getLastPreFilteredCount === 'function') {
-    preFilteredCount = (adapter as any).getLastPreFilteredCount();
+  if (
+    "getLastPreFilteredCount" in adapter &&
+    typeof adapter.getLastPreFilteredCount === "function"
+  ) {
+    preFilteredCount = (adapter as AdapterWithPreFilterStats).getLastPreFilteredCount();
   }
 
   return {
@@ -554,16 +594,35 @@ export async function processPendingRawSourceItems(
     errors: []
   };
 
-  for (const row of rows) {
-    try {
-      const itemResult = await normalizeRawSourceItemById(row.id);
+  const itemResults = await mapWithConcurrency(
+    rows,
+    boundedConcurrency(input.itemConcurrency),
+    async (row) => {
+      try {
+        return {
+          ...(await normalizeRawSourceItemById(row.id)),
+          sourceKey: row.sourceKey
+        };
+      } catch (error) {
+        return {
+          normalized: false,
+          ignored: false,
+          citySignalsCreated: 0,
+          sourceKey: row.sourceKey,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }
+  );
 
-      result.normalized += itemResult.normalized ? 1 : 0;
-      result.ignored += itemResult.ignored ? 1 : 0;
-      result.citySignalsCreated += itemResult.citySignalsCreated;
-    } catch (error) {
+  for (const itemResult of itemResults) {
+    result.normalized += itemResult.normalized ? 1 : 0;
+    result.ignored += itemResult.ignored ? 1 : 0;
+    result.citySignalsCreated += itemResult.citySignalsCreated;
+
+    if (itemResult.error) {
       result.failed += 1;
-      result.errors.push(`${row.sourceKey}: ${error instanceof Error ? error.message : String(error)}`);
+      result.errors.push(`${itemResult.sourceKey}: ${itemResult.error}`);
     }
   }
 
@@ -733,53 +792,130 @@ function finalRunStatus(stats: IngestStats) {
   return "completed";
 }
 
-export async function executeIngestRun(runId: string) {
-  await syncSourceConnectors();
+function normalizeJobLimit() {
+  const value = Number(process.env.NORMALIZE_JOB_LIMIT ?? process.env.NORMALIZE_WORKER_LIMIT ?? "20");
 
-  const run = await prisma.ingestRun.findUnique({
-    where: {
-      id: runId
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 20;
+}
+
+async function enqueuePostIngestNormalization(input: {
+  runId: string;
+  results: SourceIngestResult[];
+  stats: IngestStats;
+  enqueue?: typeof enqueueNormalizeJob;
+}) {
+  const completed = input.results.filter(
+    (result) => result.status === "completed" && result.rawUpserted > 0
+  );
+  let stats = {
+    ...input.stats,
+    normalizeJobsQueued: input.stats.normalizeJobsQueued ?? 0,
+    normalizeEnqueueErrors: input.stats.normalizeEnqueueErrors ?? []
+  };
+
+  for (const result of completed) {
+    try {
+      await (input.enqueue ?? enqueueNormalizeJob)({
+        source: result.source,
+        ingestRunId: input.runId,
+        limit: normalizeJobLimit()
+      });
+      stats = {
+        ...stats,
+        normalizeJobsQueued: (stats.normalizeJobsQueued ?? 0) + 1
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "normalize enqueue failed";
+      stats = {
+        ...stats,
+        normalizeEnqueueErrors: [
+          ...(stats.normalizeEnqueueErrors ?? []),
+          `${result.source}: ${message}`
+        ]
+      };
     }
-  });
-
-  if (!run) {
-    throw new Error(`Ingest run not found: ${runId}`);
   }
 
-  await updateRun(run.id, {
-    status: "running",
-    startedAt: new Date()
-  });
+  return stats;
+}
 
-  let stats = createEmptyIngestStats(run.sources.length);
+export async function executeIngestRun(runId: string) {
+  try {
+    await syncSourceConnectors();
 
-  for (const source of run.sources) {
-    const result = await ingestSource(run, source);
-    stats = applySourceResult(stats, result);
+    const run = await prisma.ingestRun.findUnique({
+      where: {
+        id: runId
+      }
+    });
+
+    if (!run) {
+      throw new Error(`Ingest run not found: ${runId}`);
+    }
 
     await updateRun(run.id, {
-      stats: toJson(stats)
+      status: "running",
+      startedAt: new Date()
     });
+
+    let stats = createEmptyIngestStats(run.sources.length);
+    const sourceResults: SourceIngestResult[] = [];
+
+    for (const source of run.sources) {
+      const result = await ingestSource(run, source);
+      sourceResults.push(result);
+      stats = applySourceResult(stats, result);
+
+      await updateRun(run.id, {
+        stats: toJson(stats)
+      });
+    }
+
+    stats = await enqueuePostIngestNormalization({
+      runId: run.id,
+      results: sourceResults,
+      stats
+    });
+    const status = finalRunStatus(stats);
+
+    await updateRun(run.id, {
+      status,
+      stats: toJson(stats),
+      error: stats.errors.length > 0 ? stats.errors.join("; ") : null,
+      finishedAt: new Date()
+    });
+
+    return {
+      runId: run.id,
+      status,
+      stats
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    try {
+      await prisma.ingestRun.updateMany({
+        where: {
+          id: runId,
+          status: {
+            in: ["queued", "running"]
+          }
+        },
+        data: {
+          error: message
+        }
+      });
+    } catch {
+      // Best-effort error annotation; rethrow the original worker error.
+    }
+
+    throw error;
   }
-
-  const status = finalRunStatus(stats);
-
-  await updateRun(run.id, {
-    status,
-    stats: toJson(stats),
-    error: stats.errors.length > 0 ? stats.errors.join("; ") : null,
-    finishedAt: new Date()
-  });
-
-  return {
-    runId: run.id,
-    status,
-    stats
-  };
 }
 
 export const __testing = {
   eventDataForEntity,
   venueDataForEntity,
-  rawSourceItemDetailFromRecord
+  rawSourceItemDetailFromRecord,
+  enqueuePostIngestNormalization
 };

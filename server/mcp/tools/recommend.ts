@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { recommend, recommendRequestSchema } from "@/server/recommendation/recommend";
-import { jsonResult, requireDatabaseUrl, runTool } from "./shared";
+import { requireDatabaseUrl, runTool } from "./shared";
 
 /**
  * `recommend_routes`

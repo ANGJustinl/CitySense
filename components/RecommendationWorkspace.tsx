@@ -1,9 +1,6 @@
 "use client";
 
 import {
-  type CSSProperties,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -28,57 +25,27 @@ import type {
   RecommendResponse,
   TimeWindow
 } from "@/server/recommendation/types";
+import { AccountSwitcher } from "@/components/AccountSwitcher";
 import { CityPulsePanel } from "@/components/city/CityPulsePanel";
 import { RouteInspector } from "@/components/city/RouteInspector";
 import { RouteMapCanvas } from "@/components/city/RouteMapCanvas";
 import { RouteTimeline } from "@/components/city/RouteTimeline";
 import { UserProfilePanel } from "@/components/city/UserProfilePanel";
-import { AccountSwitcher } from "@/components/AccountSwitcher";
-import { DEMO_USERS } from "@/lib/demo-users";
 import { ChatDock } from "@/components/assistant/ChatDock";
 import { ChatDrawer } from "@/components/assistant/ChatDrawer";
+import { DEFAULT_DEMO_USER_ID, DEMO_USER_PERSONA_INTERESTS } from "@/lib/demo-users";
 
 type WorkspaceProps = {
   initialData: RecommendResponse;
   /** 页面传入的用户 ID（来自 URL ?userId=），兼容 initialUserId 别名。 */
   userId?: string;
   initialUserId?: string;
-  initialInterests?: string[];
 };
 
-type WorkspacePanel = "controls" | "map" | "inspector" | "pulse" | "profile";
-type WorkspacePanelWidths = Record<WorkspacePanel, number>;
+/** Identifiers for the floating dock panels that can be collapsed. */
+type FloatingPanelId = "controls" | "inspector" | "pulse";
 
-/**
- * 兴趣关键词选项（按类别分组），覆盖后端 DIMENSIONS 标签体系 + seed 数据。
- * 分类便于浏览，每类精选高频标签，确保选择后能匹配到真实候选数据。
- */
-const interestOptions: { group: string; tags: string[] }[] = [
-  {
-    group: "文化静思",
-    tags: ["展览", "书店", "艺术", "美术馆", "漫画"]
-  },
-  {
-    group: "咖啡生活",
-    tags: ["咖啡", "甜品", "烘焙"]
-  },
-  {
-    group: "夜生活",
-    tags: ["独立音乐", "livehouse", "酒吧", "夜生活"]
-  },
-  {
-    group: "市集美食",
-    tags: ["市集", "美食", "小吃", "快闪"]
-  },
-  {
-    group: "户外休闲",
-    tags: ["公园", "滨江", "运动", "宠物友好"]
-  },
-  {
-    group: "热门潮流",
-    tags: ["购物", "潮流", "演出", "电影"]
-  }
-];
+const interestOptions = ["咖啡", "展览", "书店", "漫画", "独立音乐", "夜生活"];
 const moodOptions: { value: Mood; label: string }[] = [
   { value: "solo", label: "Solo" },
   { value: "quiet", label: "安静" },
@@ -96,20 +63,6 @@ const budgetOptions: { value: Budget; label: string }[] = [
   { value: "medium", label: "中" },
   { value: "high", label: "高" }
 ];
-const defaultPanelWidths: WorkspacePanelWidths = {
-  controls: 300,
-  map: 960,
-  inspector: 560,
-  pulse: 320,
-  profile: 300
-};
-const minPanelWidths: WorkspacePanelWidths = {
-  controls: 260,
-  map: 720,
-  inspector: 460,
-  pulse: 280,
-  profile: 260
-};
 type OriginMode = "current" | "manual";
 type LocationStatus = "idle" | "locating" | "located" | "unavailable" | "blocked";
 
@@ -161,14 +114,11 @@ function formatGeneratedAt(value: string) {
   });
 }
 
-export function RecommendationWorkspace({
-  initialData,
-  userId,
-  initialUserId,
-  initialInterests
-}: WorkspaceProps) {
+export function RecommendationWorkspace({ initialData, userId, initialUserId }: WorkspaceProps) {
   // 兼容 main 的 initialUserId prop 和 ai-assistant 的 userId prop。
-  const resolvedUserId = userId ?? initialUserId;
+  const initialResolvedUserId = userId ?? initialUserId ?? DEFAULT_DEMO_USER_ID;
+  const [activeUserId, setActiveUserId] = useState(initialResolvedUserId);
+  const resolvedUserId = activeUserId;
   const [chatOpen, setChatOpen] = useState(false);
   const [city, setCity] = useState("上海");
   const [area, setArea] = useState("");
@@ -177,15 +127,7 @@ export function RecommendationWorkspace({
   const [originAddress, setOriginAddress] = useState("");
   const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
   const [originMessage, setOriginMessage] = useState<string | undefined>();
-  const [interests, setInterests] = useState(
-    initialInterests && initialInterests.length > 0
-      ? initialInterests
-      : ["咖啡", "展览", "书店", "独立音乐"]
-  );
-  // 兴趣分组折叠状态：默认"咖啡生活"展开（含高频默认选中），其余折叠。
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
-    () => new Set(["夜生活", "市集美食", "户外休闲", "热门潮流"])
-  );
+  const [interests, setInterests] = useState(["咖啡", "展览", "书店", "漫画", "独立音乐"]);
   const [mood, setMood] = useState<Mood>("solo");
   const [budget, setBudget] = useState<Budget>("medium");
   const [timeWindow, setTimeWindow] = useState<TimeWindow>("tonight");
@@ -196,9 +138,22 @@ export function RecommendationWorkspace({
     initialData.routes[0]?.id
   );
   const [isLoading, setIsLoading] = useState(false);
-  const [recommendationError, setRecommendationError] = useState<string | undefined>();
-  const [profileRevision, setProfileRevision] = useState(0);
-  const [panelWidths, setPanelWidths] = useState<WorkspacePanelWidths>(defaultPanelWidths);
+  const [collapsedPanels, setCollapsedPanels] = useState<Record<FloatingPanelId, boolean>>({
+    controls: true,
+    inspector: true,
+    pulse: true
+  });
+  const [mounted, setMounted] = useState(false);
+
+  const togglePanel = useCallback((id: FloatingPanelId) => {
+    setCollapsedPanels((current) => ({ ...current, [id]: !current[id] }));
+  }, []);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setMounted(true), 0);
+
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   const heatContext = useMemo(
     () => ({ city, area: area || undefined, interests, mood, budget }),
@@ -292,7 +247,6 @@ export function RecommendationWorkspace({
     }
 
     setOriginMessage(undefined);
-    setRecommendationError(undefined);
     setIsLoading(true);
 
     try {
@@ -308,9 +262,9 @@ export function RecommendationWorkspace({
               mood,
               budget,
               timeWindow,
+              waypointCount,
               useRealtimeTraffic,
-              useSocialSignals: true,
-              waypointCount
+              useSocialSignals: true
             }
           : {
               userId: resolvedUserId,
@@ -329,9 +283,9 @@ export function RecommendationWorkspace({
               mood,
               budget,
               timeWindow,
+              waypointCount,
               useRealtimeTraffic,
-              useSocialSignals: true,
-              waypointCount
+              useSocialSignals: true
             };
       const response = await fetch("/api/recommend", {
         method: "POST",
@@ -368,8 +322,69 @@ export function RecommendationWorkspace({
       } else if (originMode === "manual") {
         setOriginMessage("未找到该起点，已按城市级路线返回");
       }
-    } catch (cause) {
-      setRecommendationError(cause instanceof Error ? cause.message : "路线生成失败，请重试");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleAccountChange(nextUserId: string) {
+    if (nextUserId === activeUserId) return;
+
+    const nextInterests = DEMO_USER_PERSONA_INTERESTS[nextUserId] ?? interests;
+
+    setActiveUserId(nextUserId);
+    setInterests(nextInterests);
+    setIsLoading(true);
+
+    try {
+      const requestBody =
+        originMode === "manual"
+          ? {
+              userId: nextUserId,
+              city,
+              area: area || undefined,
+              originAddress: originAddress.trim(),
+              interests: nextInterests,
+              mood,
+              budget,
+              timeWindow,
+              waypointCount,
+              useRealtimeTraffic,
+              useSocialSignals: true
+            }
+          : {
+              userId: nextUserId,
+              city,
+              area: area || undefined,
+              origin: {
+                lat: origin.lat,
+                lng: origin.lng,
+                label: origin.label,
+                address: origin.address,
+                source: origin.source,
+                provider: origin.provider
+              },
+              interests: nextInterests,
+              mood,
+              budget,
+              timeWindow,
+              waypointCount,
+              useRealtimeTraffic,
+              useSocialSignals: true
+            };
+      const response = await fetch("/api/recommend", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) throw new Error("recommend failed");
+
+      const nextData = (await response.json()) as RecommendResponse;
+      setData(nextData);
+      setSelectedRouteId(nextData.routes[0]?.id);
+    } catch {
+      // 切换失败保持原数据，不阻塞 UI。
     } finally {
       setIsLoading(false);
     }
@@ -383,115 +398,9 @@ export function RecommendationWorkspace({
     );
   }
 
-  function toggleGroup(group: string) {
-    setCollapsedGroups((current) => {
-      const next = new Set(current);
-      if (next.has(group)) {
-        next.delete(group);
-      } else {
-        next.add(group);
-      }
-      return next;
-    });
-  }
-
-  function resizePanels(left: WorkspacePanel, right: WorkspacePanel, delta: number) {
-    setPanelWidths((current) => {
-      const total = current[left] + current[right];
-      const nextLeft = Math.min(
-        Math.max(current[left] + delta, minPanelWidths[left]),
-        total - minPanelWidths[right]
-      );
-
-      return {
-        ...current,
-        [left]: Math.round(nextLeft),
-        [right]: Math.round(total - nextLeft)
-      };
-    });
-  }
-
-  function startPanelResize(
-    left: WorkspacePanel,
-    right: WorkspacePanel,
-    event: ReactPointerEvent<HTMLButtonElement>
-  ) {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startLeft = panelWidths[left];
-    const startRight = panelWidths[right];
-    const total = startLeft + startRight;
-
-    function onPointerMove(moveEvent: globalThis.PointerEvent) {
-      const delta = moveEvent.clientX - startX;
-      const nextLeft = Math.min(
-        Math.max(startLeft + delta, minPanelWidths[left]),
-        total - minPanelWidths[right]
-      );
-
-      setPanelWidths((current) => ({
-        ...current,
-        [left]: Math.round(nextLeft),
-        [right]: Math.round(total - nextLeft)
-      }));
-    }
-
-    function onPointerUp() {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-    }
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp, { once: true });
-  }
-
-  function onResizeHandleKeyDown(
-    left: WorkspacePanel,
-    right: WorkspacePanel,
-    event: ReactKeyboardEvent<HTMLButtonElement>
-  ) {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-      return;
-    }
-
-    event.preventDefault();
-    resizePanels(left, right, event.key === "ArrowRight" ? 24 : -24);
-  }
-
-  const workspaceStyle = {
-    "--control-col": `${panelWidths.controls}px`,
-    "--map-col": `${panelWidths.map}px`,
-    "--inspector-col": `${panelWidths.inspector}px`,
-    "--pulse-col": `${panelWidths.pulse}px`,
-    "--profile-col": `${panelWidths.profile}px`
-  } as CSSProperties;
-
-  function renderColumnResizeHandle({
-    left,
-    right,
-    label
-  }: {
-    left: WorkspacePanel;
-    right: WorkspacePanel;
-    label: string;
-  }) {
-    return (
-      <button
-        aria-label={label}
-        aria-orientation="vertical"
-        className="column-resize-handle"
-        onKeyDown={(event) => onResizeHandleKeyDown(left, right, event)}
-        onPointerDown={(event) => startPanelResize(left, right, event)}
-        role="separator"
-        tabIndex={0}
-        type="button"
-      />
-    );
-  }
-
   return (
-    <main className="app-shell">
-      <header className="topbar">
+    <main className="app-shell map-fullscreen">
+      <header className="topbar floating-topbar">
         <div className="brand-lockup">
           <span className="brand-mark">
             <Activity size={20} />
@@ -502,29 +411,31 @@ export function RecommendationWorkspace({
           </div>
         </div>
         <nav className="top-actions" aria-label="primary">
-          {resolvedUserId && DEMO_USERS.some((item) => item.userId === resolvedUserId) ? (
-            <AccountSwitcher
-              currentUserId={resolvedUserId}
-              onChange={(nextUserId) => {
-                window.location.href = `/?userId=${encodeURIComponent(nextUserId)}`;
-              }}
-            />
-          ) : null}
-          {resolvedUserId ? <a href={`/profile?userId=${encodeURIComponent(resolvedUserId)}`}>画像</a> : null}
-          <a href="/submit-place">分享地点</a>
-          <a href="/my-submissions">我的投稿</a>
+          <AccountSwitcher currentUserId={activeUserId} onChange={handleAccountChange} />
           <a href="/admin/sources">Sources</a>
           <a href="/discover">Discover</a>
+          <a href={`/profile?userId=${activeUserId}`}>画像</a>
         </nav>
       </header>
 
-      <section className="workspace map-first" style={workspaceStyle}>
-        <aside className="controls-panel resizable-panel" aria-label="recommendation controls">
-          <div className="section-heading">
-            <SlidersHorizontal size={18} />
+      <aside
+        aria-label="recommendation controls"
+        className="floating-panel dock-left controls-panel"
+        data-collapsed={collapsedPanels.controls ? "true" : "false"}
+      >
+        <button
+          aria-expanded={!collapsedPanels.controls}
+          className="panel-toggle"
+          onClick={() => togglePanel("controls")}
+          type="button"
+        >
+          <span className="panel-toggle-label">
+            <SlidersHorizontal size={16} />
             <span>推荐输入</span>
-          </div>
-
+          </span>
+          <ChevronDown className="panel-toggle-caret" size={16} />
+        </button>
+        <div className="panel-body">
           <label className="field">
             <span>城市</span>
             <input value={city} onChange={(event) => setCity(event.target.value)} />
@@ -605,40 +516,17 @@ export function RecommendationWorkspace({
 
           <div className="field">
             <span>兴趣</span>
-            <div className="chip-groups">
-              {interestOptions.map((group) => {
-                const collapsed = collapsedGroups.has(group.group);
-                const activeInGroup = group.tags.filter((t) => interests.includes(t)).length;
-                return (
-                  <div className="chip-group" key={group.group}>
-                    <button
-                      className={`chip-group-header ${collapsed ? "collapsed" : ""}`}
-                      onClick={() => toggleGroup(group.group)}
-                      type="button"
-                    >
-                      <ChevronDown size={14} className="chip-group-chevron" />
-                      <span className="chip-group-label">{group.group}</span>
-                      {activeInGroup > 0 ? (
-                        <span className="chip-group-count">{activeInGroup}</span>
-                      ) : null}
-                    </button>
-                    {collapsed ? null : (
-                      <div className="chip-grid">
-                        {group.tags.map((interest) => (
-                          <button
-                            className={interests.includes(interest) ? "chip active" : "chip"}
-                            key={interest}
-                            onClick={() => toggleInterest(interest)}
-                            type="button"
-                          >
-                            {interest}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+            <div className="chip-grid">
+              {interestOptions.map((interest) => (
+                <button
+                  className={interests.includes(interest) ? "chip active" : "chip"}
+                  key={interest}
+                  onClick={() => toggleInterest(interest)}
+                  type="button"
+                >
+                  {interest}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -715,114 +603,108 @@ export function RecommendationWorkspace({
             <span>高德实时 ETA</span>
           </label>
 
-          {recommendationError ? (
-            <p className="profile-error" role="alert">
-              {recommendationError}
-            </p>
-          ) : null}
           <button className="primary-button" disabled={isLoading} onClick={submitRecommendation} type="button">
             {isLoading ? <Loader2 className="spin" size={18} /> : <RefreshCw size={18} />}
             生成路线
           </button>
-        </aside>
+        </div>
+      </aside>
 
-        {renderColumnResizeHandle({
-          label: "调整输入和地图宽度",
-          left: "controls",
-          right: "map"
-        })}
+      {/* Fullscreen map: RouteMapCanvas renders its own .map-canvas-panel which is
+          promoted to position:fixed;inset:0 under .map-fullscreen. The metrics
+          strip, timeline, and dock panels below all float over it. */}
+      <div className="map-metrics floating-metrics" aria-label="recommendation pipeline metrics">
+        <div>
+          <MapPin size={16} />
+          <span>起点</span>
+          <strong>{originLabel}</strong>
+        </div>
+        <div className={isEstimatedTraffic ? "degraded" : ""}>
+          {isEstimatedTraffic ? <TriangleAlert size={16} /> : <Navigation size={16} />}
+          <span>高德 ETA</span>
+          <strong>
+            {isEstimatedTraffic ? "估算降级" : `${amapRouteCount}/${data.routes.length}`}
+          </strong>
+        </div>
+        <div>
+          <Navigation size={16} />
+          <span>路线</span>
+          <strong>{data.routes.length} 条 / {data.meta.candidateCount} 候选</strong>
+        </div>
+        <div>
+          <Clock3 size={16} />
+          <span>生成</span>
+          <strong>{mounted ? formatGeneratedAt(data.meta.generatedAt) : "…"}</strong>
+        </div>
+      </div>
 
-        <section className="map-stage resizable-panel" aria-label="route map workspace">
-          <div className="map-metrics" aria-label="recommendation pipeline metrics">
-            <div>
-              <MapPin size={16} />
-              <span>起点</span>
-              <strong>{originLabel}</strong>
-            </div>
-            <div className={isEstimatedTraffic ? "degraded" : ""}>
-              {isEstimatedTraffic ? <TriangleAlert size={16} /> : <Navigation size={16} />}
-              <span>高德 ETA</span>
-              <strong>
-                {isEstimatedTraffic ? "估算降级" : `${amapRouteCount}/${data.routes.length}`}
-              </strong>
-            </div>
-            <div>
-              <Navigation size={16} />
-              <span>路线</span>
-              <strong>{data.routes.length} 条 / {data.meta.candidateCount} 候选</strong>
-            </div>
-            <div>
-              <Clock3 size={16} />
-              <span>生成</span>
-              <strong>{formatGeneratedAt(data.meta.generatedAt)}</strong>
-            </div>
-          </div>
+      <RouteMapCanvas
+        heatContext={heatContext}
+        isLoading={isLoading}
+        onSelectRoute={setSelectedRouteId}
+        routes={data.routes}
+        selectedRouteId={selectedRoute?.id}
+      />
 
-          <RouteMapCanvas
-            heatContext={heatContext}
+      <div className="floating-timeline">
+        <RouteTimeline route={selectedRoute} />
+      </div>
+
+      <aside
+        aria-label="route inspector"
+        className="floating-panel dock-right-top inspector-panel"
+        data-collapsed={collapsedPanels.inspector ? "true" : "false"}
+      >
+        <button
+          aria-expanded={!collapsedPanels.inspector}
+          className="panel-toggle"
+          onClick={() => togglePanel("inspector")}
+          type="button"
+        >
+          <span className="panel-toggle-label">
+            <Navigation size={16} />
+            <span>路线详情</span>
+          </span>
+          <ChevronDown className="panel-toggle-caret" size={16} />
+        </button>
+        <div className="panel-body">
+          <RouteInspector
             isLoading={isLoading}
             onSelectRoute={setSelectedRouteId}
+            recommendationId={data.meta.recommendationId}
             routes={data.routes}
             selectedRouteId={selectedRoute?.id}
           />
+        </div>
+      </aside>
 
-          <RouteTimeline route={selectedRoute} />
-        </section>
-
-        {renderColumnResizeHandle({
-          label: "调整地图和路线面板宽度",
-          left: "map",
-          right: "inspector"
-        })}
-
-        <aside className="inspector-rail resizable-panel" aria-label="route inspector">
-          <div className="inspector-panel">
-            <RouteInspector
-              isLoading={isLoading}
-              onSelectRoute={setSelectedRouteId}
-              recommendationId={data.meta.recommendationId}
-              userId={resolvedUserId}
-              sessionId={resolvedUserId ? undefined : getAnonymousSessionId()}
-              onFeedbackRecorded={() => setProfileRevision((value) => value + 1)}
-              routes={data.routes}
-              selectedRouteId={selectedRoute?.id}
-            />
-          </div>
-        </aside>
-
-        {renderColumnResizeHandle({
-          label: "调整路线面板和城市信号宽度",
-          left: "inspector",
-          right: "pulse"
-        })}
-
-        <aside className="pulse-rail resizable-panel" aria-label="city pulse">
-          <div className="pulse-panel">
-            <CityPulsePanel area={area || undefined} city={city} response={data} />
-          </div>
-        </aside>
-
-        {renderColumnResizeHandle({
-          label: "调整城市信号和用户画像宽度",
-          left: "pulse",
-          right: "profile"
-        })}
-
-        <aside className="profile-rail resizable-panel" aria-label="user profile">
-          <div className="pulse-panel">
-            <UserProfilePanel
-              profileKey={resolvedUserId ?? getAnonymousSessionId()}
-              profileRevision={profileRevision}
-              response={data}
-            />
-          </div>
-        </aside>
-      </section>
+      <aside
+        aria-label="city pulse"
+        className="floating-panel dock-right-bottom pulse-panel"
+        data-collapsed={collapsedPanels.pulse ? "true" : "false"}
+      >
+        <button
+          aria-expanded={!collapsedPanels.pulse}
+          className="panel-toggle"
+          onClick={() => togglePanel("pulse")}
+          type="button"
+        >
+          <span className="panel-toggle-label">
+            <Activity size={16} />
+            <span>城市脉动</span>
+          </span>
+          <ChevronDown className="panel-toggle-caret" size={16} />
+        </button>
+        <div className="panel-body">
+          <CityPulsePanel area={area || undefined} city={city} response={data} />
+          <UserProfilePanel profileKey={resolvedUserId} response={data} />
+        </div>
+      </aside>
       <ChatDock open={chatOpen} onToggle={() => setChatOpen((v) => !v)} />
       <ChatDrawer
         open={chatOpen}
         onClose={() => setChatOpen(false)}
-        sessionId={resolvedUserId ?? getAnonymousSessionId()}
+        sessionId={resolvedUserId || getAnonymousSessionId()}
         context={{
           profileKey: resolvedUserId,
           recommendationId: data.meta.recommendationId,

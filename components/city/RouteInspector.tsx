@@ -6,10 +6,12 @@ import {
   ExternalLink,
   Footprints,
   Gauge,
+  Info,
   Loader2,
   MapPin,
   Navigation,
   RadioTower,
+  ShieldCheck,
   Sparkles,
   Waypoints
 } from "lucide-react";
@@ -24,6 +26,8 @@ import {
 import { SourceSignalBadge } from "@/components/city/SourceSignalBadge";
 import { TrafficBadge } from "@/components/city/TrafficBadge";
 import { VenueCard } from "@/components/city/VenueCard";
+import { MomentRecommendationCard } from "@/components/city/MomentRecommendationCard";
+import { getRouteWeatherImpact } from "@/components/city/weather-impact";
 
 type RouteInspectorProps = {
   routes: RecommendedRoute[];
@@ -35,6 +39,19 @@ type RouteInspectorProps = {
   onFeedbackRecorded?: () => void;
   isLoading?: boolean;
 };
+
+function roleLabel(role: NonNullable<RecommendedRoute["evidence"]>["signalRoles"][number]["role"]) {
+  if (role === "place_authority") return "地点权威";
+  if (role === "event_authority") return "活动来源";
+  if (role === "traffic_eta") return "ETA";
+  if (role === "condition_estimate") return "状态估算";
+  return "趋势证据";
+}
+
+function freshnessLabel(item: NonNullable<RecommendedRoute["evidence"]>["sourceFreshness"][number]) {
+  const age = item.ageMinutes === undefined ? "未知" : item.ageMinutes <= 0 ? "刚刚" : `${item.ageMinutes} 分钟`;
+  return `${item.label} · ${age}`;
+}
 
 export function RouteInspector({
   routes,
@@ -79,11 +96,14 @@ export function RouteInspector({
 
   return (
     <div className="route-inspector">
+      <MomentRecommendationCard card={selectedRoute.momentCard} compact />
+
       <div className="route-choice-list" role="listbox" aria-label="route choices">
         {routes.map((route, index) => {
           const summary = buildRouteChoiceSummary(route);
           const persona = buildRoutePersona(route);
           const active = route.id === selectedRoute.id;
+          const routeWeather = getRouteWeatherImpact(route);
 
           return (
             <button
@@ -131,6 +151,9 @@ export function RouteInspector({
                 </span>
               </span>
               <span className="route-choice-provider">{summary.providerLabel}</span>
+              <span className={`route-choice-weather ${routeWeather.tone}`}>
+                {routeWeather.title}
+              </span>
             </button>
           );
         })}
@@ -184,6 +207,23 @@ export function RouteInspector({
             : "当前为估算交通（未启用高德实时 ETA），排序使用估算耗时。"}
         </p>
 
+        {selectedRoute.momentFit ? (
+          <section className="inspector-section moment-fit-section">
+            <h4>
+              <Clock3 size={14} />
+              此刻可行
+            </h4>
+            <p>{selectedRoute.momentFit.whyNow}</p>
+            <div className="moment-fact-row">
+              {selectedRoute.momentFit.facts.map((fact) => (
+                <span key={`${fact.label}-${fact.value}`}>
+                  {fact.label}: <strong>{fact.value}</strong>
+                </span>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         <section className="inspector-section highlight route-highlight-section">
           <h4>路线亮点</h4>
           <p>{selectedRoute.reason}</p>
@@ -216,6 +256,54 @@ export function RouteInspector({
             )}
           </div>
         </section>
+
+        {selectedRoute.evidence ? (
+          <section className="inspector-section route-evidence-section">
+            <h4>
+              <ShieldCheck size={14} />
+              可信证据
+            </h4>
+            <div className="evidence-place-grid">
+              {selectedRoute.evidence.placeChecks.slice(0, 3).map((check) => (
+                <div key={check.placeId}>
+                  <strong>{check.label}</strong>
+                  <span>{check.source} · {Math.round(check.confidence * 100)}%</span>
+                </div>
+              ))}
+            </div>
+            {selectedRoute.evidence.signalRoles.length > 0 ? (
+              <div className="evidence-token-row">
+                {selectedRoute.evidence.signalRoles.map((role) => (
+                  <span key={`${role.source}-${role.role}`}>
+                    <strong>{role.source}</strong>
+                    {roleLabel(role.role)}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {selectedRoute.evidence.sourceFreshness.length > 0 ? (
+              <div className="evidence-freshness-list">
+                {selectedRoute.evidence.sourceFreshness.slice(0, 5).map((item) => (
+                  <p key={`${item.source}-${item.capturedAt ?? item.label}`}>
+                    <RadioTower size={13} />
+                    <span>{item.source}</span>
+                    <strong>{freshnessLabel(item)}</strong>
+                  </p>
+                ))}
+              </div>
+            ) : null}
+            {selectedRoute.evidence.caveats.length > 0 ? (
+              <div className="evidence-caveats">
+                {selectedRoute.evidence.caveats.map((caveat) => (
+                  <p key={caveat}>
+                    <Info size={13} />
+                    {caveat}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         {selectedRoute.tips.length > 0 ? (
           <section className="inspector-section route-tips-section">

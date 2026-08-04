@@ -49,6 +49,7 @@ export default async function Home({
     mood: "solo",
     budget: "medium",
     timeWindow: "tonight",
+    waypointCount: 3,
     useRealtimeTraffic: false,
     useSocialSignals: true
   });
@@ -56,7 +57,6 @@ export default async function Home({
   return (
     <RecommendationWorkspace
       initialData={initialData}
-      initialInterests={interests}
       initialUserId={userId}
     />
   );

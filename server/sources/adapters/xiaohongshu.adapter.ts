@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { CitySourceAdapter, RawSourceItemDetail } from "@/server/sources/source.types";
 import { BaseCitySourceAdapter } from "@/server/sources/adapters/adapter-utils";
 import { callMcpTool, type McpToolCall, type McpToolResult } from "@/server/sources/mcp/mcp-client";
-import { checkTitleQuality, filterLowQualityTitles } from "@/server/sources/adapters/title-quality-filter";
+import { checkTitleQuality } from "@/server/sources/adapters/title-quality-filter";
 
 type XiaohongshuAdapterOptions = {
   client?: {
@@ -236,8 +236,35 @@ function payloadData(payload: unknown) {
   return data && typeof data === "object" ? data : payload;
 }
 
+function cleanAiAnswer(value: unknown) {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const cleaned = value
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g, "")
+    .replace(/\*\*\s*([^*]+?)\s*\*\*/g, "$1")
+    .replace(/__\s*([^_]+?)\s*__/g, "$1")
+    .replace(/(^|\s)#{1,6}\s+/g, "$1")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .replace(/([\u4e00-\u9fff])\s+([\u4e00-\u9fff])/g, "$1$2")
+    .replace(/([。！？；，、：])\s+([\u4e00-\u9fff])/g, "$1$2")
+    .trim();
+
+  return cleaned || undefined;
+}
+
 function aiSearchAnswer(payload: unknown) {
-  return stringOrUndefined((payloadData(payload) as { answer?: unknown })?.answer);
+  return cleanAiAnswer((payloadData(payload) as { answer?: unknown })?.answer);
 }
 
 function toAiSourceNotes(payload: unknown) {
@@ -253,6 +280,62 @@ function stableId(parts: unknown[]) {
     .update(parts.map((part) => (typeof part === "string" ? part : "")).join("|"))
     .digest("hex")
     .slice(0, 18);
+}
+
+function answerExcerpt(answer?: string, limit = 180) {
+  const normalized = cleanAiAnswer(answer);
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.length > limit ? `${normalized.slice(0, limit)}…` : normalized;
+}
+
+function aiSearchContent(noteText: unknown, answer?: string) {
+  const text = cleanAiAnswer(noteText);
+  const answerContext = answerExcerpt(answer, 900);
+
+  return [text, answerContext ? `小红书AI回答：${answerContext}` : undefined]
+    .filter(isNonEmptyString)
+    .join("\n\n");
+}
+
+function extractAiAnswerItems(answer?: string) {
+  const normalized = cleanAiAnswer(answer);
+
+  if (!normalized) {
+    return [];
+  }
+
+  const matches = [
+    ...normalized.matchAll(/(?:^|\s-\s)([^：:。]{2,48})[：:]\s*([\s\S]*?)(?=\s-\s[^：:。]{2,48}[：:]|$)/g)
+  ];
+  const items: { title: string; detail: string; address?: string }[] = [];
+
+  for (const match of matches) {
+    const title = cleanAiAnswer(match[1])?.replace(/^[-–—\s]+/, "");
+    const detail = cleanAiAnswer(match[2]);
+
+    if (!title || !detail || title.length > 48 || detail.length < 8) {
+      continue;
+    }
+
+    const address =
+      /(?:📍|地点[：:]?)\s*([^。；;，,\n]+)/.exec(detail)?.[1]?.trim() ?? undefined;
+
+    items.push({
+      title,
+      detail,
+      address
+    });
+
+    if (items.length >= 8) {
+      break;
+    }
+  }
+
+  return items;
 }
 
 function typedSourceId(id: string, itemType: RawSourceItemDetail["itemType"]) {
@@ -320,7 +403,7 @@ function toAiSearchRawItem(input: {
 }): RawSourceItemDetail | null {
   const title = stringOrUndefined(input.note.title);
   const url = stringOrUndefined(input.note.url);
-  const text = stringOrUndefined(input.note.text);
+  const text = cleanAiAnswer(input.note.text);
   const id =
     stringOrUndefined(input.note.noteId) ??
     stableId([url, title, text, stringOrUndefined(input.note.author)]);
@@ -331,6 +414,10 @@ function toAiSearchRawItem(input: {
 
   const score = scoreFromPopularity(input.note.likedCount);
   const sourceId = typedSourceId(id, input.itemType);
+  const cleanedAnswer = cleanAiAnswer(input.answer);
+  const answer = answerExcerpt(cleanedAnswer);
+  const content = aiSearchContent(input.note.text, cleanedAnswer) || title;
+  const evidence = answer ? `${title}｜AI回答：${answer}` : title;
 
   return {
     id: `xiaohongshu-${sourceId}`,
@@ -338,12 +425,12 @@ function toAiSearchRawItem(input: {
     sourceId,
     sourceUrl: url,
     title,
-    content: text ?? input.answer ?? title,
+    content,
     imageUrl: httpUrlOrUndefined(input.note.cover),
     author: stringOrUndefined(input.note.author),
     rawPayload: {
       tool: "ai_search_chat",
-      answer: input.answer,
+      answer: cleanedAnswer,
       note: input.note
     },
     city: input.city,
@@ -361,10 +448,68 @@ function toAiSearchRawItem(input: {
         source: "xiaohongshu",
         label: "小红书 AI 搜索来源",
         score,
-        evidence: title
+        evidence
       }
     ]
   };
+}
+
+function toAiAnswerRawItems(input: {
+  answer?: string;
+  city: string;
+  area?: string;
+  tags: string[];
+  itemType: RawSourceItemDetail["itemType"];
+}): RawSourceItemDetail[] {
+  const answer = cleanAiAnswer(input.answer);
+
+  if (!answer) {
+    return [];
+  }
+
+  return extractAiAnswerItems(answer).map((item, index) => {
+    const id = stableId([input.city, input.area, item.title, item.detail]);
+    const sourceId = typedSourceId(`ai-answer-${id}`, input.itemType);
+    const score = 68;
+
+    return {
+      id: `xiaohongshu-${sourceId}`,
+      source: "xiaohongshu",
+      sourceId,
+      title: item.title,
+      content: item.detail,
+      address: item.address,
+      author: "小红书 AI 搜索",
+      rawPayload: {
+        tool: "ai_search_chat",
+        answer,
+        answerItem: {
+          index,
+          title: item.title,
+          detail: item.detail,
+          address: item.address
+        }
+      },
+      city: input.city,
+      area: input.area,
+      status: "new",
+      itemType: input.itemType,
+      tags: input.tags,
+      trendScore: score,
+      confidence: 72,
+      popularity: score,
+      quietness: input.itemType === "event" ? 55 : 62,
+      priceLevel: 2,
+      sourceSignals: [
+        {
+          source: "xiaohongshu",
+          label: "小红书 AI 回答提及",
+          score,
+          evidence: `${item.title}｜AI回答：${answerExcerpt(item.detail, 180) ?? item.detail}`
+        }
+      ]
+    };
+  });
 }
 
 class XiaohongshuMcpAdapter extends BaseCitySourceAdapter {
@@ -512,7 +657,6 @@ class XiaohongshuMcpAdapter extends BaseCitySourceAdapter {
       if (result.tool === "ai_search_chat") {
         const note = rawItem as XiaohongshuAiSourceNote;
         const title = String(note.title || "").trim();
-        const content = String(note.text || result.answer || "").trim();
         // AI搜索内容放宽一些标准，只需要有基本内容
         return title.length > 0;
       }
@@ -527,7 +671,7 @@ class XiaohongshuMcpAdapter extends BaseCitySourceAdapter {
     // 记录过滤数量
     this.lastPreFilteredCount = originalCount - preFilteredItems.length;
 
-    return preFilteredItems
+    const mappedItems = preFilteredItems
       .map((item) =>
         result.tool === "ai_search_chat"
           ? toAiSearchRawItem({
@@ -547,6 +691,19 @@ class XiaohongshuMcpAdapter extends BaseCitySourceAdapter {
             })
       )
       .filter((item): item is RawSourceItemDetail => Boolean(item));
+
+    return result.tool === "ai_search_chat"
+      ? [
+          ...mappedItems,
+          ...toAiAnswerRawItems({
+            answer: result.answer,
+            city: input.city,
+            area: input.area,
+            tags,
+            itemType
+          })
+        ]
+      : mappedItems;
   }
 
   protected async searchEventsImpl(input: Parameters<CitySourceAdapter["searchEvents"]>[0]) {

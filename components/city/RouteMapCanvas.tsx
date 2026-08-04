@@ -1,7 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, MapPinned, Route } from "lucide-react";
+import {
+  Cloud,
+  CloudRain,
+  CloudSun,
+  Hand,
+  Loader2,
+  MapPinned,
+  Rotate3d,
+  Route,
+  X
+} from "lucide-react";
 import type { Budget, Mood, RecommendedRoute } from "@/server/recommendation/types";
 import {
   buildRouteChoiceSummary,
@@ -27,6 +37,11 @@ import {
   type LocaNamespace
 } from "@/components/city/amap-loader";
 import { PreviewableImage } from "@/components/city/ImagePreview";
+import {
+  getWeatherMarkerClass,
+  getRouteWeatherImpact,
+  type RouteWeatherImpact
+} from "@/components/city/weather-impact";
 import {
   HEAT_CATEGORIES,
   heatCategoryById,
@@ -82,6 +97,7 @@ const HEAT_LAYER_Z_INDEX = 42;
 const HEAT_INFO_MARKER_Z_INDEX = 48;
 const HEAT_INFO_MARKER_LIMIT = 5;
 const HEAT_INFO_MIN_VALUE = 58;
+const MAP_GESTURE_HINT_KEY = "citysense-map-gesture-hint-seen";
 
 type HeatCacheEntry = {
   key: string;
@@ -124,6 +140,7 @@ type RouteGeometry = {
     kind: "origin" | "stop";
     imageUrl?: string;
     featured?: boolean;
+    tags: string[];
     position: LngLat;
   }[];
 };
@@ -158,6 +175,7 @@ function buildGeometries(routes: RecommendedRoute[]): RouteGeometry[] {
               index: 0,
               label: "起",
               kind: "origin" as const,
+              tags: [],
               position: [
                 roundCoordinate(originPosition[0]),
                 roundCoordinate(originPosition[1])
@@ -175,6 +193,7 @@ function buildGeometries(routes: RecommendedRoute[]): RouteGeometry[] {
         kind: "stop" as const,
         imageUrl: place.imageUrl,
         featured: persona.representativePlace.id === place.id,
+        tags: place.tags,
         position: [roundCoordinate(place.lng as number), roundCoordinate(place.lat as number)] as LngLat
       }));
     const points = [...originPoint, ...stopPoints];
@@ -223,12 +242,14 @@ function safeImageUrl(value?: string) {
 function markerContent(
   geometry: RouteGeometry,
   point: RouteGeometry["points"][number],
-  selected: boolean
+  selected: boolean,
+  weatherClass = "weather-neutral"
 ) {
   const classNames = [
     "map-stop-marker",
     `tone-${geometry.tone}`,
     point.kind,
+    weatherClass,
     point.featured ? "featured" : "",
     safeImageUrl(point.imageUrl) ? "with-image" : "",
     selected ? "selected" : "dimmed"
@@ -534,6 +555,83 @@ function heatCategorySelectionForContext(context?: HeatContext): HeatCategorySel
   };
 }
 
+function WeatherMapIcon({ tone }: { tone: RouteWeatherImpact["tone"] }) {
+  if (tone === "good") return <CloudSun size={20} />;
+  if (tone === "ok" || tone === "poor") return <CloudRain size={20} />;
+  return <Cloud size={20} />;
+}
+
+function WeatherMapOverlay({ weather }: { weather: RouteWeatherImpact }) {
+  return (
+    <section
+      className={`map-weather-overlay ${weather.tone} ${weather.atmosphereClass}`}
+      aria-label="weather route impact"
+    >
+      <div className="map-weather-visual" aria-hidden="true">
+        <WeatherMapIcon tone={weather.tone} />
+        <span className="map-weather-effect">
+          <i />
+          <i />
+          <i />
+        </span>
+      </div>
+      <div className="map-weather-body">
+        <div className="map-weather-head">
+          <span>{`${weather.sourceLabel} · ${weather.title}`}</span>
+          <strong>{weather.effect}</strong>
+        </div>
+        <p>{weather.value}</p>
+        <div className="map-weather-meter">
+          <span style={{ width: `${weather.intensity}%` }} />
+        </div>
+        <small>{weather.copy}</small>
+      </div>
+    </section>
+  );
+}
+
+function MapWeatherAtmosphere({ weather }: { weather: RouteWeatherImpact }) {
+  if (weather.scene === "unknown") {
+    return null;
+  }
+
+  return (
+    <div
+      className={`map-weather-atmosphere ${weather.atmosphereClass} temp-${weather.temperatureLevel}`}
+      aria-hidden="true"
+    >
+      <div className="weather-atmosphere-wash" />
+      <div className="weather-atmosphere-particles">
+        {Array.from({ length: 18 }, (_, index) => (
+          <i key={index} />
+        ))}
+      </div>
+      <div className="weather-atmosphere-shimmer" />
+    </div>
+  );
+}
+
+function MapGestureHint({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <section className="map-gesture-hint" aria-label="3D map gesture hint">
+      <div className="map-gesture-mark" aria-hidden="true">
+        <Hand size={20} />
+        <span />
+      </div>
+      <div className="map-gesture-copy">
+        <strong>
+          <Rotate3d size={14} />
+          这是 3D 地图
+        </strong>
+        <p>拖动平移、滚轮缩放；右键拖拽或双指旋转查看路线角度。</p>
+      </div>
+      <button aria-label="关闭 3D 地图提示" onClick={onDismiss} type="button">
+        <X size={14} />
+      </button>
+    </section>
+  );
+}
+
 export function RouteMapCanvas({
   routes,
   selectedRouteId,
@@ -555,6 +653,7 @@ export function RouteMapCanvas({
   const [status, setStatus] = useState<"static" | "loading" | "ready" | "error">("static");
   const [heatMode, setHeatMode] = useState<HeatMode | "off">("off");
   const [heatLoading, setHeatLoading] = useState(false);
+  const [showGestureHint, setShowGestureHint] = useState(false);
   const [heatCategorySelection, setHeatCategorySelection] = useState<HeatCategorySelection>(
     () => heatCategorySelectionForContext(heatContext)
   );
@@ -573,6 +672,9 @@ export function RouteMapCanvas({
   const selectedGeometry =
     geometries.find((geometry) => geometry.routeId === selectedRouteId) ?? geometries[0];
   const effectiveSelectedRouteId = selectedGeometry?.routeId;
+  const selectedRoute =
+    routes.find((route) => route.id === effectiveSelectedRouteId) ?? routes[0];
+  const routeWeather = useMemo(() => getRouteWeatherImpact(selectedRoute), [selectedRoute]);
   const canRenderAmap = Boolean(jsApiKey && drawableGeometries.length > 0);
   const routeHeatSeeds = useMemo(() => buildRouteHeatSeeds(routes), [routes]);
   const defaultHeatCategorySelection = useMemo(
@@ -587,6 +689,40 @@ export function RouteMapCanvas({
     () => new Set(activeHeatCategories),
     [activeHeatCategories]
   );
+
+  const dismissGestureHint = useCallback(() => {
+    setShowGestureHint(false);
+
+    try {
+      window.localStorage.setItem(MAP_GESTURE_HINT_KEY, "1");
+    } catch {
+      // localStorage may be unavailable in privacy mode; hiding for this session is enough.
+    }
+  }, []);
+
+  useEffect(() => {
+    let shouldShowHint = true;
+
+    try {
+      if (window.localStorage.getItem(MAP_GESTURE_HINT_KEY) === "1") {
+        shouldShowHint = false;
+      }
+    } catch {
+      // If storage is blocked, still show the hint for the current session.
+    }
+
+    if (!shouldShowHint) {
+      return undefined;
+    }
+
+    const revealTimeout = window.setTimeout(() => {
+      setShowGestureHint(true);
+    }, 180);
+
+    return () => {
+      window.clearTimeout(revealTimeout);
+    };
+  }, []);
 
   const fetchHeatPoints = useCallback(
     async (
@@ -767,6 +903,7 @@ export function RouteMapCanvas({
     }
 
     const overlays: unknown[] = [];
+    const routeEffect = routeWeather.routeEffect;
 
     for (const geometry of drawableGeometries) {
       const selected = geometry.routeId === effectiveSelectedRouteId;
@@ -774,9 +911,9 @@ export function RouteMapCanvas({
       if (selected) {
         const glow = new AMap.Polyline({
           path: geometry.path,
-          strokeColor: color,
-          strokeOpacity: 0.18,
-          strokeWeight: 16,
+          strokeColor: routeEffect.glowColor ?? color,
+          strokeOpacity: routeEffect.glowOpacity,
+          strokeWeight: routeEffect.glowWeight,
           strokeStyle: "solid",
           lineJoin: "round",
           zIndex: 55
@@ -787,8 +924,8 @@ export function RouteMapCanvas({
       const polyline = new AMap.Polyline({
         path: geometry.path,
         strokeColor: color,
-        strokeOpacity: selected ? 0.96 : 0.24,
-        strokeWeight: selected ? 7 : 3,
+        strokeOpacity: selected ? 0.98 : 0.18,
+        strokeWeight: selected ? routeEffect.selectedStrokeWeight : 2,
         strokeStyle: "solid",
         lineJoin: "round",
         cursor: "pointer",
@@ -803,7 +940,12 @@ export function RouteMapCanvas({
           position: point.position,
           title: point.name,
           anchor: "center",
-          content: markerContent(geometry, point, selected),
+          content: markerContent(
+            geometry,
+            point,
+            selected,
+            selected ? getWeatherMarkerClass(routeWeather, point) : "weather-neutral"
+          ),
           zIndex: selected ? 70 : 50
         });
 
@@ -828,7 +970,7 @@ export function RouteMapCanvas({
       fitSignatureRef.current = fitSignature;
       map.setFitView(overlays, false, [64, 64, 64, 64]);
     }
-  }, [drawableGeometries, effectiveSelectedRouteId, status]);
+  }, [drawableGeometries, effectiveSelectedRouteId, routeWeather, status]);
 
   // 热力图层独立 effect：只在 heatMode !== "off" 且地图就绪时拉取并渲染，
   // 不干扰上方路线 overlay effect。fetch 结果按 cacheKey 缓存，避免切换模式时重复请求。
@@ -1054,7 +1196,8 @@ export function RouteMapCanvas({
       className={[
         "map-canvas-panel",
         heatContext && status === "ready" ? "with-heat-control" : "",
-        heatMode !== "off" && status === "ready" ? "with-heat-layer" : ""
+        heatMode !== "off" && status === "ready" ? "with-heat-layer" : "",
+        routeWeather.atmosphereClass
       ]
         .filter(Boolean)
         .join(" ")}
@@ -1066,9 +1209,16 @@ export function RouteMapCanvas({
             onSelectRoute={onSelectRoute}
             selectedRouteId={effectiveSelectedRouteId}
             status={status}
+            weather={routeWeather}
           />
         ) : null}
       </div>
+
+      <MapWeatherAtmosphere weather={routeWeather} />
+
+      {showGestureHint ? <MapGestureHint onDismiss={dismissGestureHint} /> : null}
+
+      {selectedRoute ? <WeatherMapOverlay weather={routeWeather} /> : null}
 
       {geometries.length > 0 ? (
         <div className="map-legend" role="group" aria-label="route legend">
@@ -1210,12 +1360,14 @@ function StaticMultiRouteMap({
   geometries,
   selectedRouteId,
   onSelectRoute,
-  status
+  status,
+  weather
 }: {
   geometries: RouteGeometry[];
   selectedRouteId?: string;
   onSelectRoute: (routeId: string) => void;
   status: string;
+  weather: RouteWeatherImpact;
 }) {
   const allPoints = geometries.flatMap((geometry) => geometry.points);
   const allCoordinates = [
@@ -1297,6 +1449,9 @@ function StaticMultiRouteMap({
             const selected = geometry.routeId === selectedRouteId;
             const { x, y } = project(point.position);
             const imageUrl = safeImageUrl(point.imageUrl);
+            const weatherClass = selected
+              ? getWeatherMarkerClass(weather, point)
+              : "weather-neutral";
 
             return (
               <button
@@ -1304,6 +1459,7 @@ function StaticMultiRouteMap({
                   "static-map-marker",
                   `tone-${geometry.tone}`,
                   point.kind,
+                  weatherClass,
                   point.featured ? "featured" : "",
                   selected ? "selected" : "dimmed",
                   imageUrl ? "with-image" : ""

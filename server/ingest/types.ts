@@ -23,6 +23,8 @@ export type IngestStats = {
   sourcesCompleted: number;
   sourcesSkipped: number;
   sourcesFailed: number;
+  normalizeJobsQueued?: number;
+  normalizeEnqueueErrors?: string[];
   fetched: number;
   preFiltered: number;  // 预过滤总数
   rawUpserted: number;
@@ -48,6 +50,8 @@ export function createEmptyIngestStats(sourcesRequested: number): IngestStats {
     sourcesCompleted: 0,
     sourcesSkipped: 0,
     sourcesFailed: 0,
+    normalizeJobsQueued: 0,
+    normalizeEnqueueErrors: [],
     fetched: 0,
     preFiltered: 0,
     rawUpserted: 0,
@@ -64,6 +68,8 @@ export function applySourceResult(stats: IngestStats, result: SourceIngestResult
       stats.sourcesCompleted + (result.status === "completed" ? 1 : 0),
     sourcesSkipped: stats.sourcesSkipped + (result.status === "skipped" ? 1 : 0),
     sourcesFailed: stats.sourcesFailed + (result.status === "failed" ? 1 : 0),
+    normalizeJobsQueued: stats.normalizeJobsQueued ?? 0,
+    normalizeEnqueueErrors: stats.normalizeEnqueueErrors ?? [],
     fetched: stats.fetched + result.fetched,
     preFiltered: stats.preFiltered + (result.preFilteredCount || 0),
     rawUpserted: stats.rawUpserted + result.rawUpserted,

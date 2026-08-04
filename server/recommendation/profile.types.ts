@@ -15,8 +15,7 @@ export type ProfileDimension =
   | "area"
   | "priceLevel"
   | "quietnessBand"
-  | "popularityBand"
-  | "mood";
+  | "popularityBand";
 
 /** 单个维度的权重组,键为该维度的值(如 tag="展览"、area="静安")。 */
 export type DimensionWeights = Record<string, number>;
@@ -102,8 +101,7 @@ export function createEmptyDimensionMap(): Record<ProfileDimension, DimensionWei
     area: emptyDimensionWeights(),
     priceLevel: emptyDimensionWeights(),
     quietnessBand: emptyDimensionWeights(),
-    popularityBand: emptyDimensionWeights(),
-    mood: emptyDimensionWeights()
+    popularityBand: emptyDimensionWeights()
   };
 }
 
@@ -113,9 +111,9 @@ export function bucketQuietness(value: number | undefined): string | undefined {
     return undefined;
   }
 
-  if (value <= 33) return "lively";
+  if (value <= 33) return "quiet";
   if (value <= 66) return "neutral";
-  return "quiet";
+  return "lively";
 }
 
 /** popularity 数值(0-100)分桶:低/中/高人流。 */

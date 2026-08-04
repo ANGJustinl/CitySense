@@ -434,6 +434,28 @@ export function rankAmapVenueCandidates(input: {
   return ranked.slice(0, input.topK ?? DEFAULT_TOP_K);
 }
 
+export function shouldReviewAmapVenueCandidates(input: {
+  trend: SocialTrendForPlaceMatch;
+  candidates: RankedAmapVenueCandidate[];
+}) {
+  if (input.candidates.length === 0) {
+    return false;
+  }
+
+  if (input.trend.source === DAMAI_SOURCE && input.trend.venueName) {
+    return input.candidates.some(
+      (candidate) =>
+        candidate.matchedFields.includes("name") &&
+        venueIdentityMatches(input.trend.venueName, candidate.name)
+    );
+  }
+
+  return input.candidates.some(
+    (candidate) =>
+      candidate.matchedFields.includes("name") || candidate.matchedFields.includes("address")
+  );
+}
+
 export function normalizePlaceMatchReview(
   output: PlaceMatchReviewOutput | null,
   candidates: RankedAmapVenueCandidate[],
@@ -904,8 +926,16 @@ export async function matchXiaohongshuSignalsToAmapVenues(input: MatchXiaohongsh
     const needsVenueNameSupplement =
       Boolean(trend.venueName) &&
       (ranked.length === 0 || !ranked[0]?.matchedFields.includes("name"));
+    const needsXiaohongshuSupplement =
+      trend.source === XIAOHONGSHU_SOURCE &&
+      (ranked.length === 0 ||
+        !ranked.some(
+          (candidate) =>
+            candidate.matchedFields.includes("name") ||
+            candidate.matchedFields.includes("address")
+        ));
 
-    if (ranked.length === 0 || needsVenueNameSupplement) {
+    if (ranked.length === 0 || needsVenueNameSupplement || needsXiaohongshuSupplement) {
       const supplemented = await supplementAmapVenues({
         trend,
         fetchFn: input.fetchFn
@@ -927,6 +957,22 @@ export async function matchXiaohongshuSignalsToAmapVenues(input: MatchXiaohongsh
         reason: process.env.AMAP_API_KEY
           ? "No AMap POI candidate survived algorithm screening"
           : "AMAP_API_KEY is not configured for ingest-time POI supplementation"
+      });
+      return;
+    }
+
+    if (
+      !shouldReviewAmapVenueCandidates({
+        trend,
+        candidates: ranked
+      })
+    ) {
+      await replaceSignalMatches({
+        trend,
+        signals: input.citySignals,
+        status: "ambiguous",
+        ranked,
+        reason: "No reliable name or address match before place review"
       });
       return;
     }

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db/prisma";
 import type {
   RecommendInput,
+  RecommendExperimentMeta,
   RecommendedRoute,
   CandidateType,
   TrafficCandidate
@@ -184,14 +185,15 @@ async function persistFeatureSnapshots(
 export async function persistRecommendationSnapshot(
   input: RecommendInput,
   routes: RecommendedRoute[],
-  rankedCandidates?: TrafficCandidate[]
+  rankedCandidates?: TrafficCandidate[],
+  experiment?: RecommendExperimentMeta
 ) {
   const log = await prisma.recommendationLog.create({
     data: {
       // TASK-P2-002:profileKey = userId ?? sessionId,与 feedback 链路对齐,
       // 匿名会话推荐也写入 userId 列,作为后续画像曝光数据来源。
       userId: input.userId ?? input.sessionId,
-      input: toJson(input),
+      input: toJson(experiment ? { ...input, experiment } : input),
       recommendedRoutes: toJson(routes)
     }
   });

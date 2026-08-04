@@ -66,6 +66,7 @@ export type RecommendationTrace = {
 
 const XHS_SOURCE = "xiaohongshu";
 const ANSWER_EXCERPT_LIMIT = 300;
+const INTERNAL_PROFILE_TAGS = new Set(["AI搜索", "同城"]);
 
 function nonDemoSignalSourceFilter() {
   return isDemoModeEnabled()
@@ -89,6 +90,10 @@ function topMetrics(map: Map<string, number>, limit: number): PulseMetric[] {
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
     .map(([label, value]) => ({ label, value: Math.round(value) }));
+}
+
+function isDisplayProfileTag(tag: string) {
+  return !INTERNAL_PROFILE_TAGS.has(tag);
 }
 
 function excerptAnswer(rawPayload: unknown): string | undefined {
@@ -159,11 +164,15 @@ export async function getCityProfile(input: {
   };
 
   try {
-    const [signals, rawItems, rawItemCount, citySignalCount, matchStats] = await Promise.all([
+    const [signals, latestSignal, rawItems, rawItemCount, citySignalCount, matchStats] = await Promise.all([
       prisma.citySignal.findMany({
         where: { city, ...areaWhere, source: XHS_SOURCE, ...signalSourceFilter },
         orderBy: { heatScore: "desc" },
         take: 200
+      }),
+      prisma.citySignal.findFirst({
+        where: { city, ...areaWhere, source: XHS_SOURCE, ...signalSourceFilter },
+        orderBy: { capturedAt: "desc" }
       }),
       prisma.rawSourceItem.findMany({
         where: { city, source: XHS_SOURCE, ...rawSourceFilter, ...areaWhere },
@@ -188,7 +197,7 @@ export async function getCityProfile(input: {
     const areaCounts = new Map<string, number>();
     for (const signal of signals) {
       const tag = signal.tag?.trim();
-      if (tag) {
+      if (tag && isDisplayProfileTag(tag)) {
         tagHeat.set(tag, (tagHeat.get(tag) ?? 0) + (signal.heatScore ?? 0));
       }
       const area = signal.area?.trim();
@@ -236,7 +245,7 @@ export async function getCityProfile(input: {
         rawItemCount,
         citySignalCount,
         coveredAreas: areaCounts.size,
-        latestCapturedAt: signals[0]?.capturedAt?.toISOString(),
+        latestCapturedAt: latestSignal?.capturedAt?.toISOString(),
         matchStats: {
           confirmed: matchStatsMap.get("confirmed") ?? 0,
           noCandidate: matchStatsMap.get("no_candidate") ?? 0,

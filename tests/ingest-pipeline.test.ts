@@ -4,6 +4,7 @@ import { BaseCitySourceAdapter } from "@/server/sources/adapters/adapter-utils";
 import { createSourceKey } from "@/server/ingest/source-key";
 import { buildCitySignalRows, toNormalizedEntityInput } from "@/server/ingest/normalize";
 import { __testing as pipelineTesting } from "@/server/ingest/pipeline";
+import { __testing as statusTesting, normalizeSourceCounts } from "@/server/ingest/status";
 import { applySourceResult, createEmptyIngestStats } from "@/server/ingest/types";
 import type { RawSourceItemDetail } from "@/server/sources/source.types";
 
@@ -246,6 +247,67 @@ test("raw ingest stats can finish before deferred normalization", () => {
   assert.equal(stats.citySignalsCreated, 0);
 });
 
+test("post-ingest normalization enqueue is non-blocking and records queued jobs", async () => {
+  const enqueued: unknown[] = [];
+  const stats = await pipelineTesting.enqueuePostIngestNormalization({
+    runId: "run-normalize-1",
+    stats: createEmptyIngestStats(1),
+    results: [
+      {
+        source: "damai",
+        status: "completed",
+        fetched: 6,
+        rawUpserted: 6,
+        normalized: 0,
+        citySignalsCreated: 0
+      }
+    ],
+    enqueue: async (payload) => {
+      enqueued.push(payload);
+      return {
+        jobId: "job-1",
+        source: payload.source,
+        ingestRunId: payload.ingestRunId,
+        limit: payload.limit
+      };
+    }
+  });
+
+  assert.equal(stats.normalizeJobsQueued, 1);
+  assert.deepEqual(stats.normalizeEnqueueErrors, []);
+  assert.deepEqual(enqueued, [
+    {
+      source: "damai",
+      ingestRunId: "run-normalize-1",
+      limit: 20
+    }
+  ]);
+});
+
+test("post-ingest normalization enqueue failure does not fail raw ingest stats", async () => {
+  const stats = await pipelineTesting.enqueuePostIngestNormalization({
+    runId: "run-normalize-2",
+    stats: createEmptyIngestStats(1),
+    results: [
+      {
+        source: "xiaohongshu",
+        status: "completed",
+        fetched: 3,
+        rawUpserted: 3,
+        normalized: 0,
+        citySignalsCreated: 0
+      }
+    ],
+    enqueue: async () => {
+      throw new Error("redis unavailable");
+    }
+  });
+
+  assert.equal(stats.sourcesFailed, 0);
+  assert.equal(stats.normalizeJobsQueued, 0);
+  assert.deepEqual(stats.normalizeEnqueueErrors, ["xiaohongshu: redis unavailable"]);
+});
+
 test("ingest stats aggregate source results", () => {
   const stats = createEmptyIngestStats(2);
   const afterSuccess = applySourceResult(stats, {
@@ -271,4 +333,128 @@ test("ingest stats aggregate source results", () => {
   assert.equal(afterFailure.sourcesFailed, 1);
   assert.equal(afterFailure.normalized, 2);
   assert.deepEqual(afterFailure.errors, ["douban: not_configured"]);
+});
+
+test("ingest normalization status aggregates source counts deterministically", () => {
+  const counts = normalizeSourceCounts([
+    { source: "damai", _count: { source: 3 } },
+    { source: "xiaohongshu", _count: { source: 9 } },
+    { source: "douban", _count: { source: 0 } },
+    { source: "amap-poi", _count: { id: 3 } }
+  ]);
+
+  assert.deepEqual(counts, [
+    { source: "xiaohongshu", count: 9 },
+    { source: "amap-poi", count: 3 },
+    { source: "damai", count: 3 }
+  ]);
+});
+
+const healthNow = new Date("2026-06-16T10:00:00.000Z").getTime();
+const freshIso = "2026-06-16T09:50:00.000Z";
+
+function connector(overrides: Partial<Parameters<typeof statusTesting.buildIngestHealth>[0]["connectors"][number]> = {}) {
+  return {
+    source: "amap-poi",
+    kind: "api",
+    enabled: true,
+    status: "active",
+    lastSuccessAt: freshIso,
+    cooldownSeconds: 60,
+    ...overrides
+  };
+}
+
+function healthInput(overrides: Partial<Parameters<typeof statusTesting.buildIngestHealth>[0]> = {}) {
+  return {
+    queueConfigured: true,
+    connectors: [connector()],
+    recentRuns: [
+      {
+        id: "run-1",
+        city: "上海",
+        keywords: ["咖啡"],
+        sources: ["amap-poi"],
+        status: "completed",
+        force: false,
+        stats: {},
+        createdAt: freshIso,
+        updatedAt: freshIso
+      }
+    ],
+    normalization: {
+      pendingRaw: 0,
+      failedRaw: 0,
+      pendingBySource: [],
+      failedBySource: [],
+      lastNormalizedAt: freshIso
+    },
+    latestCityStateAt: freshIso,
+    now: healthNow,
+    ...overrides
+  };
+}
+
+test("ingest health marks missing Redis as blocked", () => {
+  const health = statusTesting.buildIngestHealth(healthInput({ queueConfigured: false }));
+
+  assert.equal(health.overall, "blocked");
+  assert.equal(health.issues[0]?.code, "redis_missing");
+});
+
+test("ingest health reports auth-required source without blocking the whole pipeline", () => {
+  const health = statusTesting.buildIngestHealth(
+    healthInput({
+      connectors: [connector({ source: "damai", status: "not_configured", lastSuccessAt: undefined })]
+    })
+  );
+
+  assert.equal(health.overall, "degraded");
+  assert.ok(health.issues.some((issue) => issue.code === "source_auth_required" && issue.source === "damai"));
+  assert.notEqual(health.overall, "blocked");
+});
+
+test("ingest health degrades on raw backlog and failed raw items", () => {
+  const health = statusTesting.buildIngestHealth(
+    healthInput({
+      normalization: {
+        pendingRaw: 120,
+        failedRaw: 2,
+        pendingBySource: [{ source: "damai", count: 120 }],
+        failedBySource: [{ source: "damai", count: 2 }],
+        lastNormalizedAt: freshIso
+      }
+    })
+  );
+
+  assert.equal(health.overall, "degraded");
+  assert.ok(health.issues.some((issue) => issue.code === "raw_backlog"));
+  assert.ok(health.issues.some((issue) => issue.code === "raw_failed"));
+});
+
+test("ingest health degrades on stale normalize and city state freshness", () => {
+  const staleIso = "2026-06-16T00:00:00.000Z";
+  const health = statusTesting.buildIngestHealth(
+    healthInput({
+      normalization: {
+        pendingRaw: 0,
+        failedRaw: 0,
+        pendingBySource: [],
+        failedBySource: [],
+        lastNormalizedAt: staleIso
+      },
+      latestCityStateAt: staleIso
+    })
+  );
+
+  assert.equal(health.overall, "degraded");
+  assert.ok(health.pipelineHealth.normalizeStale);
+  assert.ok(health.pipelineHealth.cityStateStale);
+});
+
+test("ingest health is ready when queue, sources, normalize, and city state are fresh", () => {
+  const health = statusTesting.buildIngestHealth(healthInput());
+
+  assert.equal(health.overall, "ready");
+  assert.deepEqual(health.issues, []);
 });

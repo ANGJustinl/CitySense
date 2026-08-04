@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildRecommendationTrace,
-  countXiaohongshuPlacesInRoutes
+  countXiaohongshuPlacesInRoutes,
+  getCityProfile
 } from "@/server/recommendation/city-profile";
 import type { RecommendResponse, RecommendedRoute } from "@/server/recommendation/types";
 
@@ -262,10 +263,87 @@ test("buildRecommendationTrace: every entry cites its data source", async () => 
   }
 });
 
+test("getCityProfile filters internal tags and reports latest captured signal time", async () => {
+  const older = new Date("2026-06-15T10:00:00.000Z");
+  const latest = new Date("2026-06-18T09:00:00.000Z");
+
+  const profile = await withMockedPrisma(
+    {
+      citySignal: {
+        findMany: async () => [
+          {
+            id: "internal-ai",
+            city: "上海",
+            area: "静安",
+            tag: "AI搜索",
+            heatScore: 200,
+            source: "xiaohongshu",
+            capturedAt: older,
+            metadata: null
+          },
+          {
+            id: "internal-local",
+            city: "上海",
+            area: "静安",
+            tag: "同城",
+            heatScore: 180,
+            source: "xiaohongshu",
+            capturedAt: older,
+            metadata: null
+          },
+          {
+            id: "display-culture",
+            city: "上海",
+            area: "静安",
+            tag: "展览",
+            heatScore: 90,
+            source: "xiaohongshu",
+            capturedAt: older,
+            metadata: null
+          }
+        ],
+        findFirst: async () => ({
+          id: "latest-signal",
+          city: "上海",
+          area: "静安",
+          tag: "咖啡",
+          heatScore: 40,
+          source: "xiaohongshu",
+          capturedAt: latest,
+          metadata: null
+        }),
+        count: async () => 3
+      },
+      rawSourceItem: {
+        findMany: async () => [],
+        count: async () => 0
+      },
+      citySignalPlaceMatch: {
+        groupBy: async () => []
+      }
+    },
+    () => getCityProfile({ city: "上海", area: "静安" })
+  );
+
+  assert.deepEqual(
+    profile.topTags.map((tag) => tag.label),
+    ["展览"]
+  );
+  assert.equal(profile.sourceStats.latestCapturedAt, latest.toISOString());
+});
+
 // Helper: temporarily swap the module's prisma import with a fake, run fn, restore.
 // We do this by monkeypatching the exported prisma singleton's methods.
 type PrismaFake = {
-  citySignal?: { count?: () => Promise<unknown>; findFirst?: () => Promise<unknown> };
+  citySignal?: {
+    count?: () => Promise<unknown>;
+    findFirst?: () => Promise<unknown>;
+    findMany?: () => Promise<unknown>;
+  };
+  rawSourceItem?: {
+    count?: () => Promise<unknown>;
+    findMany?: () => Promise<unknown>;
+  };
   citySignalPlaceMatch?: { groupBy?: () => Promise<unknown> };
 };
 
@@ -274,11 +352,18 @@ async function withMockedPrisma<T>(fake: PrismaFake, fn: () => Promise<T>): Prom
   const original = {
     citySignalCount: prisma.citySignal.count,
     citySignalFindFirst: prisma.citySignal.findFirst,
+    citySignalFindMany: prisma.citySignal.findMany,
+    rawSourceItemCount: prisma.rawSourceItem.count,
+    rawSourceItemFindMany: prisma.rawSourceItem.findMany,
     cspmGroupBy: prisma.citySignalPlaceMatch.groupBy
   };
 
   if (fake.citySignal?.count) prisma.citySignal.count = fake.citySignal.count as never;
   if (fake.citySignal?.findFirst) prisma.citySignal.findFirst = fake.citySignal.findFirst as never;
+  if (fake.citySignal?.findMany) prisma.citySignal.findMany = fake.citySignal.findMany as never;
+  if (fake.rawSourceItem?.count) prisma.rawSourceItem.count = fake.rawSourceItem.count as never;
+  if (fake.rawSourceItem?.findMany)
+    prisma.rawSourceItem.findMany = fake.rawSourceItem.findMany as never;
   if (fake.citySignalPlaceMatch?.groupBy)
     prisma.citySignalPlaceMatch.groupBy = fake.citySignalPlaceMatch.groupBy as never;
 
@@ -287,6 +372,9 @@ async function withMockedPrisma<T>(fake: PrismaFake, fn: () => Promise<T>): Prom
   } finally {
     prisma.citySignal.count = original.citySignalCount;
     prisma.citySignal.findFirst = original.citySignalFindFirst;
+    prisma.citySignal.findMany = original.citySignalFindMany;
+    prisma.rawSourceItem.count = original.rawSourceItemCount;
+    prisma.rawSourceItem.findMany = original.rawSourceItemFindMany;
     prisma.citySignalPlaceMatch.groupBy = original.cspmGroupBy;
   }
 }

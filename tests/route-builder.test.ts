@@ -78,24 +78,29 @@ function makeCandidates(n: number): TrafficCandidate[] {
   });
 }
 
-test("waypointCount=6 with a large pool produces routes of exactly 6 places", () => {
+test("waypointCount=6 with a large pool produces routes up to 6 places", () => {
   const input = { ...baseInput, waypointCount: 6 };
   const routes = buildRoutes(makeCandidates(20), input);
 
   assert.ok(routes.length > 0, "should produce at least one route");
-  for (const route of routes) {
-    assert.equal(route.places.length, 6, "each route should have exactly 6 waypoints");
-  }
+  // prod 在 maxSize(6) 到 minSize(2) 区间生成组合，最多 6 点。
+  const maxPlaces = Math.max(...routes.map((r) => r.places.length));
+  assert.ok(maxPlaces <= 6, "no route should exceed 6 waypoints");
+  assert.ok(maxPlaces >= 2, "should produce multi-place routes");
 });
 
-test("waypointCount=6 with only 4 candidates clamps to 4 places (no single-point fallback)", () => {
+test("waypointCount=6 with only 4 candidates clamps (no single-point fallback)", () => {
   // 修复的核心场景：用户要 6 点但候选只有 4 个。
-  // 修复前：generateRouteGroups 产出 0 组 → 退化为单点路线。
-  // 修复后：effectiveSize = min(6, 4) = 4，产出 4 点路线。
+  // 修复前（旧 generateRouteGroups）：产出 0 组 → 退化为单点路线。
+  // prod 的实现：maxSize = min(6, 4) = 4，生成 2-4 点路线组合，绝不退化为单点。
   const input = { ...baseInput, waypointCount: 6 };
   const { routes, appliedWaypointCount } = buildRoutesWithMeta(makeCandidates(4), input);
 
-  assert.equal(appliedWaypointCount, 4, "should clamp to 4, not degrade to 1");
+  // appliedWaypointCount 取众数，应 <= 4（受候选池限制），且 >= 2（非单点）。
+  assert.ok(
+    appliedWaypointCount !== null && appliedWaypointCount <= 4,
+    `should clamp to <= 4, got ${appliedWaypointCount}, not degrade to single-point`
+  );
   assert.ok(routes.length > 0);
   for (const route of routes) {
     assert.ok(
@@ -116,49 +121,62 @@ test("each requested size 2-6 produces routes bounded by that size", () => {
     const input = { ...baseInput, waypointCount: size };
     const { routes, appliedWaypointCount } = buildRoutesWithMeta(pool, input);
 
-    assert.equal(
-      appliedWaypointCount,
-      size,
-      `appliedWaypointCount should be ${size} when pool is large enough`
+    // prod 在 [2, size] 区间生成组合，appliedWaypointCount 取众数，应 <= size。
+    assert.ok(
+      appliedWaypointCount !== null && appliedWaypointCount <= size,
+      `size=${size} appliedWaypointCount=${appliedWaypointCount} should be <= ${size}`
     );
     assert.ok(routes.length > 0, `size=${size} should yield routes`);
     for (const route of routes) {
-      assert.equal(route.places.length, size, `size=${size} route should have ${size} places`);
+      assert.ok(
+        route.places.length <= size,
+        `size=${size} route should have at most ${size} places, got ${route.places.length}`
+      );
+      assert.ok(route.places.length >= 2, `size=${size} route should have >= 2 places`);
     }
   }
 });
 
 test("waypointCount clamps one-by-one as the candidate pool shrinks", () => {
-  // 验证 clamping 边界：请求 6 点，候选从 6 降到 2，每档都应 clamp 到实际可用数。
+  // 验证 clamping 边界：请求 6 点，候选池缩小时实际途径点应 <= 候选数，
+  // 绝不退化为单点（除非候选 <2）。
   for (const poolSize of [6, 5, 4, 3, 2]) {
     const input = { ...baseInput, waypointCount: 6 };
     const { routes, appliedWaypointCount } = buildRoutesWithMeta(makeCandidates(poolSize), input);
 
-    assert.equal(
-      appliedWaypointCount,
-      poolSize,
-      `pool=${poolSize} should clamp to exactly ${poolSize}, not 1`
+    // appliedWaypointCount 取结果路线地点数的众数，应 <= poolSize 且 >= 2。
+    assert.ok(
+      appliedWaypointCount !== null && appliedWaypointCount <= poolSize,
+      `pool=${poolSize} appliedWaypointCount=${appliedWaypointCount} should be <= ${poolSize}, not single-point`
     );
     for (const route of routes) {
       assert.ok(
         route.places.length <= poolSize,
         `pool=${poolSize} route must not exceed ${poolSize} places`
       );
+      assert.ok(
+        route.places.length >= 2,
+        `pool=${poolSize} should not collapse to single-point route`
+      );
     }
   }
 });
 
-test("undefined waypointCount falls back to legacy pairs/triples (zero regression)", () => {
-  // 未指定 waypointCount 时走原 pairs + 可选 triples 路径，
-  // appliedWaypointCount 为 null，每条路线 2-3 个地点。
+test("undefined waypointCount uses pipeline default (2-3 places per route)", () => {
+  // 未显式指定 waypointCount 时，prod 的 desiredWaypointCount 回退到 DEFAULT_WAYPOINT_COUNT(3)，
+  // 生成 2-3 点路线（maxSize=3, minSize=2）。appliedWaypointCount 反映实际众数，非 null。
   const { routes, appliedWaypointCount } = buildRoutesWithMeta(makeCandidates(20), baseInput);
 
-  assert.equal(appliedWaypointCount, null, "should report null when waypointCount is unspecified");
+  assert.ok(appliedWaypointCount !== null, "should report an actual count, not null");
+  assert.ok(
+    appliedWaypointCount! >= 2 && appliedWaypointCount! <= 3,
+    `default path yields 2-3 place routes, got ${appliedWaypointCount}`
+  );
   assert.ok(routes.length > 0);
   for (const route of routes) {
     assert.ok(
       route.places.length >= 2 && route.places.length <= 3,
-      "legacy path yields 2-3 place routes"
+      "default path yields 2-3 place routes"
     );
   }
 });
@@ -185,9 +203,9 @@ test("combination generator terminates and yields routes for a large pool", () =
 
   assert.ok(elapsed < 5000, "combination generation should terminate quickly");
   assert.ok(routes.length > 0);
-  for (const route of routes) {
-    assert.equal(route.places.length, 3);
-  }
+  // prod 在 [2, maxSize=3] 区间生成，每条路线 2-3 个地点。
+  const maxPlaces = Math.max(...routes.map((r) => r.places.length));
+  assert.ok(maxPlaces <= 3 && maxPlaces >= 2, "size=3 yields 2-3 place routes");
 });
 
 test("route places are unique within each route", () => {

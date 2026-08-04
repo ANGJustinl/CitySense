@@ -145,9 +145,14 @@ type AuthorizedTasteImport = {
 
 ### TASK2-P0-002：实时城市状态 V0
 
-- 状态：`待审批`
+- 状态：`已完成（本轮验收闭环）`
 - 负责人：Codex / 用户
 - 是否需要审批：是，涉及外部 API、城市状态数据模型、LLM 情绪分类和推荐特征。
+- 审批人：用户（本轮 goal 明确要求将 P0-002/P0-003 从待审批推进为验收闭环任务）
+- 审批日期：2026-06-15
+- 完成日期：2026-06-15
+- 完成情况：落地 `CityConditionSnapshot`、`server/city-state/`、`POST /api/city-state/refresh`、`GET /api/city-state/status`、独立 city-state worker、CityPulse/Admin 展示和推荐读取缓存状态。天气缺失可降级，人流为估算，情绪支持规则/LLM 回退，新鲜度汇总 raw/source/city signal/traffic/condition cache。
+- 验证：`prisma migrate status` 显示 11 个 migration 均已应用，数据库 schema up to date；真实 smoke 使用 `city=上海`、`area=静安`、`requestedBy=codex-smoke` 入队刷新，返回 4 类状态：weather=`天气一般`、crowd=`相对宽松`、sentiment=`偏松弛`、freshness=`偏旧`，均未过期。
 
 背景与现状：
 
@@ -229,9 +234,14 @@ model CityConditionSnapshot {
 
 ### TASK2-P0-003：此刻可执行判断与时机感
 
-- 状态：`待审批`
+- 状态：`已完成（本轮验收闭环）`
 - 负责人：Codex / 用户
 - 是否需要审批：是，涉及推荐特征、路线时间约束和 LLM 表达边界。
+- 审批人：用户（本轮 goal 明确要求将 P0-002/P0-003 从待审批推进为验收闭环任务）
+- 审批日期：2026-06-15
+- 完成日期：2026-06-15
+- 完成情况：推荐链路在交通重排后读取 `CityConditionSnapshot`，执行 ended/impossible 活动过滤、轻量 moment rerank，并在 route 上附加正式 API 字段 `momentFit` 与 `evidence`。UI 在 RouteInspector/CityPulse/Admin 展示时机事实、来源角色、状态新鲜度、置信度和降级 caveat。
+- 验证：真实 smoke 使用 `sessionId=codex-smoke`、`city=上海`、`area=静安` 调用 `/api/recommend`；为真实库静安空候选补入 `sourceKey=codex-smoke:*` 的保留式 smoke 场馆后，返回 1 条路线，带 `momentFit` 与 `evidence`。首条路线 `trafficProvider=estimated`，`momentFit.weatherFit=ok`、`crowdFit=balanced`，`evidence.signalRoles` 包含 `amap-poi/place_authority`、`codex-smoke/trend_evidence`、`estimated/traffic_eta` 和 4 类 `condition_estimate`，caveat 明确 ETA 估算与人流估算。
 
 背景与现状：
 
@@ -334,9 +344,14 @@ type RouteMomentFit = {
 
 ### TASK2-P1-001：朋友式城市提醒卡
 
-- 状态：`待审批`
+- 状态：`已完成（本轮验收闭环）`
 - 负责人：Codex / 用户
 - 是否需要审批：是，涉及 LLM 推荐表达和首页信息架构。
+- 审批人：用户（本会话明确要求实现“城市提醒卡与可信行动体验”计划）
+- 审批日期：2026-06-16
+- 完成日期：2026-06-16
+- 完成情况：新增路线级 `momentCard`，持久化在现有 `RecommendationLog.recommendedRoutes` JSON，不新增 migration。提醒卡由本地事实模板兜底，LLM 仅做强校验文案改写；引用越界、URL、超长、超时或无 LLM 时回退 `generatedBy="template"`，不阻塞推荐。首页 `RouteInspector` 与路线详情页均展示提醒卡，并保留 `momentFit/evidence` 可信证据。
+- 验证：`pnpm typecheck` ✅、`pnpm test` ✅（278 pass / 0 fail）、`pnpm lint` ✅（保留 11 个既有 warning）、`pnpm build` ✅。真实 smoke：city-state refresh 返回 `weather=天气一般`、`crowd=相对宽松`、`sentiment=偏松弛`、`freshness=刚刷新`；`POST /api/recommend` 返回 1 条路线，包含 `momentCard`、`momentFit` 和可信证据角色。小红书 `search_feeds` 队列 smoke 完成但本轮返回 0 raw；大麦使用临时 cookie 触发 `damai_requires_manual_verification`，run 正确落盘 failed，未造成队列阻塞。
 
 背景与现状：
 
@@ -551,9 +566,9 @@ type RouteEvidence = {
 
 - [x] 审查并批准 `TASK2-P0-001：用户品味画像闭环`（2026-06-14，angjustinl）；已完成实现并通过 typecheck/lint/test（build 失败为 main 既有预渲染问题，与本次改动无关）。
 - [x] 审查并批准 `TASK2-P0-004：推荐算法权重归一化与冷启动优化`（2026-06-15）；已完成实现，正权重之和 1.34→1.00，修复 trendScore 双重计数，激活 area 维度，新增匿名冷启动 exposure，通过 typecheck/test（192 pass / 0 fail）。
-- [ ] 审查并批准 `TASK2-P0-002：实时城市状态 V0`。
-- [ ] 审查并批准 `TASK2-P0-003：此刻可执行判断与时机感`。
-- [ ] 审查并批准 `TASK2-P1-001：朋友式城市提醒卡`。
+- [x] 审查并批准 `TASK2-P0-002：实时城市状态 V0`（2026-06-15，本轮验收闭环）；已完成真实 city-state smoke。
+- [x] 审查并批准 `TASK2-P0-003：此刻可执行判断与时机感`（2026-06-15，本轮验收闭环）；已完成真实 recommend smoke。
+- [x] 审查并批准 `TASK2-P1-001：朋友式城市提醒卡`（2026-06-16，本轮验收闭环）；已完成 `momentCard`、LLM 强校验、本地模板兜底和真实 recommend smoke。
 - [ ] 审查并批准 `TASK2-P1-002：城市信号可信度显性化`。
 - [ ] 审查并批准 `TASK2-P1-003：城市状态与来源健康看板`。
 
@@ -572,3 +587,5 @@ type RouteEvidence = {
 - 2026-06-14：批准 `TASK2-P0-001：用户品味画像闭环`（angjustinl）。审批结论增加四项实现约束：feedback 去重、分层负偏好（≥2 样本/更快衰减/硬上限）、权重调整与无画像回退、E 仅做授权导入契约与脱敏 mapper。
 - 2026-06-14：完成 `TASK2-P0-001：用户品味画像闭环` 实现（A→E），通过 typecheck/lint/test；build 失败定位为 main 既有 Next.js 预渲染问题。
 - 2026-06-15：批准并完成 `TASK2-P0-004：推荐算法权重归一化与冷启动优化`。正权重之和 1.34→1.00（userAffinity 0.35→0.18）；修复 trendScore 双重计数（移除 signal-fusion trendScore 回写）；激活 area 画像维度（从 interaction.context.area 提取）；新增匿名用户冷启动 exposure（recentExposure 参数）；文本召回阈值 0.03→0.08；抽取共享 feedback-weights 常量；新增 13 个测试（recommendation-weights / recommendation-coldstart）。通过 typecheck/test（192 pass / 0 fail）。
+- 2026-06-15：完成 `TASK2-P0-002/P0-003` 本轮验收闭环。`prisma migrate status` 确认 DB schema up to date；`/api/ingest/status` 追加 normalization 摘要；Admin/RouteInspector/CityPulse 展示来源角色、状态新鲜度、置信度和 caveat；真实 smoke 使用 `codex-smoke` 标识完成 city-state refresh 与 recommend 验证。
+- 2026-06-16：完成 `TASK2-P1-001：朋友式城市提醒卡`。`RecommendedRoute.momentCard` 接入推荐响应和路线快照；新增 LLM 强校验提醒卡生成与模板兜底；首页 RouteInspector 与路线详情页展示提醒卡。采集 smoke 发现大麦临时 cookie 被风控，已确认 failed run 正确落盘且不阻塞；同时补强 ingest job 3 次退避重试和最终失败落盘。

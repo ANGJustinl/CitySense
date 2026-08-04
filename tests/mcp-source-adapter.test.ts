@@ -247,7 +247,8 @@ test("xiaohongshu adapter uses ai_search_chat and maps source notes into city ev
           status: "ok",
           data: {
             prompt: call.input.prompt,
-            answer: "静安寺附近最近适合咖啡和展览路线。",
+            answer:
+              "<p>静安寺附近最近适合<strong>咖啡</strong>和展览路线。</p><h4>\u200b**\u200b雨天备选\u200b**\u200b</h4>",
             sources: {
               ok: true,
               notes: [
@@ -276,17 +277,84 @@ test("xiaohongshu adapter uses ai_search_chat and maps source notes into city ev
   assert.equal(events[0].sourceId, "684100000000000001:event");
   assert.equal(events[0].sourceUrl, "https://www.xiaohongshu.com/search_result/684100000000000001");
   assert.equal(events[0].title, "武康路新展和咖啡路线");
-  assert.equal(events[0].content, "展览之后可以顺路喝咖啡。");
+  assert.match(events[0].content ?? "", /展览之后可以顺路喝咖啡。/);
+  assert.match(events[0].content ?? "", /小红书AI回答：静安寺附近最近适合咖啡和展览路线。雨天备选/);
   assert.equal(events[0].imageUrl, "https://sns-webpic-qc.xhscdn.com/cover-684100000000000001.jpg");
   assert.equal(events[0].author, "上海周末观察");
   assert.equal(events[0].area, "静安寺");
   assert.deepEqual(events[0].tags, ["静安寺", "咖啡", "展览", "AI搜索", "同城"]);
+  assert.match(
+    events[0].sourceSignals?.[0]?.evidence ?? "",
+    /AI回答：静安寺附近最近适合咖啡和展览路线。雨天备选/
+  );
+  assert.equal(
+    (events[0].rawPayload as { answer?: string }).answer,
+    "静安寺附近最近适合咖啡和展览路线。雨天备选"
+  );
   assert.equal(events[0].trendScore, 61);
   assert.equal(events[0].popularity, 61);
 
   const normalized = toNormalizedEntityInput(events[0], createSourceKey(events[0]));
   assert.ok(normalized);
   assert.equal(normalized.entityType, "event");
+
+  if (previous === undefined) {
+    delete process.env.XIAOHONGSHU_MCP_URL;
+  } else {
+    process.env.XIAOHONGSHU_MCP_URL = previous;
+  }
+
+  if (previousTool === undefined) {
+    delete process.env.XIAOHONGSHU_MCP_SEARCH_TOOL;
+  } else {
+    process.env.XIAOHONGSHU_MCP_SEARCH_TOOL = previousTool;
+  }
+});
+
+test("xiaohongshu adapter turns concrete ai answer bullets into raw items", async () => {
+  const previous = process.env.XIAOHONGSHU_MCP_URL;
+  const previousTool = process.env.XIAOHONGSHU_MCP_SEARCH_TOOL;
+  process.env.XIAOHONGSHU_MCP_URL = "http://localhost:18060/mcp";
+  delete process.env.XIAOHONGSHU_MCP_SEARCH_TOOL;
+
+  const adapter = createXiaohongshuMcpAdapter({
+    client: {
+      async callTool(call) {
+        return {
+          connector: call.connector,
+          tool: call.tool,
+          status: "ok",
+          data: {
+            answer:
+              "- Monocle 快闪咖啡店：中国首家快闪，适合咖啡和纸刊发呆，📍静安区安义路63号。 - 作家书店：巨鹿路677号，适合安静阅读。",
+            sources: {
+              ok: true,
+              notes: [
+                {
+                  noteId: "note-with-source",
+                  title: "静安近期咖啡展览观察",
+                  text: "整理静安近期可逛内容。"
+                }
+              ]
+            }
+          }
+        };
+      }
+    }
+  });
+
+  const events = await adapter.searchEvents({ city: "上海", area: "静安", keywords: ["咖啡", "展览"] });
+  const aiItems = events.filter((event) => (event.sourceId ?? "").startsWith("ai-answer-"));
+
+  assert.equal(events.length, 3);
+  assert.deepEqual(
+    aiItems.map((item) => item.title),
+    ["Monocle 快闪咖啡店", "作家书店"]
+  );
+  assert.equal(aiItems[0].address, "静安区安义路63号");
+  assert.match(aiItems[0].content ?? "", /中国首家快闪/);
+  assert.doesNotMatch(aiItems[0].content ?? "", /小红书AI回答：/);
+  assert.equal(aiItems[0].sourceSignals?.[0]?.label, "小红书 AI 回答提及");
 
   if (previous === undefined) {
     delete process.env.XIAOHONGSHU_MCP_URL;

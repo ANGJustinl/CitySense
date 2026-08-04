@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Activity,
   Database,
@@ -152,7 +153,9 @@ export function CityProfileView({
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
+    const timeout = window.setTimeout(() => setMounted(true), 0);
+
+    return () => window.clearTimeout(timeout);
   }, []);
 
   const matchTotal = useMemo(() => {
@@ -168,7 +171,7 @@ export function CityProfileView({
       if (area) params.set("area", area);
 
       // Refresh the profile + a fresh recommendation, then rebuild the trace.
-      const [profileRes, recommendRes] = await Promise.all([
+      const [profileRes] = await Promise.all([
         fetch(`/api/city-profile?${params.toString()}`).then((r) => r.json()),
         fetch("/api/recommend", {
           method: "POST",
@@ -180,6 +183,7 @@ export function CityProfileView({
             mood: "solo",
             budget: "medium",
             timeWindow: "tonight",
+            waypointCount: 3,
             useSocialSignals: true
           })
         }).then((r) => r.json())
@@ -212,8 +216,8 @@ export function CityProfileView({
           </div>
         </div>
         <nav className="top-actions" aria-label="primary">
-          <a href="/">工作台</a>
-          <a href="/admin/sources">Sources</a>
+          <Link href="/">工作台</Link>
+          <Link href="/admin/sources">Sources</Link>
           <button
             className="secondary-button"
             disabled={isLoading}

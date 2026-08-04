@@ -149,7 +149,7 @@ test("route assembler fills three routes when top candidates share generic tags"
 
 test("route assembler avoids reusing places across routes when enough candidates exist", () => {
   const routes = buildRoutes(
-    Array.from({ length: 8 }, (_, index) =>
+    Array.from({ length: 9 }, (_, index) =>
       trafficCandidate(
         candidate(
           `venue-distinct-${index}`,
@@ -166,6 +166,56 @@ test("route assembler avoids reusing places across routes when enough candidates
 
   assert.equal(routes.length, 3);
   assert.equal(new Set(placeIds).size, placeIds.length);
+});
+
+test("route assembler honors requested waypoint count when enough candidates exist", () => {
+  const routes = buildRoutes(
+    Array.from({ length: 10 }, (_, index) =>
+      trafficCandidate(
+        candidate(
+          `venue-waypoint-${index}`,
+          index % 2 === 0 ? ["咖啡", "书店"] : ["展览", "安静"],
+          31.22 + index * 0.001,
+          121.45 + index * 0.001
+        ),
+        92 - index
+      )
+    ),
+    {
+      ...request,
+      waypointCount: 4
+    }
+  );
+
+  assert.equal(routes.length, 3);
+  assert.equal(routes.every((route) => route.places.length === 4), true);
+});
+
+test("route assembler still returns alternatives when high waypoint count requires place reuse", () => {
+  const routes = buildRoutes(
+    Array.from({ length: 6 }, (_, index) =>
+      trafficCandidate(
+        candidate(
+          `venue-long-${index}`,
+          index % 2 === 0 ? ["市集", "夜生活"] : ["独立音乐", "咖啡"],
+          31.22 + index * 0.001,
+          121.45 + index * 0.001
+        ),
+        92 - index
+      )
+    ),
+    {
+      ...request,
+      interests: ["市集", "独立音乐", "夜生活"],
+      mood: "lively",
+      waypointCount: 6
+    }
+  );
+
+  assert.equal(routes.length, 3);
+  assert.equal(routes[0]?.places.length, 6);
+  assert.equal(routes.every((route) => route.places.length >= 5), true);
+  assert.equal(new Set(routes.map((route) => route.places.map((place) => place.id).join(":"))).size, 3);
 });
 
 test("route assembler prefers fully addressed routes when addressable candidates exist", () => {

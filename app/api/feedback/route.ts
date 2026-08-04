@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
+import {
+  ProfileAccessError,
+  sanitizeProfileScopedInput
+} from "@/server/auth/profile-access";
 import { recordFeedback } from "@/server/recommendation/feedback";
 
 export const runtime = "nodejs";
@@ -7,7 +11,11 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   try {
     const feedback = await request.json();
-    const result = await recordFeedback(feedback);
+    const input =
+      feedback && typeof feedback === "object" && !Array.isArray(feedback)
+        ? sanitizeProfileScopedInput(feedback as Record<string, unknown>)
+        : feedback;
+    const result = await recordFeedback(input);
 
     if (!result.ok) {
       return NextResponse.json(
@@ -20,6 +28,16 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof ProfileAccessError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code
+        },
+        { status: error.status }
+      );
+    }
+
     if (error instanceof ZodError) {
       return NextResponse.json(
         {

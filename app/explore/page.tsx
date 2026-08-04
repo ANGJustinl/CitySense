@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 
 // 兴趣数据 - 分不同尺寸创建视觉层次
@@ -110,7 +110,7 @@ export default function ExplorePage() {
           <span className="hero-title-accent">城市脉搏</span>
         </h1>
         <p className="hero-subtitle">
-          告别"去哪儿"的困惑。小红书、豆瓣、B站的数万条城市信号，
+          告别「去哪儿」的困惑。小红书、豆瓣、B站的数万条城市信号，
           为你推荐独一无二的探索路线。
         </p>
 

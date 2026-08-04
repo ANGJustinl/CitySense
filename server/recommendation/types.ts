@@ -4,6 +4,13 @@ export type TimeWindow = "now" | "tonight" | "weekend";
 export type TravelMode = "walking" | "transit" | "driving";
 export type CandidateType = "venue" | "event";
 export type OriginSource = "browser" | "manual" | "default";
+export type RecommendExperimentVariant = "control" | "trust-aware-v1";
+
+export type RecommendExperimentMeta = {
+  name: string;
+  variant: RecommendExperimentVariant;
+  bucketKey: string;
+};
 
 export type RecommendInput = {
   userId?: string;
@@ -24,13 +31,12 @@ export type RecommendInput = {
   mood: Mood;
   budget: Budget;
   timeWindow: TimeWindow;
+  /** Desired number of stops/places in each generated route. */
+  waypointCount?: number;
   useRealtimeTraffic?: boolean;
   useSocialSignals?: boolean;
-  /**
-   * 每条路线的途径点数量（2-6，默认 2-3 由候选池自动决定）。
-   * 用户可在前端调整，控制路线的紧凑/丰富程度。
-   */
-  waypointCount?: number;
+  /** 测试/受控环境使用的实验分桶覆盖；普通请求会忽略覆盖值并走确定性分桶。 */
+  experimentVariant?: RecommendExperimentVariant;
   /**
    * 匿名用户冷启动多样性补偿（TASK2-P0-004）：
    * 调用方传入最近已曝光的 place/route title 列表（如前端记录的上次推荐结果），
@@ -131,6 +137,12 @@ export type CandidateFeatures = ScoreBreakdown & {
   profileFactors?: ProfileFactor[];
   profileHit?: boolean;
   profileVersion?: number;
+  experiment?: {
+    name: string;
+    variant: RecommendExperimentVariant;
+    trustAdjustment: number;
+    trustReason: string;
+  };
 };
 
 export type ScoredCandidate = Candidate & {
@@ -178,6 +190,56 @@ export type TrafficCandidate = ScoredCandidate & {
   adjustedScore: number;
 };
 
+export type RouteMomentFact = {
+  label: string;
+  value: string;
+  source?: string;
+};
+
+export type RouteMomentFit = {
+  urgency: "now" | "soon" | "flexible" | "unknown";
+  arrivalFit: "fits" | "tight" | "ended" | "unknown";
+  weatherFit: "good" | "ok" | "poor" | "unknown";
+  crowdFit: "quiet" | "balanced" | "busy" | "unknown";
+  whyNow: string;
+  facts: RouteMomentFact[];
+};
+
+export type RouteEvidence = {
+  placeChecks: {
+    placeId: string;
+    label: string;
+    source: string;
+    confidence: number;
+    facts: string[];
+  }[];
+  sourceFreshness: {
+    source: string;
+    label: string;
+    capturedAt?: string;
+    ageMinutes?: number;
+  }[];
+  signalRoles: {
+    source: string;
+    role: "place_authority" | "event_authority" | "trend_evidence" | "traffic_eta" | "condition_estimate";
+    label: string;
+  }[];
+  caveats: string[];
+};
+
+export type MomentRecommendationCard = {
+  headline: string;
+  message: string;
+  primaryReason: string;
+  timingHint?: string;
+  nextAction: string;
+  confidence: "high" | "medium" | "low";
+  generatedBy: "llm" | "template";
+  citedPlaceIds: string[];
+  citedSignalSources: string[];
+  citedFactLabels: string[];
+};
+
 export type RecommendedRoute = {
   id: string;
   title: string;
@@ -202,7 +264,12 @@ export type RecommendedRoute = {
     source?: string;
     sourceUrl?: string;
     imageUrl?: string;
+    startsAt?: string;
+    endsAt?: string;
   }[];
+  momentFit?: RouteMomentFit;
+  evidence?: RouteEvidence;
+  momentCard?: MomentRecommendationCard;
   reason: string;
   tips: string[];
 };
@@ -234,12 +301,13 @@ export type RecommendResponse = {
     };
     /**
      * 实际生效的每条路线途径点个数。
-     * - null：未指定 waypointCount，沿用 pairs/triples 自适应（每条 2-3 点）。
+     * - null：未指定 waypointCount，沿用 desiredWaypointCount 启发式。
      * - 1：候选池极度不足，退化为单点兜底路线。
-     * - 2-6：用户指定且（经候选规模 clamping 后）生效的途径点数。
+     * - 2-6：经候选规模 clamping 后实际生效的途径点数。
      * 当与请求值不一致时，前端/MCP 可据此提示"因候选不足已从 N 点降级"。
      */
     appliedWaypointCount?: number | null;
+    experiment?: RecommendExperimentMeta;
     generatedAt: string;
   };
 };

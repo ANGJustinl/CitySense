@@ -2,13 +2,12 @@ import { buildRecommendationTrace } from "@/server/recommendation/city-profile";
 import { getUserProfile } from "@/server/recommendation/user-profile";
 import { recommend } from "@/server/recommendation/recommend";
 import { UserProfileView } from "@/components/city/UserProfileView";
-import { DEFAULT_DEMO_USER_ID } from "@/lib/demo-users";
+import { DEFAULT_DEMO_USER_ID, isDemoUser } from "@/lib/demo-users";
 
 export const dynamic = "force-dynamic";
 
 /**
  * 用户兴趣画像页。默认 demo 账号 user1，支持 ?userId=user2 切换。
- * 自定义 userId（非 demo）仍可用，但需显式传入。
  *
  * Search params: ?userId=user1&city=上海&area=静安寺
  */
@@ -18,8 +17,9 @@ export default async function ProfilePage({
   searchParams: Promise<{ userId?: string; city?: string; area?: string }>;
 }) {
   const params = await searchParams;
-  // 默认 user1；接受任意 userId（含自定义），demo 账号优先。
-  const userId = params.userId?.trim() || DEFAULT_DEMO_USER_ID;
+  // 画像页是公开服务端渲染入口，只允许 demo 账号，避免 URL 参数越权读取任意画像。
+  const requestedUserId = params.userId?.trim();
+  const userId = isDemoUser(requestedUserId) ? requestedUserId! : DEFAULT_DEMO_USER_ID;
   const city = params.city || "上海";
   const area = params.area || undefined;
 
@@ -41,6 +41,7 @@ export default async function ProfilePage({
     mood: "solo",
     budget: "medium",
     timeWindow: "tonight",
+    waypointCount: 3,
     useSocialSignals: true
   });
 

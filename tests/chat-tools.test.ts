@@ -56,3 +56,23 @@ test("get_user_profile tool returns anonymous hint without profileKey", async ()
 
   assert.ok(result.content.includes("匿名") || result.content.includes("暂无"));
 });
+
+test("get_user_profile tool ignores model-supplied profileKey override", async () => {
+  const result = await executeChatTool("get_user_profile", "{\"profileKey\":\"user2\"}", {
+    sessionId: undefined,
+    profileKey: undefined,
+    city: "上海"
+  });
+
+  assert.ok(result.content.includes("匿名") || result.content.includes("暂无"));
+});
+
+test("profile-scoped chat tools reject context profileKey mismatch before DB work", async () => {
+  const result = await executeChatTool("recommend_routes", "{}", {
+    sessionId: "anon-session",
+    profileKey: "user-x",
+    city: "上海"
+  });
+
+  assert.ok(result.content.includes("profile access denied"));
+});

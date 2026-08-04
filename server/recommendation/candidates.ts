@@ -793,6 +793,43 @@ async function loadCitySignalRows(input: RecommendInput): Promise<CitySignalCont
   }
 }
 
+function signalMatchedVenueIds(signals: CitySignalContextRow[]) {
+  return [
+    ...new Set(
+      signals
+        .flatMap((signal) => signal.matchedVenueIds ?? [])
+        .filter((id): id is string => Boolean(id))
+    )
+  ];
+}
+
+async function loadSignalMatchedVenueCandidates(
+  input: RecommendInput,
+  signals: CitySignalContextRow[]
+): Promise<Candidate[]> {
+  const venueIds = signalMatchedVenueIds(signals);
+
+  if (venueIds.length === 0) {
+    return [];
+  }
+
+  const venues = await prisma.venue.findMany({
+    where: {
+      id: {
+        in: venueIds
+      },
+      city: input.city,
+      source: "amap-poi"
+    }
+  });
+
+  return venues
+    .map(venueToCandidate)
+    .filter((candidate) => matchesCandidateArea(candidate.area, input.area))
+    .filter((candidate) => candidate.routeEligible)
+    .map((candidate) => withRecall(candidate, ["city-signal"], 100));
+}
+
 export async function retrieveDatabaseCandidates(input: RecommendInput): Promise<Candidate[]> {
   if (!hasDatabaseUrl()) {
     throw new Error("DATABASE_URL is not configured");
@@ -806,9 +843,12 @@ export async function retrieveDatabaseCandidates(input: RecommendInput): Promise
   const baseCandidates = baseResult.status === "fulfilled" ? baseResult.value : [];
   const textCandidates = textResult.status === "fulfilled" ? textResult.value : [];
   const citySignals = signalResult.status === "fulfilled" ? signalResult.value : [];
-  let recalledCandidates = dedupeCandidates([...baseCandidates, ...textCandidates]).filter(
-    isDirectRecommendationCandidate
-  );
+  const signalMatchedVenueCandidates = await loadSignalMatchedVenueCandidates(input, citySignals);
+  let recalledCandidates = dedupeCandidates([
+    ...baseCandidates,
+    ...textCandidates,
+    ...signalMatchedVenueCandidates
+  ]).filter(isDirectRecommendationCandidate);
 
   if (actionableClusterCount(recalledCandidates) < 6) {
     const supplementInput = input.area
@@ -841,5 +881,6 @@ export async function retrieveDatabaseCandidates(input: RecommendInput): Promise
 export const __testing = {
   matchesCandidateArea,
   selectCandidateRecallWindow,
-  candidateQuality
+  candidateQuality,
+  signalMatchedVenueIds
 };

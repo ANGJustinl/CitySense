@@ -61,6 +61,55 @@ type RouteStep = {
   polyline?: string;
 };
 
+type AmapParamValue = string | number | boolean | undefined;
+
+type AmapRouteStep = {
+  instruction?: string;
+  road?: string;
+  distance?: string;
+  duration?: string;
+  action?: string;
+  polyline?: string;
+};
+
+type AmapPath = {
+  distance?: string;
+  duration?: string;
+  steps?: AmapRouteStep[];
+  polyline?: string;
+};
+
+type AmapTransit = {
+  distance?: string;
+  duration?: string;
+  segments?: Array<{
+    walking?: {
+      distance?: string;
+      duration?: string;
+      steps?: AmapRouteStep[];
+    };
+    bus?: {
+      buslines?: Array<{
+        name?: string;
+        duration?: string;
+        distance?: string;
+        polyline?: string;
+        departure_stop?: { name?: string };
+        arrival_stop?: { name?: string };
+      }>;
+    };
+  }>;
+};
+
+type AmapDistrict = {
+  adcode?: string;
+  name?: string;
+  level?: string;
+  center?: string;
+  polylines?: string[][];
+  districts?: AmapDistrict[];
+};
+
 type RouteResult = {
   origin: Point;
   destination: Point;
@@ -104,12 +153,14 @@ class AmapClient {
     this.apiKey = apiKey;
   }
 
-  private async fetch<T>(endpoint: string, params: Record<string, string | number>): Promise<T | null> {
+  private async fetch<T>(endpoint: string, params: Record<string, AmapParamValue>): Promise<T | null> {
     const urlParams = new URLSearchParams({
       key: this.apiKey,
       output: "json",
       ...Object.fromEntries(
-        Object.entries(params).map(([k, v]) => [k, String(v)])
+        Object.entries(params)
+          .filter((entry): entry is [string, Exclude<AmapParamValue, undefined>] => entry[1] !== undefined)
+          .map(([k, v]) => [k, String(v)])
       )
     });
 
@@ -164,7 +215,7 @@ class AmapClient {
     }
 
     return response.pois
-      .map((poi) => {
+      .map<POIResult>((poi) => {
         const [lng, lat] = poi.location?.split(",").map(Number) || [0, 0];
         return {
           id: poi.id,
@@ -183,7 +234,7 @@ class AmapClient {
           business: poi.business
         };
       })
-      .filter((poi): poi is POIResult => poi.id !== "");
+      .filter((poi) => poi.id !== "");
   }
 
   /**
@@ -215,40 +266,8 @@ class AmapClient {
     const endpoint = `/direction/${params.mode}`;
     const response = await this.fetch<{
       route?: {
-        paths?: Array<{
-          distance?: string;
-          duration?: string;
-          steps?: Array<{
-            instruction?: string;
-            road?: string;
-            distance?: string;
-            duration?: string;
-            action?: string;
-            polyline?: string;
-          }>;
-          polyline?: string;
-        }>;
-        transits?: Array<{
-          distance?: string;
-          duration?: string;
-          segments?: Array<{
-            walking?: {
-              distance?: string;
-              duration?: string;
-              steps?: RouteStep[];
-            };
-            bus?: {
-              buslines?: Array<{
-                name?: string;
-                duration?: string;
-                distance?: string;
-                polyline?: string;
-                departure_stop?: { name?: string };
-                arrival_stop?: { name?: string };
-              }>;
-            };
-          }>;
-        }>;
+        paths?: AmapPath[];
+        transits?: AmapTransit[];
       };
     }>(endpoint, {
       origin: `${params.origin.lng},${params.origin.lat}`,
@@ -261,27 +280,26 @@ class AmapClient {
     }
 
     const isTransit = params.mode === "transit";
-    const routeData = isTransit
-      ? response.route.transits?.[0]
-      : response.route.paths?.[0];
+    const transitData = isTransit ? response.route.transits?.[0] : undefined;
+    const pathData = isTransit ? undefined : response.route.paths?.[0];
 
-    if (!routeData) {
+    if (isTransit ? !transitData : !pathData) {
       return null;
     }
 
-    const distance = Number(routeData.distance) || 0;
-    const duration = Number(routeData.duration) || 0;
+    const distance = Number(isTransit ? transitData?.distance : pathData?.distance) || 0;
+    const duration = Number(isTransit ? transitData?.duration : pathData?.duration) || 0;
     const congestion = duration <= 1200 ? "smooth" : duration <= 2400 ? "moderate" : "busy";
 
     // 解析 polyline
-    const polyline = this.parsePolyline(isTransit ? undefined : routeData.polyline);
+    const polyline = this.parsePolyline(pathData?.polyline);
 
     // 解析步骤
     const steps: RouteStep[] = [];
 
-    if (isTransit && response.route.transits?.[0]?.segments) {
+    if (isTransit && transitData?.segments) {
       // 公交路线解析
-      for (const segment of response.route.transits[0].segments || []) {
+      for (const segment of transitData.segments || []) {
         if (segment.walking?.steps) {
           steps.push(...segment.walking.steps.map((s) => ({
             instruction: s.instruction,
@@ -306,10 +324,10 @@ class AmapClient {
           }
         }
       }
-    } else if (routeData.steps) {
+    } else if (pathData?.steps) {
       // 步行/驾车路线解析
       steps.push(
-        ...routeData.steps.map((s) => ({
+        ...pathData.steps.map((s) => ({
           instruction: s.instruction,
           road: s.road,
           distance: Number(s.distance),
@@ -423,13 +441,7 @@ class AmapClient {
     subdistrict?: number;
   }): Promise<DistrictResult[]> {
     const response = await this.fetch<{
-      districts?: Array<{
-        adcode?: string;
-        name?: string;
-        level?: string;
-        center?: string;
-        polylines?: string[][];
-      }>;
+      districts?: AmapDistrict[];
     }>("/config/district", {
       keywords: params.keywords,
       subdistrict: params.subdistrict ?? 1
@@ -495,13 +507,7 @@ class AmapClient {
       .filter((point): point is Point => point !== null);
   }
 
-  private parseDistrict(district: {
-    adcode?: string;
-    name?: string;
-    level?: string;
-    center?: string;
-    polylines?: string[][];
-  }): DistrictResult | null {
+  private parseDistrict(district: AmapDistrict): DistrictResult | null {
     if (!district.adcode || !district.name) {
       return null;
     }

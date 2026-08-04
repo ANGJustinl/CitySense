@@ -5,7 +5,9 @@ import {
   buildSocialTrendForPlaceMatch,
   normalizePlaceMatchReview,
   rankAmapVenueCandidates,
+  shouldReviewAmapVenueCandidates,
   type AmapVenueMatchCandidate,
+  type RankedAmapVenueCandidate,
   type SocialTrendForPlaceMatch
 } from "@/server/ingest/social-place-matcher";
 import type { RawSourceItemDetail } from "@/server/sources/source.types";
@@ -142,6 +144,63 @@ test("generic Xiaohongshu listicles stay topic-only and do not trigger AMap supp
 
   assert.deepEqual(keywords, []);
   assert.deepEqual(ranked, []);
+});
+
+test("Xiaohongshu weak area/tag AMap candidates skip LLM review", () => {
+  const candidates: RankedAmapVenueCandidate[] = [
+    {
+      ...venue({
+        id: "venue-weak",
+        name: "静安体育中心",
+        address: "汶水路116号",
+        tags: ["展览", "体育"]
+      }),
+      algorithmScore: 43,
+      matchedFields: ["area", "tag", "source", "coords"]
+    }
+  ];
+
+  assert.equal(
+    shouldReviewAmapVenueCandidates({
+      trend,
+      candidates
+    }),
+    false
+  );
+});
+
+test("Xiaohongshu name or address AMap candidates can enter LLM review", () => {
+  const nameCandidate: RankedAmapVenueCandidate = {
+    ...venue({
+      id: "venue-name",
+      name: "眠羊咖啡"
+    }),
+    algorithmScore: 80,
+    matchedFields: ["area", "name", "source", "coords"]
+  };
+  const addressCandidate: RankedAmapVenueCandidate = {
+    ...venue({
+      id: "venue-address",
+      name: "愚园路小展厅"
+    }),
+    algorithmScore: 58,
+    matchedFields: ["area", "address", "source", "coords"]
+  };
+
+  assert.equal(
+    shouldReviewAmapVenueCandidates({
+      trend,
+      candidates: [nameCandidate]
+    }),
+    true
+  );
+  assert.equal(
+    shouldReviewAmapVenueCandidates({
+      trend,
+      candidates: [addressCandidate]
+    }),
+    true
+  );
 });
 
 // ---- Damai event → AMap Venue matching (mirrors xiaohongshu path) ----

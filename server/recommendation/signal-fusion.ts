@@ -31,6 +31,39 @@ function metadataTitle(metadata: unknown) {
   return typeof title === "string" && title.trim() ? title.trim() : undefined;
 }
 
+function metadataSourceEvidence(metadata: unknown) {
+  if (!metadata || typeof metadata !== "object") {
+    return undefined;
+  }
+
+  const signals = (metadata as { sourceSignals?: unknown }).sourceSignals;
+
+  if (!Array.isArray(signals)) {
+    return undefined;
+  }
+
+  const text = signals
+    .map((signal) => {
+      if (!signal || typeof signal !== "object") {
+        return undefined;
+      }
+
+      const value = (signal as { evidence?: unknown }).evidence;
+
+      return typeof value === "string" ? value.trim() : undefined;
+    })
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+
+  return text || undefined;
+}
+
+function metadataSearchText(metadata: unknown) {
+  return [metadataTitle(metadata), metadataSourceEvidence(metadata)]
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+}
+
 function signalMatchesCandidate(
   signal: CitySignalContextRow,
   candidate: Candidate,
@@ -73,12 +106,17 @@ function tagsMatch(candidateTag: string, signalTag: string) {
 
 function sourceSignalFor(signal: CitySignalContextRow): SourceSignal {
   const title = metadataTitle(signal.metadata);
+  const evidence = metadataSourceEvidence(signal.metadata);
 
   return {
     source: signal.source,
     label: `${signal.source} 城市热度`,
     score: Math.round(signal.heatScore),
-    evidence: title ? `${signal.tag} / ${title}` : `${signal.tag} 热度 ${Math.round(signal.heatScore)}`
+    evidence: evidence
+      ? `${signal.tag} / ${evidence}`
+      : title
+        ? `${signal.tag} / ${title}`
+        : `${signal.tag} 热度 ${Math.round(signal.heatScore)}`
   };
 }
 
@@ -89,7 +127,7 @@ const SOCIAL_SIGNAL_SOURCES = new Set(["xiaohongshu", "bilibili", "trends-hub"])
 const MATCH_GATED_SIGNAL_SOURCES = new Set(["xiaohongshu", "damai"]);
 
 function isUsableSignal(signal: CitySignalContextRow) {
-  const title = metadataTitle(signal.metadata);
+  const text = metadataSearchText(signal.metadata);
 
   if (MATCH_GATED_SIGNAL_SOURCES.has(signal.source) && !signal.matchedVenueIds?.length) {
     return false;
@@ -97,14 +135,14 @@ function isUsableSignal(signal: CitySignalContextRow) {
 
   if (
     SOCIAL_SIGNAL_SOURCES.has(signal.source) &&
-    (!title || !title.toLowerCase().includes(signal.tag.toLowerCase()))
+    (!text || !text.toLowerCase().includes(signal.tag.toLowerCase()))
   ) {
     return false;
   }
 
   return !isGenericSocialContent({
     source: signal.source,
-    title: title ?? signal.tag,
+    title: text || signal.tag,
     tags: [signal.tag]
   });
 }

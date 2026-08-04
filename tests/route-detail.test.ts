@@ -80,10 +80,26 @@ test("invalid route snapshot id is rejected", () => {
 });
 
 test("recommendation routes can be decorated with snapshot ids", () => {
-  const [route] = withRouteSnapshotIds("rec_123", [sampleRoute]);
+  const [route] = withRouteSnapshotIds("rec_123", [
+    {
+      ...sampleRoute,
+      momentCard: {
+        headline: "现在去 A",
+        message: "A 和 B 都在路线里。",
+        primaryReason: "高德地点确认。",
+        nextAction: "按地图出发。",
+        confidence: "medium",
+        generatedBy: "template",
+        citedPlaceIds: ["place-a"],
+        citedSignalSources: [],
+        citedFactLabels: []
+      }
+    }
+  ]);
 
   assert.equal(route.id, "rec_123__route-1");
   assert.equal(route.title, sampleRoute.title);
+  assert.equal(route.momentCard?.headline, "现在去 A");
 });
 
 test("route map view keeps valid coordinates in lng/lat order", () => {

@@ -5,8 +5,16 @@ import { getSourceAdapters } from "@/server/sources/source-registry";
 import type { IngestRunRequest } from "@/server/ingest/types";
 
 export const INGEST_QUEUE_NAME = "ingest";
+export const NORMALIZE_QUEUE_NAME = "normalize";
 export const INGEST_QUEUE_PREFIX = "citysense";
 export const INGEST_JOB_NAME = "ingest.run";
+export const NORMALIZE_JOB_NAME = "ingest.normalize";
+
+export type NormalizeJobPayload = {
+  source?: string;
+  ingestRunId?: string;
+  limit?: number;
+};
 
 export function isIngestQueueConfigured() {
   return Boolean(process.env.REDIS_URL);
@@ -29,6 +37,13 @@ export function createIngestQueue() {
   });
 }
 
+export function createNormalizeQueue() {
+  return new Queue<NormalizeJobPayload>(NORMALIZE_QUEUE_NAME, {
+    connection: createRedisConnection(),
+    prefix: INGEST_QUEUE_PREFIX
+  });
+}
+
 export function resolveIngestSources(sources?: string[]) {
   const known = new Set(getSourceAdapters().map((adapter) => adapter.source));
 
@@ -37,6 +52,46 @@ export function resolveIngestSources(sources?: string[]) {
   }
 
   return [...new Set(sources)].filter((source) => known.has(source));
+}
+
+export async function enqueueNormalizeJob(input: NormalizeJobPayload) {
+  if (!isIngestQueueConfigured()) {
+    throw new Error("REDIS_URL is not configured");
+  }
+
+  const queue = createNormalizeQueue();
+  const sourceKey = input.source ?? "all";
+  const runKey = input.ingestRunId ?? "global";
+  const limit = input.limit;
+  const jobId = `normalize-${runKey}-${sourceKey}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+
+  try {
+    const job = await queue.add(
+      NORMALIZE_JOB_NAME,
+      input,
+      {
+        jobId,
+        attempts: 3,
+        backoff: {
+          type: "exponential",
+          delay: 10_000
+        },
+        removeOnComplete: 100,
+        removeOnFail: 100
+      }
+    );
+
+    return {
+      jobId: String(job.id),
+      source: input.source,
+      ingestRunId: input.ingestRunId,
+      limit
+    };
+  } finally {
+    await queue.close();
+  }
 }
 
 export async function enqueueIngestRun(input: IngestRunRequest) {
@@ -66,7 +121,11 @@ export async function enqueueIngestRun(input: IngestRunRequest) {
       },
       {
         jobId: `ingest-${run.id}`,
-        attempts: 1,
+        attempts: 3,
+        backoff: {
+          type: "exponential",
+          delay: 10_000
+        },
         removeOnComplete: 100,
         removeOnFail: 100
       }

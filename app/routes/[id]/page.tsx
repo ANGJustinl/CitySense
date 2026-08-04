@@ -4,14 +4,17 @@ import {
   Clock3,
   ExternalLink,
   Gauge,
+  Info,
   MapPin,
   MapPinned,
-  RadioTower
+  RadioTower,
+  ShieldCheck
 } from "lucide-react";
 import { getRouteDetail } from "@/server/routes/route-detail";
 import { RouteDetailMap } from "@/components/city/RouteDetailMap";
 import { PreviewableImage } from "@/components/city/ImagePreview";
 import { TrafficBadge } from "@/components/city/TrafficBadge";
+import { MomentRecommendationCard } from "@/components/city/MomentRecommendationCard";
 import {
   buildRouteChoiceSummary,
   buildRouteJourneyItems,
@@ -70,6 +73,8 @@ export default async function RouteDetail({
             <p>{summary.endpointLabel}</p>
           </div>
 
+          <MomentRecommendationCard card={route.momentCard} />
+
           <div className={`route-detail-persona theme-${persona.themeKey}`}>
             {persona.representativePlace.imageUrl ? (
               <PreviewableImage
@@ -115,6 +120,20 @@ export default async function RouteDetail({
             <p>{route.reason}</p>
           </div>
 
+          {route.momentFit ? (
+            <div className="route-detail-section compact">
+              <h2>此刻可行</h2>
+              <p>{route.momentFit.whyNow}</p>
+              <div className="moment-fact-row detail">
+                {route.momentFit.facts.map((fact) => (
+                  <span key={`${fact.label}-${fact.value}`}>
+                    {fact.label}: <strong>{fact.value}</strong>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="route-journey-list">
             {journeyItems.map((item) => (
               <div
@@ -141,6 +160,34 @@ export default async function RouteDetail({
               </div>
             ))}
           </div>
+
+          {route.evidence ? (
+            <div className="route-detail-section">
+              <h2>
+                <ShieldCheck size={16} />
+                可信证据
+              </h2>
+              <div className="route-signal-list evidence">
+                {route.evidence.placeChecks.map((check) => (
+                  <div key={check.placeId}>
+                    <ShieldCheck size={15} />
+                    <span>{check.label}</span>
+                    <strong>{Math.round(check.confidence * 100)}%</strong>
+                  </div>
+                ))}
+              </div>
+              {route.evidence.caveats.length > 0 ? (
+                <div className="evidence-caveats detail">
+                  {route.evidence.caveats.map((caveat) => (
+                    <p key={caveat}>
+                      <Info size={13} />
+                      {caveat}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="route-detail-section">
             <h2>来源信号</h2>

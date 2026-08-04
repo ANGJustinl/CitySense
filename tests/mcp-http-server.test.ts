@@ -17,23 +17,56 @@ import {
  */
 
 const TEST_TOKEN = "test-token-abcdef0123456789";
+const FETCH_BLOCKED_PORTS = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79,
+  87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135,
+  137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531,
+  532, 540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719,
+  1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666,
+  6667, 6668, 6669, 6697, 10080
+]);
+
+async function closeServer(server: Server) {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
+async function listenOnFetchSafePort() {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const app = createMcpHttpApp(TEST_TOKEN);
+    const server: Server = await new Promise((resolve) => {
+      const handle = app.listen(0, "127.0.0.1", () => resolve(handle));
+    });
+    const { port } = server.address() as AddressInfo;
+
+    if (!FETCH_BLOCKED_PORTS.has(port)) {
+      return { server, port };
+    }
+
+    await closeServer(server);
+  }
+
+  throw new Error("Unable to allocate a fetch-safe ephemeral port for MCP HTTP tests");
+}
 
 async function withHttpServer<T>(
   fn: (baseUrl: string, close: () => Promise<void>) => Promise<T>
 ): Promise<T> {
-  const app = createMcpHttpApp(TEST_TOKEN);
-  const server: Server = await new Promise((resolve) => {
-    const handle = app.listen(0, "127.0.0.1", () => resolve(handle));
-  });
-  const { port } = server.address() as AddressInfo;
+  const { server, port } = await listenOnFetchSafePort();
   const baseUrl = `http://127.0.0.1:${port}`;
+  let closed = false;
+  const close = async () => {
+    if (closed) {
+      return;
+    }
+
+    closed = true;
+    await closeServer(server);
+  };
 
   try {
-    return await fn(baseUrl, async () => {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    });
+    return await fn(baseUrl, close);
   } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await close();
   }
 }
 

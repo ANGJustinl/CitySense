@@ -11,10 +11,25 @@ import { enrichAndRerankByTraffic } from "@/server/recommendation/traffic-rerank
 import { buildRoutesWithMeta } from "@/server/recommendation/route-builder";
 import { planRoutesLegs } from "@/server/maps/route-legs";
 import { buildSourceContextItems, explainRoutes } from "@/server/ai/explain-route";
+import { attachMomentCards } from "@/server/ai/moment-card";
 import { persistRecommendationSnapshot } from "@/server/routes/route-detail";
 import { rankCandidates } from "@/server/recommendation/ranker";
 import { routeEligibilityFromQuality } from "@/server/recommendation/quality";
 import { geocodeAddress, type GeocodeResult } from "@/server/maps/geocode";
+import { getLatestCityConditions } from "@/server/city-state/snapshots";
+import {
+  summarizeConditionSnapshot
+} from "@/server/city-state/snapshots";
+import { refreshWeatherCondition } from "@/server/city-state/weather";
+import type { CityConditionSummary } from "@/server/city-state/types";
+import {
+  attachMomentContextToRoutes,
+  rerankCandidatesByMoment
+} from "@/server/recommendation/moment-fit";
+import {
+  applyRecommendationExperiment,
+  assignRecommendationExperiment
+} from "@/server/recommendation/experiments";
 
 const TRAFFIC_ENRICHMENT_LIMIT = 20;
 const ORIGIN_ADDRESS_MAX_LENGTH = 120;
@@ -53,10 +68,11 @@ export const recommendRequestSchema = z.object({
   mood: z.enum(["quiet", "lively", "date", "solo", "random"]).default("solo"),
   budget: z.enum(["low", "medium", "high"]).default("medium"),
   timeWindow: z.enum(["now", "tonight", "weekend"]).default("tonight"),
+  // 每条路线途径点数量（2-6），控制路线紧凑/丰富程度。
+  waypointCount: z.number().int().min(2).max(6).default(3),
   useRealtimeTraffic: z.boolean().default(true),
   useSocialSignals: z.boolean().default(true),
-  // 每条路线途径点数量（2-6），控制路线紧凑/丰富程度。
-  waypointCount: z.number().int().min(2).max(6).optional(),
+  experimentVariant: z.enum(["control", "trust-aware-v1"]).optional(),
   // 匿名用户冷启动多样性补偿（TASK2-P0-004）：前端可传入上次推荐的 placeId/title。
   recentExposure: z
     .object({
@@ -193,23 +209,62 @@ export function selectTrafficCandidatesForEnrichment(
   return [...routeEligible, ...signalOnly].slice(0, limit);
 }
 
+async function getRecommendationConditions(input: RecommendInput): Promise<CityConditionSummary[]> {
+  const conditions = await getLatestCityConditions({
+    city: input.city,
+    area: input.area
+  });
+  const weatherCondition = conditions.find((condition) => condition.condition === "weather");
+
+  if (weatherCondition && !weatherCondition.metadata?.degraded) {
+    return conditions;
+  }
+
+  try {
+    const weather = await refreshWeatherCondition({
+      city: input.city,
+      area: input.area
+    });
+    const weatherSummary = summarizeConditionSnapshot(weather);
+
+    if (weatherSummary.metadata?.degraded && weatherCondition) {
+      return conditions;
+    }
+
+    return [
+      ...conditions.filter((condition) => condition.condition !== "weather"),
+      weatherSummary
+    ];
+  } catch {
+    return conditions;
+  }
+}
+
 export async function recommend(rawInput: unknown): Promise<RecommendResponse> {
   const input = await resolveRecommendationOrigin(recommendRequestSchema.parse(rawInput));
+  const experiment = assignRecommendationExperiment(input);
   const candidates = await retrieveDatabaseCandidates(input);
   const rankerResult = await rankCandidates(input, candidates);
   const scored = selectTrafficCandidatesForEnrichment(rankerResult.ranked);
   const trafficRanked = await enrichAndRerankByTraffic(scored, input);
-  const { routes: builtRoutes, appliedWaypointCount } = buildRoutesWithMeta(trafficRanked, input);
-  const composedRoutes = await planRoutesLegs(builtRoutes, {
+  const conditions = await getRecommendationConditions(input);
+  const momentRanked = rerankCandidatesByMoment(trafficRanked, input, conditions);
+  const experimentRanked = applyRecommendationExperiment(momentRanked, experiment, conditions);
+  const { routes: builtRoutes, appliedWaypointCount } = buildRoutesWithMeta(experimentRanked, input);
+  const plannedRoutes = await planRoutesLegs(builtRoutes, {
     city: input.city,
     origin: input.origin,
     originName: input.origin?.label ?? input.origin?.address,
     useRealtimeTraffic: input.useRealtimeTraffic
   });
+  const composedRoutes = attachMomentContextToRoutes(plannedRoutes, input, conditions);
   const routes = await explainRoutes(composedRoutes, input, {
-    sourceContext: buildSourceContextItems(trafficRanked)
+    sourceContext: buildSourceContextItems(experimentRanked)
   });
-  const snapshot = await persistRecommendationSnapshot(input, routes, trafficRanked);
+  const routesWithMomentCards = await attachMomentCards(routes, input, {
+    profileApplied: rankerResult.profileApplied
+  });
+  const snapshot = await persistRecommendationSnapshot(input, routesWithMomentCards, experimentRanked, experiment);
   const recallChannels: RecallChannel[] = [
     ...new Set<RecallChannel>(
       candidates.flatMap((candidate) => candidate.recallChannels ?? ["base"])
@@ -230,6 +285,7 @@ export async function recommend(rawInput: unknown): Promise<RecommendResponse> {
       recallChannels,
       profileApplied: rankerResult.profileApplied,
       appliedWaypointCount,
+      experiment,
       generatedAt: new Date().toISOString()
     }
   };

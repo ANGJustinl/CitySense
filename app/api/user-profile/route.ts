@@ -9,18 +9,29 @@ import {
   clearUserProfile,
   getUserProfileSummary
 } from "@/server/recommendation/user-profile-v2";
+import {
+  ProfileAccessError,
+  requireOwnedProfileKey
+} from "@/server/auth/profile-access";
 
 export const runtime = "nodejs";
 
 const tagActionSchema = z.enum(["approve", "disapprove", "skip"]);
 
-const userIdQuery = z.object({
-  userId: z
+const profileKeyQuery = z.object({
+  profileKey: z
     .string()
     .trim()
     .min(1, "userId is required")
     .max(128, "userId too long")
 });
+
+function profileKeyFromQuery(searchParams: URLSearchParams): string {
+  return requireOwnedProfileKey({
+    requestedProfileKey: searchParams.get("profileKey") ?? searchParams.get("userId") ?? "",
+    sessionId: searchParams.get("sessionId") ?? undefined
+  })!;
+}
 
 /**
  * GET /api/user-profile?userId=user-001&city=上海&area=静安寺
@@ -33,28 +44,32 @@ const userIdQuery = z.object({
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get("userId") ?? "";
     const view = searchParams.get("view");
+    const profileKey = profileKeyFromQuery(searchParams);
 
     // view=summary 保留兼容，但摘要与完整视图都来自统一画像引擎。
     if (view === "summary") {
-      const parsed = userIdQuery.parse({ userId });
-      const summary = await getUserProfileSummary(parsed.userId);
+      const parsed = profileKeyQuery.parse({ profileKey });
+      const summary = await getUserProfileSummary(parsed.profileKey);
       return NextResponse.json(summary);
     }
 
     // 默认 → v1 融合画像（兼容既有标签表态 UI）。
     const city = searchParams.get("city") || "上海";
     const area = searchParams.get("area") || undefined;
-    if (!userId) {
-      return NextResponse.json(
-        { error: "userId is required (e.g. /api/user-profile?userId=user-001)" },
-        { status: 400 }
-      );
-    }
-    const profile = await getUserProfile({ userId, city, area });
+    const profile = await getUserProfile({ userId: profileKey, city, area });
     return NextResponse.json(profile);
   } catch (error) {
+    if (error instanceof ProfileAccessError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code
+        },
+        { status: error.status }
+      );
+    }
+
     if (error instanceof ZodError) {
       return NextResponse.json(
         { error: "Invalid user profile request", issues: error.issues },
@@ -67,6 +82,7 @@ export async function GET(request: Request) {
 
 const preferenceSchema = z.object({
   userId: z.string().min(1).max(128),
+  sessionId: z.string().min(1).max(128).optional(),
   tag: z.string().min(1).max(60),
   action: tagActionSchema,
   city: z.string().max(60).optional(),
@@ -96,8 +112,13 @@ export async function POST(request: Request) {
   }
 
   try {
+    const userId = requireOwnedProfileKey({
+      requestedProfileKey: parsed.data.userId,
+      sessionId: parsed.data.sessionId
+    })!;
+
     await setTagPreference({
-      userId: parsed.data.userId,
+      userId,
       tag: parsed.data.tag,
       action: parsed.data.action as TagAction
     });
@@ -105,13 +126,23 @@ export async function POST(request: Request) {
     // 重新读取完整画像，返回重算后的 dimensions 让前端刷新六维雷达图。
     // getUserProfile 内部并行聚合 explicit/implicit/city 三源，与首屏数据源一致。
     const refreshedProfile = await getUserProfile({
-      userId: parsed.data.userId,
+      userId,
       city: parsed.data.city || "上海",
       area: parsed.data.area || undefined
     });
 
     return NextResponse.json(refreshedProfile);
   } catch (error) {
+    if (error instanceof ProfileAccessError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code
+        },
+        { status: error.status }
+      );
+    }
+
     const message = error instanceof Error ? error.message : "Failed to save preference";
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -124,12 +155,21 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const parsed = userIdQuery.parse({
-      userId: searchParams.get("userId") ?? ""
-    });
-    const result = await clearUserProfile(parsed.userId);
+    const profileKey = profileKeyFromQuery(searchParams);
+    const parsed = profileKeyQuery.parse({ profileKey });
+    const result = await clearUserProfile(parsed.profileKey);
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof ProfileAccessError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code
+        },
+        { status: error.status }
+      );
+    }
+
     if (error instanceof ZodError) {
       return NextResponse.json(
         { error: "Invalid user profile request", issues: error.issues },

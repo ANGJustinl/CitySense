@@ -4,14 +4,18 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   BarChart3,
+  CloudSun,
   Database,
   GitBranch,
+  HeartPulse,
   RadioTower,
   TimerReset,
-  TrendingUp
+  TrendingUp,
+  UsersRound
 } from "lucide-react";
 import type { RecommendResponse } from "@/server/recommendation/types";
 import type { CityPulseResponse, PulseMetric } from "@/server/recommendation/city-pulse";
+import type { CityConditionSummary } from "@/server/city-state/types";
 
 type CityPulsePanelProps = {
   response: RecommendResponse;
@@ -66,6 +70,20 @@ function formatAge(value?: number) {
   return value <= 0 ? "刚刚" : `${value}分钟前`;
 }
 
+function conditionTitle(condition: CityConditionSummary["condition"]) {
+  if (condition === "weather") return "天气";
+  if (condition === "crowd") return "人流";
+  if (condition === "sentiment") return "情绪";
+  return "新鲜度";
+}
+
+function conditionIcon(condition: CityConditionSummary["condition"]) {
+  if (condition === "weather") return <CloudSun size={16} />;
+  if (condition === "crowd") return <UsersRound size={16} />;
+  if (condition === "sentiment") return <HeartPulse size={16} />;
+  return <TimerReset size={16} />;
+}
+
 function MetricBars({ metrics, empty }: { metrics: PulseMetric[]; empty: string }) {
   const max = Math.max(...metrics.map((metric) => metric.value), 1);
 
@@ -93,7 +111,9 @@ export function CityPulsePanel({ response, city, area }: CityPulsePanelProps) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
+    const timeout = window.setTimeout(() => setMounted(true), 0);
+
+    return () => window.clearTimeout(timeout);
   }, []);
 
   const topRoute = response.routes[0];
@@ -129,6 +149,7 @@ export function CityPulsePanel({ response, city, area }: CityPulsePanelProps) {
   const trafficCache = pulse?.trafficCache;
   const trafficProviderMix = trafficCache?.providerMix ?? [];
   const trafficAge = trafficCache?.latestAgeMinutes ?? ageMinutes(trafficCapturedAt, mounted);
+  const conditions = pulse?.conditions ?? [];
 
   useEffect(() => {
     const params = new URLSearchParams({
@@ -185,6 +206,31 @@ export function CityPulsePanel({ response, city, area }: CityPulsePanelProps) {
           <strong>{response.meta.trafficProvider}</strong>
         </div>
       </div>
+
+      <section className="pulse-section city-condition-section">
+        <div className="pulse-section-title">
+          <CloudSun size={16} />
+          <span>此刻状态</span>
+        </div>
+        {conditions.length > 0 ? (
+          <div className="condition-chip-grid">
+            {conditions.map((condition) => (
+              <div className={condition.expired ? "condition-chip expired" : "condition-chip"} key={condition.condition}>
+                {conditionIcon(condition.condition)}
+                <span>{conditionTitle(condition.condition)}</span>
+                <strong>{condition.label}</strong>
+                <em>{condition.score}</em>
+                <small>
+                  {condition.source} · {formatAge(condition.ageMinutes)} · {Math.round(condition.confidence * 100)}%
+                  {condition.expired ? " · 已过期" : ""}
+                </small>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="pulse-empty">暂无城市状态快照</p>
+        )}
+      </section>
 
       <section className="pulse-section">
         <div className="pulse-section-title">

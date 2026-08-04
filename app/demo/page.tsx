@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { MoodOrbSelector } from "@/components/explorer/MoodOrbSelector";
+import Link from "next/link";
+import { MoodOrbSelector, type MoodType } from "@/components/explorer/MoodOrbSelector";
 import { CityPulseLoader } from "@/components/explorer/CityPulseLoader";
 import { GiftRouteCard } from "@/components/explorer/GiftRouteCard";
 
@@ -59,7 +60,7 @@ export default function DemoPage() {
   const [showLoader, setShowLoader] = useState(false);
   const [loaderProgress, setLoaderProgress] = useState(0);
   const [showResults, setShowResults] = useState(false);
-  const [selectedMood, setSelectedMood] = useState<string>("solo");
+  const [selectedMood, setSelectedMood] = useState<MoodType>("solo");
 
   const handleExplore = () => {
     setShowLoader(true);
@@ -114,7 +115,7 @@ export default function DemoPage() {
         </div>
 
         <MoodOrbSelector
-          value={selectedMood as any}
+          value={selectedMood}
           onChange={(mood) => setSelectedMood(mood)}
         />
 
@@ -201,7 +202,7 @@ export default function DemoPage() {
 
       {/* 返回链接 */}
       <div style={{ textAlign: "center", padding: "40px 24px" }}>
-        <a
+        <Link
           href="/"
           style={{
             fontSize: "14px",
@@ -213,7 +214,7 @@ export default function DemoPage() {
           }}
         >
           ← 返回主页
-        </a>
+        </Link>
       </div>
     </div>
   );

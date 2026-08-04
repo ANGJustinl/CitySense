@@ -60,13 +60,17 @@ export function CityPulseLoader({
       (threshold) => progress < threshold
     );
 
+    const timers: number[] = [];
+
     if (currentMessageIndex !== messageIndex && currentMessageIndex !== -1) {
-      setMessageIndex(currentMessageIndex);
+      timers.push(window.setTimeout(() => setMessageIndex(currentMessageIndex), 0));
     }
 
     if (progress >= 100 && onComplete) {
-      setTimeout(onComplete, 500);
+      timers.push(window.setTimeout(onComplete, 500));
     }
+
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [progress, messages, messageIndex, onComplete]);
 
   return (

@@ -146,6 +146,29 @@ test("candidate recall recomputes stale default quality for actionable AMap POIs
   assert.ok(xhsQuality.qualityFlags.includes("social_signal_only"));
 });
 
+test("candidate recall can derive unique confirmed venue ids from city signals", () => {
+  const venueIds = candidateRecallTesting.signalMatchedVenueIds([
+    {
+      city: "上海",
+      area: "静安",
+      tag: "咖啡",
+      heatScore: 92,
+      source: "xiaohongshu",
+      matchedVenueIds: ["venue-cafe", "venue-cafe", "venue-book"]
+    },
+    {
+      city: "上海",
+      area: "静安",
+      tag: "展览",
+      heatScore: 88,
+      source: "xiaohongshu",
+      matchedVenueIds: []
+    }
+  ]);
+
+  assert.deepEqual(venueIds, ["venue-cafe", "venue-book"]);
+});
+
 test("actionable places absorb matching city signals without adding route places", () => {
   const [fused] = applySignalBackedContext(
     [
@@ -188,6 +211,49 @@ test("actionable places absorb matching city signals without adding route places
   assert.equal(fused.id, "venue-cafe");
   assert.equal(fused.signalStrength, 92);
   assert.equal(fused.sourceSignals.some((item) => item.source === "xiaohongshu"), true);
+});
+
+test("confirmed Xiaohongshu AI-answer evidence can back a venue when the tag is in evidence", () => {
+  const [fused] = applySignalBackedContext(
+    [
+      candidate({
+        id: "venue-book-cafe",
+        name: "作家书店",
+        tags: ["书店"],
+        qualityScore: 95,
+        routeEligible: true
+      })
+    ],
+    [
+      {
+        id: "signal-xhs-ai-answer",
+        city: "上海",
+        area: "静安",
+        tag: "咖啡",
+        heatScore: 88,
+        source: "xiaohongshu",
+        matchedVenueIds: ["venue-book-cafe"],
+        metadata: {
+          title: "作家书店",
+          sourceKey: "xiaohongshu:ai-answer-book-cafe",
+          sourceSignals: [
+            {
+              source: "xiaohongshu",
+              label: "小红书 AI 回答提及",
+              score: 88,
+              evidence: "作家书店｜AI回答：上下两层，提供咖啡茶等饮品，适合安静看书。"
+            }
+          ]
+        }
+      }
+    ],
+    request
+  );
+
+  const xhsSignal = fused.sourceSignals.find((item) => item.source === "xiaohongshu");
+
+  assert.equal(fused.signalStrength, 88);
+  assert.ok(xhsSignal?.evidence?.includes("AI回答"));
 });
 
 test("Xiaohongshu signals without confirmed AMap venue matches do not back routes", () => {

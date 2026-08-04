@@ -23,6 +23,7 @@ import { recordFeedback } from "@/server/recommendation/feedback";
 import { getWeather } from "@/server/maps/weather";
 import { searchActivities } from "@/server/recommendation/activity-search";
 import type { ChatContext, ChatTool } from "@/server/ai/chat-client";
+import { requireOwnedProfileKey } from "@/server/auth/profile-access";
 
 /** 工具定义,传给 LLM 的 tools 参数。 */
 export const CHAT_TOOLS: ChatTool[] = [
@@ -308,6 +309,14 @@ function summarizeActivities(activities: Awaited<ReturnType<typeof searchActivit
   );
 }
 
+function contextProfileKey(context: ChatContext): string | undefined {
+  return requireOwnedProfileKey({
+    requestedProfileKey: context.profileKey,
+    sessionId: context.sessionId,
+    allowEmpty: true
+  });
+}
+
 /**
  * 执行单个工具调用。
  * context 提供 profileKey/sessionId/recommendationId,用于工具参数补全(如 user_profile 无参时用 profileKey)。
@@ -330,8 +339,9 @@ export async function executeChatTool(
     switch (name) {
       case "recommend_routes": {
         const city = (args.city as string) || context.city || "上海";
+        const profileKey = contextProfileKey(context);
         const result = await recommend({
-          userId: context.profileKey,
+          userId: profileKey,
           sessionId: context.sessionId,
           city,
           area: (args.area as string) || context.area,
@@ -339,6 +349,8 @@ export async function executeChatTool(
           mood: ((args.mood as string) || "solo") as "quiet" | "lively" | "date" | "solo" | "random",
           budget: ((args.budget as string) || "medium") as "low" | "medium" | "high",
           timeWindow: ((args.timeWindow as string) || "tonight") as "now" | "tonight" | "weekend",
+          waypointCount:
+            typeof args.waypointCount === "number" ? args.waypointCount : 3,
           useRealtimeTraffic: false,
           useSocialSignals: true
         });
@@ -387,7 +399,7 @@ export async function executeChatTool(
       }
 
       case "get_user_profile": {
-        const profileKey = (args.profileKey as string) || context.profileKey;
+        const profileKey = contextProfileKey(context);
         if (!profileKey) {
           return { content: "当前为匿名会话,暂无画像数据。可让用户先给路线反馈建立画像。" };
         }
@@ -421,11 +433,12 @@ export async function executeChatTool(
         // routeId 可选,默认反馈 route-1(第一条)。
         const routeId = (args.routeId as string) || `${recommendationId.split("__")[0]}__route-1`;
         const reason = args.reason as string | undefined;
+        const profileKey = contextProfileKey(context);
 
         const result = await recordFeedback({
           recommendationLogId: recommendationId,
           routeId,
-          userId: context.profileKey,
+          userId: profileKey,
           sessionId: context.sessionId,
           value,
           ...(reason ? { reason } : {})
@@ -510,11 +523,12 @@ export async function executeChatTool(
         const limitedDays = days.slice(0, 3);
         const city = context.city || "上海";
         const dayResults: Array<{ day: number; title: string; places: string[]; score: number }> = [];
+        const profileKey = contextProfileKey(context);
 
         for (let i = 0; i < limitedDays.length; i += 1) {
           const day = limitedDays[i];
           const result = await recommend({
-            userId: context.profileKey,
+            userId: profileKey,
             sessionId: context.sessionId,
             city,
             area: day.area || context.area,
@@ -522,6 +536,7 @@ export async function executeChatTool(
             mood: "solo",
             budget: "medium",
             timeWindow: ((day.timeWindow as string) || "weekend") as "now" | "tonight" | "weekend",
+            waypointCount: 3,
             useRealtimeTraffic: false,
             useSocialSignals: true
           });
