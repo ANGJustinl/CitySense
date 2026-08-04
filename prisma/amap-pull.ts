@@ -2,7 +2,7 @@
  * 使用高德地图 API 扩展真实地点数据
  *
  * 用法:
- *   node prisma/amap-pull.ts
+ *   pnpm exec tsx prisma/amap-pull.ts
  *
  * 环境变量:
  *   AMAP_API_KEY - 高德地图 API Key (必需)
@@ -41,18 +41,11 @@ type AmapSearchResponse = {
 
 const prisma = new PrismaClient();
 
-// 上海各区域列表
-const SHANGHAI_DISTRICTS = [
-  "黄浦区", "徐汇区", "长宁区", "静安区", "普陀区",
-  "虹口区", "杨浦区", "浦东新区", "闵行区", "宝山区",
-  "嘉定区", "金山区", "松江区", "青浦区", "奉贤区", "崇明区"
-];
-
-// 简化的区域名称（不带"区"）
-const SHANGHAI_AREAS = [
-  "黄浦", "徐汇", "长宁", "静安", "普陀",
-  "虹口", "杨浦", "浦东", "闵行", "宝山",
-  "嘉定", "金山", "松江", "青浦", "奉贤", "崇明"
+// 北京各区域列表
+const BEIJING_AREAS = [
+  "东城", "西城", "朝阳", "海淀", "丰台", "石景山",
+  "门头沟", "房山", "通州", "顺义", "昌平", "大兴",
+  "怀柔", "平谷", "密云", "延庆"
 ];
 
 // 搜索关键词配置
@@ -325,7 +318,7 @@ async function main() {
 
   // 配置
   const config = {
-    city: "上海",
+    city: "北京",
     // 是否搜索所有区域（true）或只搜索热门区域（false）
     // 改为 false 只搜索热门区域，减少请求数避免 QPS 限制
     searchAllAreas: false,
@@ -337,8 +330,8 @@ async function main() {
 
   // 选择要搜索的区域
   const areasToSearch = config.searchAllAreas
-    ? SHANGHAI_AREAS
-    : ["徐汇", "静安", "黄浦", "长宁", "浦东", "虹口"];
+    ? BEIJING_AREAS
+    : ["朝阳", "东城", "西城", "海淀", "丰台", "通州"];
 
   console.log(`搜索区域: ${areasToSearch.join(", ")}`);
   console.log(`搜索关键词组: ${SEARCH_KEYWORDS.length} 个\n`);
