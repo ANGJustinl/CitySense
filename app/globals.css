@@ -2946,27 +2946,7 @@ p {
 
 .map-weather-atmosphere.weather-scene-storm .weather-atmosphere-particles,
 .map-weather-atmosphere.weather-scene-rain .weather-atmosphere-particles {
-  animation: weather-rain-field 1.1s linear infinite;
-  background:
-    repeating-linear-gradient(
-      112deg,
-      transparent 0 16px,
-      rgba(255, 255, 255, 0.42) 17px 18px,
-      transparent 19px 36px
-    );
-  opacity: 0.8;
-}
-
-.map-weather-atmosphere.weather-scene-storm .weather-atmosphere-particles {
-  animation-duration: 0.72s;
-  background:
-    repeating-linear-gradient(
-      112deg,
-      transparent 0 12px,
-      rgba(255, 255, 255, 0.56) 13px 15px,
-      transparent 16px 30px
-    );
-  opacity: 0.9;
+  opacity: 0;
 }
 
 .map-weather-atmosphere.weather-scene-storm .weather-atmosphere-shimmer {
@@ -5149,16 +5129,6 @@ p {
   }
 }
 
-@keyframes weather-rain-field {
-  from {
-    transform: translate3d(-16px, -28px, 0);
-  }
-
-  to {
-    transform: translate3d(16px, 28px, 0);
-  }
-}
-
 @keyframes weather-cloud-drift {
   from {
     transform: translate3d(-2%, -1%, 0) scale(1.12);
@@ -5224,17 +5194,6 @@ p {
 @media (max-width: 780px) {
   .map-weather-atmosphere {
     opacity: 0.62;
-  }
-
-  .map-weather-atmosphere.weather-scene-storm .weather-atmosphere-particles,
-  .map-weather-atmosphere.weather-scene-rain .weather-atmosphere-particles {
-    background:
-      repeating-linear-gradient(
-        112deg,
-        transparent 0 24px,
-        rgba(255, 255, 255, 0.34) 25px 26px,
-        transparent 27px 54px
-      );
   }
 }
 
