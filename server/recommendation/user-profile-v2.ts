@@ -454,17 +454,22 @@ export async function recomputeUserProfile(userId: string): Promise<UserProfileS
       const quietness = bucketQuietness(contextNumber(interaction.context, "quietness"));
       const popularity = bucketPopularity(contextNumber(interaction.context, "popularity"));
       const mood = contextString(interaction.context, "mood");
+      const reason = contextString(interaction.context, "reason");
+      const directTags = reason === "interest_match" || reason === "not_interested";
+      const directArea = reason === "area_match" || reason === "area_dislike";
+      const directBudget = reason === "budget_match" || reason === "too_expensive";
+      const directQuietness = reason === "atmosphere_match" || reason === "too_noisy";
 
       if (interaction.itemId && !isExplicit) {
         addDimension(rows, "venue", interaction.itemId, effectiveWeight, `${logicalEventId}:${interaction.itemId}`, true, source);
       }
       for (const tag of tags) {
-        addDimension(rows, "tag", tag, effectiveWeight, logicalEventId, isExplicit, source);
+        addDimension(rows, "tag", tag, effectiveWeight, logicalEventId, isExplicit || directTags, source);
       }
       addDimension(rows, "source", sourceKey, effectiveWeight, logicalEventId, false, source);
-      addDimension(rows, "area", area, effectiveWeight, logicalEventId, false, source);
-      addDimension(rows, "budget", budget, effectiveWeight, logicalEventId, false, source);
-      addDimension(rows, "quietness", quietness, effectiveWeight, logicalEventId, false, source);
+      addDimension(rows, "area", area, effectiveWeight, logicalEventId, directArea, source);
+      addDimension(rows, "budget", budget, effectiveWeight, logicalEventId, directBudget, source);
+      addDimension(rows, "quietness", quietness, effectiveWeight, logicalEventId, directQuietness, source);
       addDimension(rows, "popularity", popularity, effectiveWeight, logicalEventId, false, source);
       addDimension(rows, "mood", mood, effectiveWeight, logicalEventId, false, source);
     }

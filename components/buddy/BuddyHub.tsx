@@ -1,36 +1,26 @@
 "use client";
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowRight, Clock3, MapPin, Sparkles, UserRound } from "lucide-react";
+import { ArrowRight, Clock3, MapPin, Route, Sparkles, UserRound, UsersRound } from "lucide-react";
 import { useBuddyIntents } from "@/hooks/useBuddyIntents";
+import { BuddyIntentComposer } from "@/components/buddy/BuddyIntentComposer";
+import type { BuddyComposeMode, BuddyHubTab } from "@/lib/buddy-navigation";
 
+export type BuddyPublishRoute = { status: "ready"; id: string; title: string; summary?: string } | { status: "not-owned" | "missing"; id: string; title?: string };
+type Props = { route?: BuddyPublishRoute; initialCompose?: BuddyComposeMode; initialTab?: BuddyHubTab; profileReady: boolean };
 function formatTime(value: string) { return new Date(value).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
 
-export function BuddyHub({ routeId }: { routeId?: string }) {
-  const { intents, mine, applications, groups, loading, error, refresh } = useBuddyIntents(routeId);
-  const [tab, setTab] = useState<"discover" | "mine" | "groups">("discover");
+export function BuddyHub({ route, initialCompose, initialTab = "discover", profileReady }: Props) {
+  const routeId = route?.id; const { intents, mine, applications, groups, loading, error, refresh } = useBuddyIntents(routeId);
+  const [tab, setTab] = useState<BuddyHubTab>(initialTab); const [composeMode, setComposeMode] = useState<BuddyComposeMode | undefined>(route?.status === "ready" ? initialCompose : undefined); const [notice, setNotice] = useState<string>();
   const cards = tab === "discover" ? intents : tab === "mine" ? [...mine, ...applications.map((item) => item.intent)] : groups;
-  return <section className="buddy-hub">
-    <header className="buddy-hub-hero">
-      <div><p className="eyebrow">CitySense Buddy</p><h1>同一条路线，刚好两个人</h1><p>从兴趣相同到一起出发。公开组队或自动匹配，集合、聊天与安全机制都在站内完成。</p></div>
-      <span className="buddy-orbit"><Sparkles size={28} /></span>
-    </header>
-    <div className="buddy-tabs">
-      <button className={tab === "discover" ? "active" : ""} onClick={() => setTab("discover")} type="button">发现组队 <em>{intents.length}</em></button>
-      <button className={tab === "mine" ? "active" : ""} onClick={() => setTab("mine")} type="button">我的意向 <em>{mine.length + applications.length}</em></button>
-      <button className={tab === "groups" ? "active" : ""} onClick={() => setTab("groups")} type="button">我的搭子 <em>{groups.length}</em></button>
-      <button className="buddy-refresh" onClick={() => void refresh()} type="button">刷新</button>
-    </div>
-    {loading ? <div className="buddy-empty">正在寻找同路线的人…</div> : error ? <div className="buddy-empty error">{error}</div> : cards.length === 0 ? <div className="buddy-empty">这里还很安静。先从一条推荐路线发起搭子吧。</div> : <div className="buddy-card-grid">{cards.map((item: any) => {
-      const route = item.route ?? {};
-      const profile = item.owner ?? item.members?.find((member: any) => member.role === "MEMBER")?.profile;
-      const href = tab === "groups" ? `/buddy/groups/${item.id}` : `/buddy/intents/${item.id}`;
-      return <Link className="buddy-intent-card" href={href as never} key={`${tab}-${item.id}`}>
-        <div className="buddy-card-top"><span className="buddy-avatar">{profile?.displayName?.slice(0, 1) ?? <UserRound size={16} />}</span><div><strong>{profile?.displayName ?? (tab === "groups" ? "你的搭子" : "等待搭子")}</strong><small>{item.mode === "AUTO" ? "自动匹配中" : item.status}</small></div><ArrowRight size={18} /></div>
-        <h2>{route.title ?? "共同路线"}</h2><p>{route.summary ?? "一起沿着这条路线出发。"}</p>
-        <div className="buddy-card-meta"><span><Clock3 size={14} />{formatTime(item.departureStart)}</span><span><MapPin size={14} />{item.meeting?.area ?? item.meetingLabel ?? "匹配后可见"}</span></div>
-      </Link>;
-    })}</div>}
-  </section>;
+  const profileHref = route?.status === "ready" && composeMode ? `/settings/buddy-profile?next=${encodeURIComponent(`/buddy?routeId=${route.id}&compose=${composeMode}`)}` : "/settings/buddy-profile";
+  async function created(result: { intentId: string; mode: BuddyComposeMode; matched: boolean; groupId?: string }) { if (result.groupId) { location.href = `/buddy/groups/${result.groupId}`; return; } setTab("mine"); setNotice(result.mode === "AUTO" ? "自动匹配意向已创建，系统会继续等待同路线搭子。" : "公开组队已发布。" ); await refresh(); }
+  return <section className="buddy-hub"><header className="buddy-hub-hero"><div><p className="eyebrow">CitySense Buddy</p><h1>同一条路线，刚好两个人</h1><p>从兴趣相同到一起出发。公开组队或自动匹配，集合、聊天与安全机制都在站内完成。</p></div><span className="buddy-orbit"><Sparkles size={28} /></span></header>
+    <section className={`buddy-publish-panel ${route?.status ?? "empty"}`}>{route?.status === "ready" ? <><div><span><Route size={16} />当前路线</span><h2>{route.title}</h2><p>{route.summary ?? "选择公开组队或自动匹配，寻找同路线的人。"}</p></div><div className="buddy-publish-actions"><button onClick={() => setComposeMode("POST")} type="button"><UsersRound size={18} /><span><strong>发布公开组队</strong><small>等待同路线用户申请</small></span></button><button onClick={() => setComposeMode("AUTO")} type="button"><Sparkles size={18} /><span><strong>开始自动匹配</strong><small>按时间与偏好寻找搭子</small></span></button></div></> : route ? <><div><span><Route size={16} />路线不可发布</span><h2>{route.status === "not-owned" ? "请重新生成属于你的路线" : "这条路线已失效"}</h2><p>{route.status === "not-owned" ? "匿名生成或其他账户生成的路线不能用于发布搭子意向。" : "返回城市脉搏重新生成后即可发起。"}</p></div><div className="buddy-publish-actions compact"><Link className="primary-button" href="/">重新生成路线</Link><Link href="/buddy">清除路线筛选</Link></div></> : <><div><span><Route size={16} />发起搭子</span><h2>先选择一条路线</h2><p>搭子意向必须关联一条由当前账户生成的推荐路线。</p></div><div className="buddy-publish-actions compact"><Link className="primary-button" href="/">去选择或生成路线</Link></div></>}</section>
+    {notice ? <p className="buddy-success-notice" role="status">{notice}</p> : null}<div className="buddy-tabs"><button className={tab === "discover" ? "active" : ""} onClick={() => setTab("discover")} type="button">发现组队 <em>{intents.length}</em></button><button className={tab === "mine" ? "active" : ""} onClick={() => setTab("mine")} type="button">我的意向 <em>{mine.length + applications.length}</em></button><button className={tab === "groups" ? "active" : ""} onClick={() => setTab("groups")} type="button">我的搭子 <em>{groups.length}</em></button><button className="buddy-refresh" onClick={() => void refresh()} type="button">刷新</button></div>
+    {loading ? <div className="buddy-empty">正在寻找同路线的人…</div> : error ? <div className="buddy-empty error">{error}</div> : cards.length === 0 ? <div className="buddy-empty">这里还很安静。{route?.status === "ready" ? <button onClick={() => setComposeMode("POST")} type="button">发起这条路线的第一则组队</button> : <Link href="/">先去生成一条路线</Link>}</div> : <div className="buddy-card-grid">{cards.map((item: any) => { const itemRoute = item.route ?? {}; const profile = item.owner ?? item.members?.find((member: any) => member.role === "MEMBER")?.profile; const href = tab === "groups" ? `/buddy/groups/${item.id}` : `/buddy/intents/${item.id}`; return <Link className="buddy-intent-card" href={href as never} key={`${tab}-${item.id}`}><div className="buddy-card-top"><span className="buddy-avatar">{profile?.displayName?.slice(0, 1) ?? <UserRound size={16} />}</span><div><strong>{profile?.displayName ?? (tab === "groups" ? "你的搭子" : "等待搭子")}</strong><small>{item.mode === "AUTO" ? "自动匹配中" : item.status}</small></div><ArrowRight size={18} /></div><h2>{itemRoute.title ?? "共同路线"}</h2><p>{itemRoute.summary ?? "一起沿着这条路线出发。"}</p><div className="buddy-card-meta"><span><Clock3 size={14} />{formatTime(item.departureStart)}</span><span><MapPin size={14} />{item.meeting?.area ?? item.meetingLabel ?? "匹配后可见"}</span></div></Link>; })}</div>}
+    {composeMode && route?.status === "ready" ? <BuddyIntentComposer initialMode={composeMode} onClose={() => setComposeMode(undefined)} onCreated={(result) => void created(result)} profileHref={profileHref} profileReady={profileReady} routeId={route.id} routeTitle={route.title} /> : null}</section>;
 }

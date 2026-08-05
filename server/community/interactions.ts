@@ -53,7 +53,10 @@ export async function setCommunityFollow(followerId: string, followingId: string
   const target = await prisma.appUser.findFirst({ where: { id: followingId, disabledAt: null, buddyProfile: { isNot: null } }, select: { id: true } });
   if (!target) throw new CommunityError("profile_not_found", "用户主页不存在", 404);
   await ensureNotBlocked(followerId, followingId);
-  if (enabled) await prisma.communityFollow.createMany({ data: { followerId, followingId }, skipDuplicates: true });
-  else await prisma.communityFollow.deleteMany({ where: { followerId, followingId } });
-  return { following: enabled };
+  return prisma.$transaction(async (tx) => {
+    if (enabled) await tx.communityFollow.createMany({ data: { followerId, followingId }, skipDuplicates: true });
+    else await tx.communityFollow.deleteMany({ where: { followerId, followingId } });
+    const followerCount = await tx.communityFollow.count({ where: { followingId } });
+    return { following: enabled, followerCount };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }

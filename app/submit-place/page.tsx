@@ -15,7 +15,7 @@ export default async function SubmitPlacePage() {
         <div>
           <p className="eyebrow">Share a hidden gem</p>
           <h1>分享小众地点</h1>
-          <p>高德找不到也没关系。填写真实地址、地图位置和现场照片，系统会检查重复与位置后发布。</p>
+          <p>写下地址和推荐理由，在地图上标记位置，再上传一张现场照片。高德找不到也没关系，我们会根据地址继续核验。</p>
           <PlaceSubmissionForm />
         </div>
       </section>

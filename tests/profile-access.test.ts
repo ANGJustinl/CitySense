@@ -6,6 +6,19 @@ import {
   sanitizeProfileScopedInput
 } from "@/server/auth/profile-access";
 
+test("profile access trusts the authenticated viewer over client identity", () => {
+  assert.equal(requireOwnedProfileKey({ requestedProfileKey: "user1", viewerProfileKey: "viewer-uuid" }), "viewer-uuid");
+  assert.equal(requireOwnedProfileKey({ requestedProfileKey: "other-user", sessionId: "anon-session", viewerProfileKey: "viewer-uuid" }), "viewer-uuid");
+});
+
+test("sanitizeProfileScopedInput replaces client identity for authenticated viewers", () => {
+  const input = sanitizeProfileScopedInput(
+    { userId: "user1", sessionId: "anon-session", city: "上海" },
+    { viewerProfileKey: "viewer-uuid" }
+  );
+  assert.equal(input.userId, "viewer-uuid");
+  assert.equal(input.sessionId, undefined);
+});
 test("profile access allows public demo users", () => {
   assert.equal(requireOwnedProfileKey({ requestedProfileKey: "user1" }), "user1");
   assert.equal(requireOwnedProfileKey({ requestedProfileKey: "user2" }), "user2");

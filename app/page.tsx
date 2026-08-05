@@ -40,10 +40,10 @@ export default async function Home({
 
   const initialData = await recommend({
     userId,
-    city: "上海",
+    city: "北京",
     origin: {
-      lat: 31.224,
-      lng: 121.459,
+      lat: 39.9087,
+      lng: 116.3974,
       label: "默认起点",
       source: "default",
       provider: "default"

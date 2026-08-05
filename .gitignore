@@ -38,3 +38,4 @@ data/damai-session
 # system
 .DS_Store
 .playwright-mcp
+.claude/

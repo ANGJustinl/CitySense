@@ -12,6 +12,7 @@ import {
   User,
   X
 } from "lucide-react";
+import Link from "next/link";
 import { AccountSwitcher } from "@/components/AccountSwitcher";
 import type { RecommendResponse } from "@/server/recommendation/types";
 import type {
@@ -30,6 +31,7 @@ import type {
 type UserProfileViewProps = {
   city: string;
   area?: string;
+  demoMode?: boolean;
   initialProfile: UserProfileResponse;
   initialRecommendation: RecommendResponse;
   initialTrace: RecommendationTrace;
@@ -282,6 +284,7 @@ function TagCard({
 export function UserProfileView({
   city,
   area,
+  demoMode = true,
   initialProfile,
   initialTrace
 }: UserProfileViewProps) {
@@ -399,10 +402,10 @@ export function UserProfileView({
           </div>
         </div>
         <nav className="top-actions" aria-label="primary">
-          <AccountSwitcher currentUserId={profile.userId} onChange={handleAccountChange} />
-          <a href={`/?userId=${profile.userId}`}>工作台</a>
-          <a href="/submit-place">分享地点</a>
-          <a href="/my-submissions">我的投稿</a>
+          {demoMode ? <AccountSwitcher currentUserId={profile.userId} onChange={handleAccountChange} /> : null}
+          <a href={demoMode ? `/?userId=${profile.userId}` : "/"}>工作台</a>
+          <Link href="/submit-place">分享地点</Link>
+          <Link href="/my-submissions">我的投稿</Link>
           <a href="/admin/sources">Sources</a>
         </nav>
       </header>

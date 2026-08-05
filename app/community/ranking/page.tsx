@@ -20,7 +20,7 @@ export default async function RankingPage({ searchParams }: { searchParams: Prom
   }
   const params = await searchParams;
   const viewer = await getOptionalUser();
-  const city = params.city ?? "上海";
+  const city = params.city ?? "北京";
   const type = params.type ?? "HOT";
   const ranking = await listVenueRanking({ city, type, area: params.area, limit: 20, viewerId: viewer?.appUser.id });
   return (

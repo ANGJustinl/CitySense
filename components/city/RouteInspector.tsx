@@ -327,10 +327,10 @@ export function RouteInspector({
             <small>发布组队或让系统自动匹配</small>
           </button>
         ) : (
-          <Link className="buddy-route-cta" href={`/login?next=${encodeURIComponent(`/buddy?routeId=${selectedRoute.id}`)}`}>
+          <Link className="buddy-route-cta" href={`/login?next=${encodeURIComponent("/")}`}>
             <span><UserRoundPlus size={18} /></span>
-            <strong>登录后找搭子</strong>
-            <small>共同使用这条推荐路线</small>
+            <strong>登录并重新生成路线后找搭子</strong>
+            <small>登录账户生成的路线才能发布组队</small>
           </Link>
         )}
 
@@ -351,7 +351,11 @@ export function RouteInspector({
         {buddyOpen ? (
           <BuddyIntentComposer
             onClose={() => setBuddyOpen(false)}
-            onCreated={() => { window.location.href = `/buddy?routeId=${encodeURIComponent(selectedRoute.id)}`; }}
+            onCreated={(result) => {
+              window.location.href = result.groupId
+                ? `/buddy/groups/${result.groupId}`
+                : `/buddy?routeId=${encodeURIComponent(selectedRoute.id)}&tab=mine`;
+            }}
             routeId={selectedRoute.id}
             routeTitle={selectedRoute.title}
           />

@@ -5,17 +5,21 @@ import {
   sanitizeProfileScopedInput
 } from "@/server/auth/profile-access";
 import { recordFeedback } from "@/server/recommendation/feedback";
+import { getOptionalUser } from "@/server/auth/current-user";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
     const feedback = await request.json();
+    const viewer = await getOptionalUser();
     const input =
       feedback && typeof feedback === "object" && !Array.isArray(feedback)
-        ? sanitizeProfileScopedInput(feedback as Record<string, unknown>)
+        ? sanitizeProfileScopedInput(feedback as Record<string, unknown>, {
+            viewerProfileKey: viewer?.appUser.id
+          })
         : feedback;
-    const result = await recordFeedback(input);
+    const result = await recordFeedback(input, { viewerUserId: viewer?.appUser.id });
 
     if (!result.ok) {
       return NextResponse.json(

@@ -32,6 +32,7 @@ import {
   normalizeProfileKey,
   requireOwnedProfileKey
 } from "@/server/auth/profile-access";
+import { getOptionalUser } from "@/server/auth/current-user";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,6 +60,18 @@ const SYSTEM_PROMPT = `你是 CitySense 城市探索助手。CitySense 不是普
 - 用户问”有什么展览””有没有演出””搜一下XX” → 调用 search_activities（单品搜索，不是路线）。
 - 用户说”规划两天/三天行程””周末怎么安排” → 调用 plan_multi_day（每天可不同兴趣）。
 - 用户粘贴点评、笔记、链接等外部内容 → 直接分析文本，不调工具。
+
+【写操作——代用户发布与互动，必须先确认登录】
+- 所有写操作（发手记/传地点/组搭子/点赞收藏关注）都要求用户已登录。若工具返回”未登录”，请告诉用户去 /login 登录后再试。
+- 用户说”发条手记/记录一下今天的发现/写一段” → 调用 create_community_post（body=正文，city=城市，area=可选，venueIds=可选）。
+- 用户说”分享个地点/这个地方小众/推荐个地方” → 调用 submit_place（name=地点名，description=描述至少20字，city，address，tags）。注意：图片需用户自己上传，工具完成后提醒用户去 /submit-place 补传照片并提交。
+- 用户说”找个搭子/组队/有人一起吗” → 调用 create_buddy_intent（需要 routeSnapshotId 和出发时间；若用户还没指定路线，先推荐路线并确认）。
+- 用户说”我也想去/加入这个搭子” → 调用 apply_buddy_intent（intentId 从上下文获取）。
+- 用户说”完善资料/设置昵称” → 调用 save_user_profile（displayName=昵称，bio=简介，city）。
+- 用户说”点赞/收藏这条手记” → 调用 like_post / bookmark_post（postId）。
+- 用户说”关注这个人” → 调用 follow_user（targetUserId）。
+- 若写操作返回 profile_required / buddy_profile_required 错误 → 引导用户先调 save_user_profile 完善资料，再重试。
+- 发布前主动确认关键信息：发手记前简述将发布的内容；组搭子前确认路线和时间。避免擅自发布用户没明确要求的内容。
 
 【上下文记忆——记住本轮对话推荐的路线】
 - 推荐路线后，记住路线编号和名称。用户说”收藏第二条”时，对应到 route-2。
@@ -189,11 +202,15 @@ export async function POST(request: Request) {
     throw error;
   }
 
+  // 解析登录用户(可选):写操作需要 appUserId,读操作允许匿名。
+  const viewer = await getOptionalUser();
+
   const context = {
     sessionId,
     profileKey,
+    appUserId: viewer?.appUser.id,
     recommendationId: body.context?.recommendationId,
-    city: body.context?.city || "上海",
+    city: body.context?.city || "北京",
     area: body.context?.area
   };
 

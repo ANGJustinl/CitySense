@@ -94,8 +94,8 @@ type WorkspaceOrigin = {
 };
 
 const defaultOrigin: WorkspaceOrigin = {
-  lat: 31.224,
-  lng: 121.459,
+  lat: 39.9087,
+  lng: 116.3974,
   label: "默认起点",
   source: "default",
   provider: "default"
@@ -124,7 +124,7 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId, vi
   const [activeUserId, setActiveUserId] = useState(initialResolvedUserId);
   const resolvedUserId = viewer?.id ?? activeUserId;
   const [chatOpen, setChatOpen] = useState(false);
-  const [city, setCity] = useState("上海");
+  const [city, setCity] = useState("北京");
   const [area, setArea] = useState("");
   const [originMode, setOriginMode] = useState<OriginMode>("current");
   const [origin, setOrigin] = useState<WorkspaceOrigin>(defaultOrigin);
@@ -142,6 +142,7 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId, vi
     initialData.routes[0]?.id
   );
   const [isLoading, setIsLoading] = useState(false);
+  const [profileRevision, setProfileRevision] = useState(0);
   const [collapsedPanels, setCollapsedPanels] = useState<Record<FloatingPanelId, boolean>>({
     controls: true,
     inspector: true,
@@ -426,7 +427,7 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId, vi
         </div>
         <nav className="top-actions" aria-label="primary">
           <a href="/community">社区</a>
-          <a href={`/profile?userId=${activeUserId}`}>画像</a>
+          <a href={viewer ? "/profile" : `/profile?userId=${activeUserId}`}>画像</a>
           {viewer ? null : (
             <AccountSwitcher currentUserId={activeUserId} onChange={handleAccountChange} />
           )}
@@ -711,6 +712,7 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId, vi
         <div className="panel-body">
           <RouteInspector
             isLoading={isLoading}
+            onFeedbackRecorded={() => setProfileRevision((current) => current + 1)}
             onSelectRoute={setSelectedRouteId}
             recommendationId={data.meta.recommendationId}
             routes={data.routes}
@@ -739,7 +741,7 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId, vi
         </button>
         <div className="panel-body">
           <CityPulsePanel area={area || undefined} city={city} response={data} />
-          <UserProfilePanel profileKey={resolvedUserId} response={data} />
+          <UserProfilePanel profileKey={resolvedUserId} profileRevision={profileRevision} response={data} />
         </div>
       </aside>
       <ChatDock open={chatOpen} onToggle={() => setChatOpen((v) => !v)} />

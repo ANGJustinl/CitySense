@@ -3,6 +3,7 @@ import { getUserProfile } from "@/server/recommendation/user-profile";
 import { recommend } from "@/server/recommendation/recommend";
 import { UserProfileView } from "@/components/city/UserProfileView";
 import { DEFAULT_DEMO_USER_ID, isDemoUser } from "@/lib/demo-users";
+import { getOptionalUser } from "@/server/auth/current-user";
 
 export const dynamic = "force-dynamic";
 
@@ -17,9 +18,10 @@ export default async function ProfilePage({
   searchParams: Promise<{ userId?: string; city?: string; area?: string }>;
 }) {
   const params = await searchParams;
-  // 画像页是公开服务端渲染入口，只允许 demo 账号，避免 URL 参数越权读取任意画像。
+  const viewer = await getOptionalUser();
   const requestedUserId = params.userId?.trim();
-  const userId = isDemoUser(requestedUserId) ? requestedUserId! : DEFAULT_DEMO_USER_ID;
+  const demoUserId = isDemoUser(requestedUserId) ? requestedUserId! : DEFAULT_DEMO_USER_ID;
+  const userId = viewer?.appUser.id ?? demoUserId;
   const city = params.city || "上海";
   const area = params.area || undefined;
 
@@ -43,6 +45,8 @@ export default async function ProfilePage({
     timeWindow: "tonight",
     waypointCount: 3,
     useSocialSignals: true
+  }, {
+    ownerUserId: viewer?.appUser.id
   });
 
   const [profile, trace] = await Promise.all([
@@ -55,6 +59,7 @@ export default async function ProfilePage({
     <UserProfileView
       area={area}
       city={city}
+      demoMode={!viewer}
       initialProfile={profile}
       initialRecommendation={recommendation}
       initialTrace={trace}

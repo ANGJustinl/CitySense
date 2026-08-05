@@ -4,6 +4,10 @@ import { prisma } from "@/server/db/prisma";
 import type { RecommendedRoute } from "@/server/recommendation/types";
 import { createRouteSnapshotId, parseRouteSnapshotId } from "@/server/routes/route-detail";
 import { FEEDBACK_INTERACTION_WEIGHT } from "@/server/recommendation/feedback-weights";
+import {
+  feedbackReasonCodes,
+  isFeedbackReasonAllowed
+} from "@/server/recommendation/feedback-reasons";
 import { canonicalizeProfileArea, recomputeUserProfile } from "@/server/recommendation/user-profile-v2";
 
 export const feedbackSchema = z.object({
@@ -12,7 +16,11 @@ export const feedbackSchema = z.object({
   userId: z.string().min(1).max(128).optional(),
   sessionId: z.string().min(1).max(128).optional(),
   value: z.enum(["up", "down", "save", "dismiss"]),
-  reason: z.string().trim().max(80).regex(/^[a-zA-Z0-9_-]+$/).optional()
+  reason: z.enum(feedbackReasonCodes).optional()
+}).superRefine((input, context) => {
+  if (input.reason && !isFeedbackReasonAllowed(input.value, input.reason)) {
+    context.addIssue({ code: "custom", path: ["reason"], message: "Feedback reason does not match feedback value" });
+  }
 });
 
 export type FeedbackInput = z.infer<typeof feedbackSchema>;
@@ -60,7 +68,10 @@ function resolveProfileKey(
   return { profileKey: authoritative ?? claimed } as const;
 }
 
-export async function recordFeedback(rawInput: unknown) {
+export async function recordFeedback(
+  rawInput: unknown,
+  auth: { viewerUserId?: string } = {}
+) {
   const input = feedbackSchema.parse(rawInput);
   const log = await prisma.recommendationLog.findUnique({
     where: { id: input.recommendationLogId }
@@ -75,6 +86,12 @@ export async function recordFeedback(rawInput: unknown) {
   }
 
   const logInput = readRecommendationInput(log.input);
+  if (log.ownerUserId && log.ownerUserId !== auth.viewerUserId) {
+    return { ok: false, status: 403, error: "Feedback access denied" } as const;
+  }
+  if (!log.ownerUserId && auth.viewerUserId && log.userId && log.userId !== auth.viewerUserId) {
+    return { ok: false, status: 403, error: "Feedback access denied" } as const;
+  }
   const identity = resolveProfileKey(log.userId, logInput, input);
   if ("error" in identity) {
     return { ok: false, status: 409, error: identity.error } as const;

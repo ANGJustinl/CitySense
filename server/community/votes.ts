@@ -10,6 +10,19 @@ const VOTE_FIELD: Record<VenueVoteType, "nicheVoteCount" | "hotVoteCount"> = {
   HOT: "hotVoteCount"
 };
 
+export function belongsToVenueRanking(
+  counts: { niche: number; hot: number },
+  type: VenueVoteType
+) {
+  return type === "HOT" ? counts.hot > counts.niche : counts.niche > counts.hot;
+}
+
+function rankingEligibilityWhere(type: VenueVoteType): Prisma.VenueWhereInput {
+  return type === "HOT"
+    ? { hotVoteCount: { gt: prisma.venue.fields.nicheVoteCount } }
+    : { nicheVoteCount: { gt: prisma.venue.fields.hotVoteCount } };
+}
+
 type RankingCursor = { voteCount: number; at: string; id: string };
 
 function encodeRankingCursor(cursor: RankingCursor) {
@@ -82,7 +95,7 @@ export async function listVenueRanking(input: {
     publicationStatus: "PUBLISHED",
     city: input.city,
     ...(variants.length ? { area: { in: variants } } : {}),
-    ...rankingCursorWhere(cursor, input.type)
+    AND: [rankingEligibilityWhere(input.type), rankingCursorWhere(cursor, input.type)]
   };
   const venues = await prisma.venue.findMany({
     where,

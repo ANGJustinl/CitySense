@@ -31,7 +31,7 @@ export async function listOwnSubmissions(submitterId: string) {
   return prisma.venueSubmission.findMany({
     where: { submitterId },
     include: { images: true, resultingVenue: true },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: 50
   });
 }

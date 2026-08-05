@@ -216,7 +216,7 @@ export default async function RouteDetail({
           </div>
 
           <div className="route-detail-community-actions">
-            <Link className="buddy-route-detail-cta" href={`/buddy?routeId=${encodeURIComponent(route.id)}`}>
+            <Link className="buddy-route-detail-cta" href={`/buddy?routeId=${encodeURIComponent(route.id)}&compose=POST`}>
               找搭子走这条路线
             </Link>
             <Link className="community-route-detail-cta" href={`/community/new?routeId=${encodeURIComponent(route.id)}`}>

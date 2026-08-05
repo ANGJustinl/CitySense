@@ -19,9 +19,18 @@ test("submission schema accepts a complete novel venue", () => {
   assert.deepEqual(parsed.tags, ["书店", "安静"]);
 });
 
-test("submission schema rejects invalid coordinates and empty tags", () => {
+test("submission schema accepts optional tags and coordinates", () => {
+  const withoutOptional = { ...valid, tags: undefined, userLat: undefined, userLng: undefined };
+  const parsed = placeSubmissionSchema.parse(withoutOptional);
+  assert.deepEqual(parsed.tags, []);
+  assert.equal(parsed.userLat, undefined);
+  assert.equal(parsed.userLng, undefined);
+});
+
+test("submission schema rejects invalid or partial coordinates", () => {
   assert.equal(placeSubmissionSchema.safeParse({ ...valid, userLat: 100 }).success, false);
-  assert.equal(placeSubmissionSchema.safeParse({ ...valid, tags: [] }).success, false);
+  assert.equal(placeSubmissionSchema.safeParse({ ...valid, userLng: undefined }).success, false);
+  assert.equal(placeSubmissionSchema.safeParse({ ...valid, userLat: undefined }).success, false);
 });
 
 test("submission schema strips invisible controls and deduplicates tags", () => {
@@ -30,6 +39,8 @@ test("submission schema strips invisible controls and deduplicates tags", () => 
   assert.deepEqual(parsed.tags, ["书店"]);
 });
 
-test("submission content hash is stable", () => {
+test("submission content hash is stable with and without coordinates", () => {
   assert.equal(submissionContentHash(placeSubmissionSchema.parse(valid)), submissionContentHash(placeSubmissionSchema.parse(valid)));
+  const withoutCoordinates = placeSubmissionSchema.parse({ ...valid, userLat: undefined, userLng: undefined });
+  assert.equal(submissionContentHash(withoutCoordinates), submissionContentHash(withoutCoordinates));
 });

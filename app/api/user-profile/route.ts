@@ -13,6 +13,7 @@ import {
   ProfileAccessError,
   requireOwnedProfileKey
 } from "@/server/auth/profile-access";
+import { getOptionalUser } from "@/server/auth/current-user";
 
 export const runtime = "nodejs";
 
@@ -26,10 +27,11 @@ const profileKeyQuery = z.object({
     .max(128, "userId too long")
 });
 
-function profileKeyFromQuery(searchParams: URLSearchParams): string {
+function profileKeyFromQuery(searchParams: URLSearchParams, viewerProfileKey?: string): string {
   return requireOwnedProfileKey({
     requestedProfileKey: searchParams.get("profileKey") ?? searchParams.get("userId") ?? "",
-    sessionId: searchParams.get("sessionId") ?? undefined
+    sessionId: searchParams.get("sessionId") ?? undefined,
+    viewerProfileKey
   })!;
 }
 
@@ -44,8 +46,9 @@ function profileKeyFromQuery(searchParams: URLSearchParams): string {
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
+    const viewer = await getOptionalUser();
     const view = searchParams.get("view");
-    const profileKey = profileKeyFromQuery(searchParams);
+    const profileKey = profileKeyFromQuery(searchParams, viewer?.appUser.id);
 
     // view=summary 保留兼容，但摘要与完整视图都来自统一画像引擎。
     if (view === "summary") {
@@ -112,9 +115,11 @@ export async function POST(request: Request) {
   }
 
   try {
+    const viewer = await getOptionalUser();
     const userId = requireOwnedProfileKey({
       requestedProfileKey: parsed.data.userId,
-      sessionId: parsed.data.sessionId
+      sessionId: parsed.data.sessionId,
+      viewerProfileKey: viewer?.appUser.id
     })!;
 
     await setTagPreference({
@@ -155,7 +160,8 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const profileKey = profileKeyFromQuery(searchParams);
+    const viewer = await getOptionalUser();
+    const profileKey = profileKeyFromQuery(searchParams, viewer?.appUser.id);
     const parsed = profileKeyQuery.parse({ profileKey });
     const result = await clearUserProfile(parsed.profileKey);
     return NextResponse.json(result);

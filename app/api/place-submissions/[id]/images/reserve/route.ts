@@ -7,6 +7,11 @@ import { enforceRateLimit, RATE_LIMITS, rateLimitErrorResponse } from "@/server/
 import { reserveSubmissionImage } from "@/server/submissions/images";
 
 const schema = z.object({ mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]) }).strict();
+const IMAGE_RESERVE_CLIENT_ERRORS = new Set([
+  "Only JPEG, PNG and WebP are supported",
+  "Submission not found or not editable",
+  "Image limit reached"
+]);
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
@@ -24,6 +29,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const rateLimit = rateLimitErrorResponse(error);
     if (rateLimit) return rateLimit;
     if (error instanceof ZodError) return NextResponse.json({ error: "Invalid image request", issues: error.issues }, { status: 400 });
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Image reserve failed" }, { status: 400 });
+    if (error instanceof Error && IMAGE_RESERVE_CLIENT_ERRORS.has(error.message)) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    console.error("submission image reserve failed", {
+      error: error instanceof Error ? error.name : "UnknownError"
+    });
+    return NextResponse.json({ error: "Image reserve failed" }, { status: 500 });
   }
 }

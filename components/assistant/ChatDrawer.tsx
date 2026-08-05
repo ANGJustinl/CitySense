@@ -98,13 +98,13 @@ export function ChatDrawer({ open, onClose, sessionId, context }: ChatDrawerProp
             <div className="chat-empty">
               <Sparkles size={32} />
               <p>你好!我是城市探索助手 🌆</p>
-              <p>问我“今晚静安有什么好玩的”、“最近流行什么”,或者粘贴一段点评让我帮你判断值不值得去。</p>
+              <p>问我“今晚三里屯有什么好玩的”、“最近流行什么”,或者粘贴一段点评让我帮你判断值不值得去。</p>
               <div className="chat-suggestions">
-                <button type="button" onClick={() => send("今晚静安有什么好玩的?")}>
-                  今晚静安有什么好玩的?
+                <button type="button" onClick={() => send("今晚三里屯有什么好玩的?")}>
+                  今晚三里屯有什么好玩的?
                 </button>
-                <button type="button" onClick={() => send("黄浦最近流行什么?")}>
-                  黄浦最近流行什么?
+                <button type="button" onClick={() => send("五道营最近流行什么?")}>
+                  五道营最近流行什么?
                 </button>
                 <button type="button" onClick={() => send("帮我推荐一条适合约会的路线")}>
                   帮我推荐一条适合约会的路线

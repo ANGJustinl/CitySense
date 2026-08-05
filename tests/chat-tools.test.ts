@@ -76,3 +76,30 @@ test("profile-scoped chat tools reject context profileKey mismatch before DB wor
 
   assert.ok(result.content.includes("profile access denied"));
 });
+
+test("write tools require login (appUserId) and return a login hint when absent", async () => {
+  const anonContext = { sessionId: "anon", profileKey: undefined, city: "北京" };
+  const writeTools = [
+    "save_user_profile",
+    "create_community_post",
+    "submit_place",
+    "create_buddy_intent",
+    "apply_buddy_intent",
+    "like_post",
+    "bookmark_post",
+    "follow_user"
+  ];
+  for (const tool of writeTools) {
+    const result = await executeChatTool(tool, "{}", anonContext);
+    assert.ok(result.content.includes("登录"), `tool ${tool} should ask for login, got: ${result.content}`);
+  }
+});
+
+test("write tools validate required params and return a missing-param message", async () => {
+  // 已登录但缺参数:应在 appUserId 检查之后、调 server 函数之前因参数不足而失败。
+  // 这里用缺少必填参数触发 server 函数内部的校验/异常,被外层 catch 转为失败文案。
+  const loggedIn = { sessionId: "s", profileKey: "user1", appUserId: "user1", city: "北京" };
+  const result = await executeChatTool("like_post", "{}", loggedIn);
+  // appUserId 存在但无 postId → 返回"缺少 postId"
+  assert.ok(result.content.includes("缺少 postId"), `got: ${result.content}`);
+});

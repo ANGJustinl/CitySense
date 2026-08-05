@@ -24,6 +24,11 @@ import { getWeather } from "@/server/maps/weather";
 import { searchActivities } from "@/server/recommendation/activity-search";
 import type { ChatContext, ChatTool } from "@/server/ai/chat-client";
 import { requireOwnedProfileKey } from "@/server/auth/profile-access";
+// 写操作:直接复用 server 函数,无 HTTP 中转
+import { createCommunityPost } from "@/server/community/posts";
+import { setPostLike, setPostBookmark, setCommunityFollow } from "@/server/community/interactions";
+import { createSubmission } from "@/server/submissions/service";
+import { createBuddyIntent, applyToBuddyIntent, saveBuddyProfile } from "@/server/buddy/service";
 
 /** 工具定义,传给 LLM 的 tools 参数。 */
 export const CHAT_TOOLS: ChatTool[] = [
@@ -198,6 +203,129 @@ export const CHAT_TOOLS: ChatTool[] = [
         required: ["days"]
       }
     }
+  },
+  // ===== 写操作工具(要求用户已登录) =====
+  {
+    type: "function",
+    function: {
+      name: "save_user_profile",
+      description: "完善或更新用户的公开资料(昵称/简介/城市)。发手记、组搭子前通常需要先完善资料。",
+      parameters: {
+        type: "object",
+        properties: {
+          displayName: { type: "string", description: "昵称(2-30字)" },
+          bio: { type: "string", description: "一句话简介(可选,最多200字)" },
+          city: { type: "string", description: "所在城市(可选)" }
+        },
+        required: ["displayName"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_community_post",
+      description: "帮用户发布一条城市手记。需要用户已登录且有公开资料。",
+      parameters: {
+        type: "object",
+        properties: {
+          body: { type: "string", description: "手记正文(最多3000字)" },
+          city: { type: "string", description: "城市" },
+          area: { type: "string", description: "区域(可选)" },
+          venueIds: { type: "array", items: { type: "string" }, description: "关联地点ID(可选,最多3个)" }
+        },
+        required: ["body", "city"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "submit_place",
+      description: "帮用户提交一个小众地点(创建草稿,仅文字信息)。注意:图片需要用户自己去上传,工具完成后提醒用户去 /submit-place 补传照片并提交审核。",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "地点名称(2-60字)" },
+          description: { type: "string", description: "地点描述(20-1000字)" },
+          city: { type: "string", description: "城市" },
+          area: { type: "string", description: "区域(可选)" },
+          address: { type: "string", description: "地址(5-200字)" },
+          tags: { type: "array", items: { type: "string" }, description: "标签(可选,如咖啡/书店/安静,最多8个)" }
+        },
+        required: ["name", "description", "city", "address"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_buddy_intent",
+      description: "帮用户发起一个搭子组队。需要路线快照ID和出发时间。若用户没指定路线,先推荐路线并确认。",
+      parameters: {
+        type: "object",
+        properties: {
+          mode: { type: "string", enum: ["POST", "AUTO"], description: "POST=公开招募别人申请;AUTO=系统自动匹配" },
+          routeSnapshotId: { type: "string", description: "路线快照ID(从推荐路线获取)" },
+          departureStart: { type: "string", description: "出发开始时间(ISO 8601,必须晚于现在)" },
+          departureEnd: { type: "string", description: "出发结束时间(ISO 8601)" },
+          meetingLabel: { type: "string", description: "集合点说明(1-100字)" },
+          publicNote: { type: "string", description: "公开备注(可选,最多300字)" }
+        },
+        required: ["mode", "routeSnapshotId", "departureStart", "departureEnd", "meetingLabel"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "apply_buddy_intent",
+      description: "帮用户申请加入一个搭子组队。",
+      parameters: {
+        type: "object",
+        properties: {
+          intentId: { type: "string", description: "搭子意向ID" },
+          message: { type: "string", description: "申请留言(可选,最多300字)" }
+        },
+        required: ["intentId"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "like_post",
+      description: "帮用户点赞一条城市手记。",
+      parameters: {
+        type: "object",
+        properties: { postId: { type: "string", description: "手记ID" } },
+        required: ["postId"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "bookmark_post",
+      description: "帮用户收藏一条城市手记。",
+      parameters: {
+        type: "object",
+        properties: { postId: { type: "string", description: "手记ID" } },
+        required: ["postId"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "follow_user",
+      description: "帮用户关注另一个用户。",
+      parameters: {
+        type: "object",
+        properties: { targetUserId: { type: "string", description: "目标用户ID" } },
+        required: ["targetUserId"]
+      }
+    }
   }
 ];
 
@@ -337,7 +465,7 @@ export async function executeChatTool(
   try {
     switch (name) {
       case "recommend_routes": {
-        const city = (args.city as string) || context.city || "上海";
+        const city = (args.city as string) || context.city || "北京";
         const profileKey = contextProfileKey(context);
         const result = await recommend({
           userId: profileKey,
@@ -373,7 +501,7 @@ export async function executeChatTool(
 
       case "get_city_pulse": {
         const pulse = await getCityPulse({
-          city: context.city || "上海",
+          city: context.city || "北京",
           area: (args.area as string) || context.area
         });
         return {
@@ -456,7 +584,7 @@ export async function executeChatTool(
       }
 
       case "get_weather": {
-        const city = context.city || "上海";
+        const city = context.city || "北京";
         const area = (args.area as string) || context.area;
         const weather = await getWeather({ city, area });
         if (!weather) {
@@ -489,7 +617,7 @@ export async function executeChatTool(
         if (!keyword) {
           return { content: "缺少 keyword 参数" };
         }
-        const city = context.city || "上海";
+        const city = context.city || "北京";
         const area = (args.area as string) || context.area;
         const activities = await searchActivities({ city, keyword, area });
         if (activities.length === 0) {
@@ -520,7 +648,7 @@ export async function executeChatTool(
         }
         // 限制最多 3 天,避免过多调用。
         const limitedDays = days.slice(0, 3);
-        const city = context.city || "上海";
+        const city = context.city || "北京";
         const dayResults: Array<{ day: number; title: string; places: string[]; score: number }> = [];
         const profileKey = contextProfileKey(context);
 
@@ -559,6 +687,92 @@ export async function executeChatTool(
         };
       }
 
+      // ===== 写操作工具(要求 appUserId 存在) =====
+      case "save_user_profile": {
+        const userId = context.appUserId;
+        if (!userId) return { content: "此操作需要登录。请引导用户先登录后再试。" };
+        const profile = await saveBuddyProfile(userId, args);
+        return { content: `公开资料已更新:昵称「${profile.displayName}」${profile.bio ? `,简介「${profile.bio}」` : ""}`, display: "更新公开资料" };
+      }
+
+      case "create_community_post": {
+        const userId = context.appUserId;
+        if (!userId) return { content: "此操作需要登录。请引导用户先登录后再试。" };
+        const post = await createCommunityPost({
+          authorId: userId,
+          idempotencyKey: `chat-${context.sessionId ?? "anon"}-post-${Date.now()}`,
+          payload: args
+        });
+        const url = `/community/posts/${post.id}`;
+        return {
+          content: `城市手记已发布。链接:${url}`,
+          display: "发布城市手记",
+          cards: [{ kind: "post_created", postId: post.id, url }]
+        };
+      }
+
+      case "submit_place": {
+        const userId = context.appUserId;
+        if (!userId) return { content: "此操作需要登录。请引导用户先登录后再试。" };
+        const submission = await createSubmission({
+          submitterId: userId,
+          idempotencyKey: `chat-${context.sessionId ?? "anon"}-place-${Date.now()}`,
+          payload: args
+        });
+        return {
+          content: `地点草稿已创建(名称:${submission.name})。id:${submission.id}。图片需要用户自己上传,请提醒用户到 /submit-place 补传照片后提交审核。`,
+          display: "创建地点草稿",
+          cards: [{ kind: "place_drafted", submissionId: submission.id, name: submission.name }]
+        };
+      }
+
+      case "create_buddy_intent": {
+        const userId = context.appUserId;
+        if (!userId) return { content: "此操作需要登录。请引导用户先登录后再试。" };
+        const result = await createBuddyIntent(userId, args, `chat-${context.sessionId ?? "anon"}-intent-${Date.now()}`);
+        return {
+          content: `搭子组队已发起。模式:${result.intent.mode},集合点:${(result.intent as { meetingLabel?: string }).meetingLabel ?? "未设置"}。id:${result.intent.id}。`,
+          display: "发起搭子组队",
+          cards: [{ kind: "intent_created", intentId: result.intent.id, mode: result.intent.mode }]
+        };
+      }
+
+      case "apply_buddy_intent": {
+        const userId = context.appUserId;
+        if (!userId) return { content: "此操作需要登录。请引导用户先登录后再试。" };
+        const intentId = args.intentId as string;
+        if (!intentId) return { content: "缺少 intentId 参数" };
+        await applyToBuddyIntent(userId, intentId, args);
+        return { content: `已申请加入搭子(intentId:${intentId}),等待对方确认。`, display: "申请加入搭子" };
+      }
+
+      case "like_post": {
+        const userId = context.appUserId;
+        if (!userId) return { content: "此操作需要登录。请引导用户先登录后再试。" };
+        const postId = args.postId as string;
+        if (!postId) return { content: "缺少 postId 参数" };
+        const result = await setPostLike(userId, postId, true);
+        return { content: `已点赞手记,当前共 ${result.count} 个赞。`, display: "点赞手记" };
+      }
+
+      case "bookmark_post": {
+        const userId = context.appUserId;
+        if (!userId) return { content: "此操作需要登录。请引导用户先登录后再试。" };
+        const postId = args.postId as string;
+        if (!postId) return { content: "缺少 postId 参数" };
+        await setPostBookmark(userId, postId, true);
+        return { content: "已收藏手记。", display: "收藏手记" };
+      }
+
+      case "follow_user": {
+        const userId = context.appUserId;
+        if (!userId) return { content: "此操作需要登录。请引导用户先登录后再试。" };
+        const targetUserId = args.targetUserId as string;
+        if (!targetUserId) return { content: "缺少 targetUserId 参数" };
+        await setCommunityFollow(userId, targetUserId, true);
+        return { content: "已关注。", display: "关注用户" };
+      }
+
       default:
         return { content: `未知工具: ${name}` };
     }
@@ -578,5 +792,13 @@ export const TOOL_DISPLAY_NAMES: Record<string, string> = {
   record_feedback: "记录反馈",
   get_weather: "查询天气",
   search_activities: "搜索活动",
-  plan_multi_day: "规划多日行程"
+  plan_multi_day: "规划多日行程",
+  save_user_profile: "完善资料",
+  create_community_post: "发布手记",
+  submit_place: "提交地点",
+  create_buddy_intent: "发起组队",
+  apply_buddy_intent: "申请组队",
+  like_post: "点赞",
+  bookmark_post: "收藏",
+  follow_user: "关注"
 };

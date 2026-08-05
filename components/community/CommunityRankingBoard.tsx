@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import { Flame, Snowflake } from "lucide-react";
+import { PreviewableImage } from "@/components/city/ImagePreview";
 import type { VenueRankingEntryView, VenueVoteType } from "@/server/community/types";
+
+function belongsToRanking(counts: { niche: number; hot: number }, type: VenueVoteType) {
+  return type === "HOT" ? counts.hot > counts.niche : counts.niche > counts.hot;
+}
 
 const RANK_LABEL: Record<VenueVoteType, { verb: string; noun: string }> = {
   HOT: { verb: "投它够夯", noun: "超夯榜" },
@@ -42,7 +47,11 @@ export function CommunityRankingBoard({
       const response = await fetch(`/api/community/ranking?${params.toString()}`);
       if (!response.ok) throw new Error("load failed");
       const data = await response.json();
-      setEntries((current) => [...current, ...data.entries]);
+      setEntries((current) => {
+        const byId = new Map(current.map((entry) => [entry.id, entry]));
+        for (const entry of data.entries as VenueRankingEntryView[]) byId.set(entry.id, entry);
+        return [...byId.values()];
+      });
       setCursor(data.nextCursor);
     } finally {
       setLoading(false);
@@ -52,7 +61,7 @@ export function CommunityRankingBoard({
   async function vote(entry: VenueRankingEntryView) {
     if (!viewerId) {
       const next = encodeURIComponent(`/community/ranking?city=${city}&type=${type}${area ? `&area=${area}` : ""}`);
-      location.href = `/login?next=${next}`;
+      window.location.assign(`/login?next=${next}`);
       return;
     }
     const active = entry.viewer?.votedType === type;
@@ -61,7 +70,24 @@ export function CommunityRankingBoard({
       const response = await fetch(`/api/community/venues/${entry.id}/vote`, { method: active ? "DELETE" : "POST", headers: { "content-type": "application/json" }, body: active ? undefined : JSON.stringify({ type }) });
       if (!response.ok) return;
       const result: { votedType: VenueVoteType | null; counts: { niche: number; hot: number } } = await response.json();
-      setEntries((current) => current.map((item) => (item.id === entry.id ? { ...item, counts: result.counts, viewer: { votedType: result.votedType } } : item)));
+      setEntries((current) => current.flatMap((item) => {
+        if (item.id !== entry.id) return [item];
+        if (!belongsToRanking(result.counts, type)) return [];
+        return [{ ...item, counts: result.counts, viewer: { votedType: result.votedType } }];
+      }));
+      setCursor(null);
+      try {
+        const params = new URLSearchParams({ city, type, limit: "20" });
+        if (area) params.set("area", area);
+        const refreshed = await fetch(`/api/community/ranking?${params.toString()}`);
+        if (refreshed.ok) {
+          const data = await refreshed.json() as { entries: VenueRankingEntryView[]; nextCursor: string | null };
+          setEntries(data.entries);
+          setCursor(data.nextCursor);
+        }
+      } catch {
+        // Keep the vote response applied locally if refreshing the ranking fails.
+      }
     } finally {
       setBusyId(undefined);
     }
@@ -93,6 +119,19 @@ export function CommunityRankingBoard({
                 style={{ animationDelay: `${Math.min(index, 8) * 55}ms` }}
               >
                 <span className="community-ranking-position">{String(index + 1).padStart(2, "0")}</span>
+                <div className="community-ranking-thumb">
+                  <span aria-hidden="true" className="community-ranking-thumb-fallback">
+                    {entry.name.trim().slice(0, 1) || "城"}
+                  </span>
+                  {entry.imageUrl ? (
+                    <PreviewableImage
+                      alt={entry.name}
+                      className="community-ranking-image"
+                      src={entry.imageUrl}
+                      wrapperClassName="community-ranking-image-trigger"
+                    />
+                  ) : null}
+                </div>
                 <div className="community-ranking-body">
                   <strong className="community-ranking-name">{entry.name}</strong>
                   <small className="community-ranking-meta">
@@ -117,7 +156,11 @@ export function CommunityRankingBoard({
           })}
         </ol>
       ) : (
-        <p className="community-ranking-empty">还没有人投票。第一个投出「{RANK_LABEL[type].noun}」的人，会是你吗？</p>
+        <p className="community-ranking-empty">
+          {type === "HOT"
+            ? "暂时还没有地点在超夯票中胜出。投出第一票，让它登榜。"
+            : "暂时还没有地点在小众票中胜出。投出第一票，让它登榜。"}
+        </p>
       )}
 
       {cursor ? (

@@ -1438,7 +1438,18 @@ model BuddyMatch {
 - 2026-08-04：完成 `TASK-P2-006`，接入 Supabase Auth、登录回调、地点投稿/图片/审核/发布闭环、高德地点搜索与 submission worker；合并 `prod/feature-userprofile` 后保留投稿能力、用户画像清空字段、moment-fit、实验重排和新版 UI。提交记录验证 typecheck 通过、320 个测试通过。
 - 2026-08-05：新增 `TASK-P2-007：城市探索搭子匹配 MVP`，规划路线/兴趣驱动的搭子意图、解释型匹配、双向确认、站内沟通、举报拉黑与线下安全边界，进入审批队列。
 - 2026-08-05：实现已发布用户投稿地点的独立地图图层：新增 `/api/user-venues`、发布状态与来源过滤、路线附近 bbox 查询、默认开启的用户地点开关、AMap/静态地图图钉和详情卡；不改变路线排序、热力图或推荐数据。新增 3 项地图地点查询测试，`pnpm typecheck` 和 346 个测试通过。
+- 2026-08-05：简化“小众地点分享”表单，基础区仅保留名称、详细地址、地图选点、推荐理由和现场照片；城市/区域/标签/访问提示/高德绑定折叠到高级选项。新增点击地图取经纬度、地址修改后重新确认、无地图 key 按地址降级；标签与坐标改为可选且保持成对校验。
 - 2026-08-05：完成 `TASK-P2-007`，交付搭子资料、路线快照意图、公开申请/自动匹配、群组消息、通知、举报拉黑、权限与状态机测试；`pnpm typecheck` 和 335 个测试通过，仓库级 lint 仍有 20 个既有错误与 9 个警告。
 - 2026-08-05：新增城市社区基础能力，包含动态发布、城市/关注 feed、评论、点赞、收藏、关注、举报、可见性过滤、内容审核数据模型与功能开关；社区写入默认关闭，需通过环境变量显式启用。
 - 2026-08-05：完善密码登录/注册/找回/更新密码、认证导航与账号菜单；补充 UGC 限流、路由隐私、区域标准化和生产环境配置。
 - 2026-08-05：修复全屏地图雨天/暴雨天气层持续平移的斜条纹，保留静态天气色调和局部天气反馈。
+- 2026-08-05：新增城市地点排行榜与投票功能（VenueVote 模型 + VenueVoteType 枚举、Venue 计数列与排名索引、`/community/ranking` 页面与 `CommunityRankingBoard` 组件、`/api/community/ranking` 与 `/api/community/venues/[id]/vote` 路由、community-worker 投票计数对账任务）；一票可切换、纯投票数排序（0 票按 createdAt 倒序兜底）、事务化计数、rate-limit 与完整测试。
+- 2026-08-05：社区与全站字体统一为霞鹜文楷 GB（LXGW WenKai GB）：layout 引入 webfont（cn-font-split 222 分包按需加载），community.css/globals.css 所有 STKaiti 标题、Songti SC 正文、Georgia 数字与 sans-serif 小字全部前置 LXGW 前缀，`.community-page-shell` 加全局字体兜底；标题字号整体缩小约 30%。
+- 2026-08-05：默认位置从上海切换到北京：首页推荐城市与坐标（天安门 39.9087/116.3974）、RecommendationWorkspace defaultOrigin、社区 schema/feed/ranking 默认城市与各页面回退、AI 助手 chat route 与 chat-tools 默认城市、助手预提示词（三里屯/五道营）全部改为北京。
+- 2026-08-05：AI 城市探索助手智谱 key 失效排查与修复（确认 `code:1000 身份验证失败` 为 LLM key 过期，更新生产 `OPENAI_API_KEY` 并验证 glm-4-flash 恢复）。
+- 2026-08-05：AI 助手扩展为可调用所有写 API：ChatContext 新增 `appUserId`，chat route 注入 `getOptionalUser()`，新增 8 个写工具（save_user_profile / create_community_post / submit_place / create_buddy_intent / apply_buddy_intent / like_post / bookmark_post / follow_user）直接调用 server 函数；写操作要求登录、未登录引导登录、SYSTEM_PROMPT 扩展写工具路由规则；16 个工具测试通过。
+- 2026-08-05：修复助手浮窗打不开问题——ChatDock 改用 `createPortal` 渲染到 `document.body` 脱离全屏地图层叠上下文，chat-dock/drawer/backdrop z-index 提升至 9999。
+- 2026-08-05：写城市手记「关联地点」从手输 ID 改为搜索选择器——新增 `searchPublishedVenues` server 函数与 `/api/community/venues/search` 路由，CommunityComposer 改为防抖搜索 + 下拉选择 + 多选 chips（最多 3 个），解决手输内部 ID 报「部分地点不存在或已下架」的问题。
+- 2026-08-05：修复 Prisma 生成迁移误删 6 个既有 GIN 索引（trgm/qualityFlags）的问题——清理迁移文件、在生产库重建索引、`migrate status` 恢复干净。
+- 2026-08-05：生产部署运维——多次 release 部署（社区投票/字体/北京/AI写工具/ChatDock修复/搜索选择器/预提示词），期间发现并清理磁盘 100% 占满（回收旧镜像 12GB + build cache 9GB），数据库迁移误连排查与修正（区分 Supabase postgres 库与 docker citysense 库）。
+- 2026-08-06：全量代码提交前修复——ranking 测试城市断言更新为北京、CommunityFeed 新 props（context/copy）调用方补齐（CommunityHub/bookmarks/profile 三处）、`.claude/` 加入 gitignore。375 个测试全通过。

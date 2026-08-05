@@ -3,6 +3,9 @@ export type AMapMap = {
   remove: (overlays: unknown[] | unknown) => void;
   addControl: (control: unknown) => void;
   setFitView: (overlays?: unknown[], immediately?: boolean, avoid?: number[]) => void;
+  setCenter: (position: [number, number]) => void;
+  on: (event: string, handler: (...args: unknown[]) => void) => void;
+  off: (event: string, handler: (...args: unknown[]) => void) => void;
   destroy: () => void;
 };
 
@@ -43,9 +46,14 @@ export type LocaNamespace = {
   GeoJSONSource?: new (options: Record<string, unknown>) => unknown;
 };
 
+export type AMapMarker = AMapOverlay & {
+  setPosition: (position: [number, number]) => void;
+  on: (event: string, handler: (...args: unknown[]) => void) => void;
+};
+
 export type AMapNamespace = {
   Map: new (container: HTMLDivElement, options: Record<string, unknown>) => AMapMap;
-  Marker: new (options: Record<string, unknown>) => unknown;
+  Marker: new (options: Record<string, unknown>) => AMapMarker;
   Polyline: new (options: Record<string, unknown>) => unknown;
   CircleMarker: new (options: Record<string, unknown>) => AMapOverlay;
   Scale: new () => unknown;

@@ -33,8 +33,12 @@ export function normalizeProfileKey(value: unknown): string | undefined {
 export function requireOwnedProfileKey(input: {
   requestedProfileKey?: unknown;
   sessionId?: unknown;
+  viewerProfileKey?: unknown;
   allowEmpty?: boolean;
 }): string | undefined {
+  const viewerProfileKey = normalizeProfileKey(input.viewerProfileKey);
+  if (viewerProfileKey) return viewerProfileKey;
+
   const requestedProfileKey = normalizeProfileKey(input.requestedProfileKey);
   const sessionId = normalizeProfileKey(input.sessionId);
 
@@ -58,8 +62,18 @@ export function requireOwnedProfileKey(input: {
 }
 
 export function sanitizeProfileScopedInput<T extends Record<string, unknown>>(
-  input: T
+  input: T,
+  options: { viewerProfileKey?: unknown } = {}
 ): T & { userId?: string; sessionId?: string } {
+  const viewerProfileKey = normalizeProfileKey(options.viewerProfileKey);
+  if (viewerProfileKey) {
+    return {
+      ...input,
+      userId: viewerProfileKey,
+      sessionId: undefined
+    };
+  }
+
   const sessionId = normalizeProfileKey(input.sessionId);
   const userId = normalizeProfileKey(input.userId);
 

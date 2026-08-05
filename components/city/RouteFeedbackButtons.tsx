@@ -2,6 +2,11 @@
 
 import { useState } from "react";
 import { Bookmark, ThumbsDown, ThumbsUp } from "lucide-react";
+import {
+  FEEDBACK_REASONS,
+  feedbackReasonsFor,
+  type FeedbackReason
+} from "@/server/recommendation/feedback-reasons";
 
 type FeedbackValue = "up" | "down" | "save";
 
@@ -24,38 +29,36 @@ export function RouteFeedbackButtons({
   sessionId?: string;
   onRecorded?: (result: FeedbackResult) => void;
 }) {
-  const [selected, setSelected] = useState<FeedbackValue | undefined>();
-  const [saving, setSaving] = useState<FeedbackValue | undefined>();
-  const [message, setMessage] = useState<string | undefined>();
-  const [error, setError] = useState<string | undefined>();
+  const [selected, setSelected] = useState<FeedbackValue>();
+  const [pendingValue, setPendingValue] = useState<FeedbackValue>();
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string>();
+  const [error, setError] = useState<string>();
 
-  async function sendFeedback(value: FeedbackValue) {
+  async function sendFeedback(value: FeedbackValue, reason?: FeedbackReason) {
     if (!recommendationId || saving) return;
-    setSaving(value);
+    setSaving(true);
     setError(undefined);
     setMessage(undefined);
-
     try {
       const response = await fetch("/api/feedback", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          recommendationLogId: recommendationId,
-          routeId,
-          userId,
-          sessionId,
-          value
-        })
+        body: JSON.stringify({ recommendationLogId: recommendationId, routeId, userId, sessionId, value, reason })
       });
       const result = (await response.json().catch(() => ({}))) as FeedbackResult & { error?: string };
       if (!response.ok) throw new Error(result.error || "反馈保存失败");
       setSelected(value);
-      setMessage(result.profileRefreshed ? "已记录，画像已更新" : "反馈已记录，画像稍后更新");
+      setPendingValue(undefined);
+      const reasonLabel = reason ? `“${FEEDBACK_REASONS[reason].label}”` : "这次反馈";
+      setMessage(result.profileRefreshed
+        ? `已记录${reasonLabel}，画像已更新，将用于下次生成路线`
+        : "反馈已记录，画像稍后更新");
       onRecorded?.(result);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "反馈保存失败，请重试");
     } finally {
-      setSaving(undefined);
+      setSaving(false);
     }
   }
 
@@ -64,26 +67,41 @@ export function RouteFeedbackButtons({
     { value: "save", label: "收藏", title: "收藏这条路线", Icon: Bookmark },
     { value: "down", label: "不合适", title: "这条路线不合适", Icon: ThumbsDown }
   ];
+  const reasons = pendingValue ? feedbackReasonsFor(pendingValue) : [];
 
   return (
-    <div>
+    <div className="route-feedback-block">
       <div className="feedback-row" aria-label="route feedback">
         {buttons.map(({ value, label, title, Icon }) => (
           <button
-            aria-pressed={selected === value}
-            className={selected === value ? "active" : ""}
-            disabled={Boolean(saving)}
+            aria-pressed={selected === value || pendingValue === value}
+            className={selected === value || pendingValue === value ? "active" : ""}
+            disabled={saving}
             key={value}
-            onClick={() => sendFeedback(value)}
+            onClick={() => { setPendingValue(value); setMessage(undefined); setError(undefined); }}
             title={title}
             type="button"
           >
-            <Icon size={15} />
-            {saving === value ? "保存中…" : label}
+            <Icon size={15} />{label}
           </button>
         ))}
         {message ? <span>{message}</span> : null}
       </div>
+      {pendingValue ? (
+        <div className="feedback-reason-panel" aria-label="选择反馈原因">
+          <span>是什么原因？</span>
+          <div>
+            {reasons.map((reason) => (
+              <button disabled={saving} key={reason} onClick={() => void sendFeedback(pendingValue, reason)} type="button">
+                {FEEDBACK_REASONS[reason].label}
+              </button>
+            ))}
+            <button disabled={saving} onClick={() => void sendFeedback(pendingValue)} type="button">
+              {saving ? "保存中…" : "跳过原因"}
+            </button>
+          </div>
+        </div>
+      ) : null}
       {error ? <p className="profile-error" role="alert">{error}</p> : null}
     </div>
   );

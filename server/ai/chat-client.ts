@@ -61,6 +61,8 @@ export interface ChatCompletionClient {
 export type ChatContext = {
   sessionId?: string;
   profileKey?: string;
+  /** 已登录的 AppUser.id(由服务端从会话解析,写操作必需)。未登录时为 undefined。 */
+  appUserId?: string;
   recommendationId?: string;
   city?: string;
   area?: string;

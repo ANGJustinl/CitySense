@@ -6,10 +6,13 @@ import type {
   ScoredCandidate
 } from "@/server/recommendation/types";
 import { distanceMeters } from "@/server/maps/traffic";
-import { assessCandidateQuality } from "@/server/recommendation/quality";
+import {
+  assessCandidateQuality,
+  hasTicketNoiseFlag
+} from "@/server/recommendation/quality";
 
 export const WEIGHTED_RANKER_NAME = "weighted-v1";
-export const WEIGHTED_RANKER_VERSION = "weighted-v1.2-profile";
+export const WEIGHTED_RANKER_VERSION = "weighted-v1.3-source-calibration";
 
 // 权重调整历史：
 // - TASK2-P0-001（2026-06-14）：引入画像层，userAffinity 0.05→0.35，新增 exposurePenalty。
@@ -154,27 +157,25 @@ export function calculateActionabilityScore(candidate: Candidate) {
     return Math.min(12, quality.qualityScore);
   }
 
+  let score: number;
+
   if (hasAddress && hasCoordinates) {
-    return clamp(100 * 0.6 + quality.qualityScore * 0.4);
+    score = clamp(100 * 0.6 + quality.qualityScore * 0.4);
+  } else if (hasCoordinates) {
+    score = clamp(92 * 0.6 + quality.qualityScore * 0.4);
+  } else if (hasAddress) {
+    score = clamp(82 * 0.6 + quality.qualityScore * 0.4);
+  } else if (isGenericSocialListicle(candidate)) {
+    score = 12;
+  } else if (/咖啡馆|咖啡店|书店|画廊|美术馆|公园|中心|市集|展|节|店/.test(candidate.name)) {
+    score = 42;
+  } else {
+    score = 28;
   }
 
-  if (hasCoordinates) {
-    return clamp(92 * 0.6 + quality.qualityScore * 0.4);
-  }
-
-  if (hasAddress) {
-    return clamp(82 * 0.6 + quality.qualityScore * 0.4);
-  }
-
-  if (isGenericSocialListicle(candidate)) {
-    return 12;
-  }
-
-  if (/咖啡馆|咖啡店|书店|画廊|美术馆|公园|中心|市集|展|节|店/.test(candidate.name)) {
-    return 42;
-  }
-
-  return 28;
+  // 大麦中的景点门票、导览和票种 SKU 即使场馆信息完整，也不应凭
+  // actionability 接近满分；真实演出没有 ticket_noise 标记，不受此上限影响。
+  return hasTicketNoiseFlag(quality.qualityFlags) ? Math.min(score, 48) : score;
 }
 
 export function calculateTextRelevance(candidate: Candidate, input: RecommendInput) {
@@ -214,10 +215,23 @@ export function calculateFinalScore(breakdown: ScoreBreakdown) {
   );
 }
 
+export function calibrateSourceSignal(candidate: Candidate, signalStrength: number) {
+  const normalized = clamp(signalStrength);
+
+  if (candidate.source !== "damai") {
+    return normalized;
+  }
+
+  // 大麦的站内“推荐排序”不是跨来源可直接比较的热度分。以 50 为中性点
+  // 压缩偏差，保留活动之间的相对顺序，同时避免高位分数直接主导混排。
+  return clamp(50 + (normalized - 50) * 0.65);
+}
+
 export function createDefaultFeatures(candidate: Candidate, input: RecommendInput): CandidateFeatures {
   const quality = candidateQuality(candidate);
   const signalStrength = candidate.signalStrength ?? candidate.trendScore;
-  const sourceSignalScore = input.useSocialSignals === false ? 50 : signalStrength;
+  const sourceSignalScore =
+    input.useSocialSignals === false ? 50 : calibrateSourceSignal(candidate, signalStrength);
   const novelty = clamp(100 - candidate.popularity * 0.5 + candidate.confidence * 0.35);
 
   return {
