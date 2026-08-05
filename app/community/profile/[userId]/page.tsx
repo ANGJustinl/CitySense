@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Users } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { CommunityFeed } from "@/components/community/CommunityFeed";
 import { getOptionalUser } from "@/server/auth/current-user";
 import { getCommunityProfile, listCommunityFeed } from "@/server/community/feed";

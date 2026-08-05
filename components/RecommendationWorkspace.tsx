@@ -43,6 +43,7 @@ type WorkspaceProps = {
   userId?: string;
   initialUserId?: string;
   viewer?: AuthViewer;
+  ugcEnabled?: boolean;
 };
 
 /** Identifiers for the floating dock panels that can be collapsed. */
@@ -117,7 +118,7 @@ function formatGeneratedAt(value: string) {
   });
 }
 
-export function RecommendationWorkspace({ initialData, userId, initialUserId, viewer = null }: WorkspaceProps) {
+export function RecommendationWorkspace({ initialData, userId, initialUserId, viewer = null, ugcEnabled = false }: WorkspaceProps) {
   // 兼容 main 的 initialUserId prop 和 ai-assistant 的 userId prop。
   const initialResolvedUserId = viewer?.id ?? userId ?? initialUserId ?? DEFAULT_DEMO_USER_ID;
   const [activeUserId, setActiveUserId] = useState(initialResolvedUserId);
@@ -682,6 +683,8 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId, vi
         onSelectRoute={setSelectedRouteId}
         routes={data.routes}
         selectedRouteId={selectedRoute?.id}
+        ugcEnabled={ugcEnabled}
+        userVenueContext={{ city, area: area || undefined }}
       />
 
       <div className="floating-timeline">

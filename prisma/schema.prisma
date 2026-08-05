@@ -153,6 +153,11 @@ enum CommunityReportStatus {
   DISMISSED
 }
 
+enum VenueVoteType {
+  NICHE
+  HOT
+}
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -193,6 +198,7 @@ model AppUser {
   communityReports      CommunityReport[]            @relation("CommunityReporter")
   communityReportsAbout CommunityReport[]            @relation("CommunityReportedUser")
   communityModeration   CommunityModerationAction[]
+  venueVotes            VenueVote[]
   createdAt             DateTime                     @default(now())
   updatedAt             DateTime                     @updatedAt
 }
@@ -409,12 +415,15 @@ model Venue {
   unpublishedAt           DateTime?
   publicationReason       String?
   publicationVersion      Int                       @default(1)
+  nicheVoteCount          Int                       @default(0)
+  hotVoteCount            Int                       @default(0)
   createdFromSubmissionId String?                   @unique
   events                  Event[]                   @relation("EventVenue")
   matchedSubmissions      VenueSubmission[]         @relation("SubmissionMatchedVenue")
   resultingSubmissions    VenueSubmission[]         @relation("SubmissionResultingVenue")
   images                  VenueImage[]
   communityAttachments    CommunityPostAttachment[]
+  venueVotes              VenueVote[]
   createdAt               DateTime                  @default(now())
   updatedAt               DateTime                  @updatedAt
 
@@ -422,6 +431,8 @@ model Venue {
   @@index([area])
   @@index([qualityScore])
   @@index([publicationStatus, city, area])
+  @@index([city, publicationStatus, nicheVoteCount])
+  @@index([city, publicationStatus, hotVoteCount])
 }
 
 model CitySignal {
@@ -996,6 +1007,21 @@ model CommunityModerationAction {
   @@index([reportId, createdAt])
   @@index([actorUserId, createdAt])
 }
+
+model VenueVote {
+  venueId   String
+  venue     Venue         @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  userId    String        @db.Uuid
+  user      AppUser       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      VenueVoteType
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@id([venueId, userId])
+  @@index([type, venueId])
+  @@index([userId, createdAt])
+}
+
 
 model RecommendationFeedback {
   id                  String   @id @default(cuid())

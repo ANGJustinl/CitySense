@@ -20,6 +20,7 @@ export function CommunityHub({ initialPosts, nextCursor, city, viewerId }: { ini
         <span className="active">城市最新</span>
         <a href={viewerId ? `/community?scope=following&city=${encodeURIComponent(city)}` : "/login?next=%2Fcommunity%3Fscope%3Dfollowing"}>我关注的</a>
         <a href="/buddy">路线搭子</a>
+        <a href={`/community/ranking?city=${encodeURIComponent(city)}&type=HOT`}>城市榜单</a>
         <a href="/submit-place">地点分享</a>
         {viewerId ? <a href="/community/bookmarks">我的收藏</a> : null}
       </nav>

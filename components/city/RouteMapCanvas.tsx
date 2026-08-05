@@ -8,6 +8,7 @@ import {
   Hand,
   Loader2,
   MapPinned,
+  MapPin,
   Rotate3d,
   Route,
   X
@@ -61,6 +62,22 @@ export type HeatContext = {
   interests: string[];
   mood: Mood;
   budget: Budget;
+};
+
+export type UserVenueContext = {
+  city: string;
+  area?: string;
+};
+
+type UserVenuePoint = {
+  id: string;
+  name: string;
+  address?: string;
+  area?: string;
+  tags: string[];
+  imageUrl?: string;
+  lat: number;
+  lng: number;
 };
 
 const HEAT_MODE_OPTIONS: {
@@ -151,6 +168,8 @@ type RouteMapCanvasProps = {
   onSelectRoute: (routeId: string) => void;
   isLoading?: boolean;
   heatContext?: HeatContext;
+  ugcEnabled?: boolean;
+  userVenueContext?: UserVenueContext;
 };
 
 function roundCoordinate(value: number) {
@@ -637,7 +656,9 @@ export function RouteMapCanvas({
   selectedRouteId,
   onSelectRoute,
   isLoading,
-  heatContext
+  heatContext,
+  ugcEnabled = false,
+  userVenueContext
 }: RouteMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<AMapMap | null>(null);
@@ -645,6 +666,9 @@ export function RouteMapCanvas({
   const locaNamespaceRef = useRef<LocaNamespace | null>(null);
   const locaContainerRef = useRef<LocaContainer | null>(null);
   const overlaysRef = useRef<unknown[]>([]);
+  const userVenueOverlaysRef = useRef<unknown[]>([]);
+  const userVenueCacheRef = useRef<Map<string, UserVenuePoint[]>>(new Map());
+  const userVenueRequestRef = useRef<AbortController | null>(null);
   const fitSignatureRef = useRef<string>("");
   const onSelectRef = useRef(onSelectRoute);
   const heatLayerRefs = useRef<Map<HeatCategoryId, LocaHexagonLayer>>(new Map());
@@ -653,6 +677,11 @@ export function RouteMapCanvas({
   const [status, setStatus] = useState<"static" | "loading" | "ready" | "error">("static");
   const [heatMode, setHeatMode] = useState<HeatMode | "off">("off");
   const [heatLoading, setHeatLoading] = useState(false);
+  const [userVenuesVisible, setUserVenuesVisible] = useState(true);
+  const [userVenues, setUserVenues] = useState<UserVenuePoint[]>([]);
+  const [userVenuesLoading, setUserVenuesLoading] = useState(false);
+  const [userVenuesError, setUserVenuesError] = useState(false);
+  const [selectedUserVenueId, setSelectedUserVenueId] = useState<string>();
   const [showGestureHint, setShowGestureHint] = useState(false);
   const [heatCategorySelection, setHeatCategorySelection] = useState<HeatCategorySelection>(
     () => heatCategorySelectionForContext(heatContext)
@@ -689,6 +718,23 @@ export function RouteMapCanvas({
     () => new Set(activeHeatCategories),
     [activeHeatCategories]
   );
+  const userVenueBounds = useMemo(() => {
+    const coordinates = drawableGeometries.flatMap((geometry) => [
+      ...geometry.path,
+      ...geometry.points.map((point) => point.position)
+    ]);
+    if (coordinates.length === 0) return undefined;
+    const lngs = coordinates.map((point) => point[0]);
+    const lats = coordinates.map((point) => point[1]);
+    const padding = 0.02;
+    return {
+      west: Math.min(...lngs) - padding,
+      south: Math.min(...lats) - padding,
+      east: Math.max(...lngs) + padding,
+      north: Math.max(...lats) + padding
+    };
+  }, [drawableGeometries]);
+  const selectedUserVenue = userVenues.find((venue) => venue.id === selectedUserVenueId);
 
   const dismissGestureHint = useCallback(() => {
     setShowGestureHint(false);
@@ -792,7 +838,56 @@ export function RouteMapCanvas({
   );
 
   useEffect(() => {
-    onSelectRef.current = onSelectRoute;
+    if (!ugcEnabled || !userVenuesVisible || !userVenueContext?.city) {
+      return;
+    }
+    const params = new URLSearchParams({ city: userVenueContext.city, limit: "60" });
+    if (userVenueContext.area) params.set("area", userVenueContext.area);
+    if (userVenueBounds) {
+      params.set("west", userVenueBounds.west.toFixed(5));
+      params.set("south", userVenueBounds.south.toFixed(5));
+      params.set("east", userVenueBounds.east.toFixed(5));
+      params.set("north", userVenueBounds.north.toFixed(5));
+    }
+    const key = params.toString();
+    const cached = userVenueCacheRef.current.get(key);
+    if (cached) {
+      setUserVenues(cached);
+      setUserVenuesError(false);
+      return;
+    }
+    userVenueRequestRef.current?.abort();
+    const controller = new AbortController();
+    userVenueRequestRef.current = controller;
+    setUserVenuesLoading(true);
+    setUserVenuesError(false);
+    void fetch(`/api/user-venues?${key}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("user venues unavailable");
+        return response.json() as Promise<{ points?: UserVenuePoint[] }>;
+      })
+      .then((data) => {
+        const points = (data.points ?? []).filter((point) =>
+          point && typeof point.id === "string" && typeof point.name === "string" &&
+          Number.isFinite(point.lat) && Number.isFinite(point.lng)
+        );
+        userVenueCacheRef.current.set(key, points);
+        setUserVenues(points);
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) setUserVenuesError(true);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setUserVenuesLoading(false);
+      });
+    return () => controller.abort();
+  }, [ugcEnabled, userVenueBounds, userVenueContext?.area, userVenueContext?.city, userVenuesVisible]);
+
+  useEffect(() => {
+    onSelectRef.current = (routeId) => {
+      setSelectedUserVenueId(undefined);
+      onSelectRoute(routeId);
+    };
   }, [onSelectRoute]);
 
   const toggleHeatCategory = useCallback((categoryId: HeatCategoryId) => {
@@ -971,6 +1066,35 @@ export function RouteMapCanvas({
       map.setFitView(overlays, false, [64, 64, 64, 64]);
     }
   }, [drawableGeometries, effectiveSelectedRouteId, routeWeather, status]);
+
+  useEffect(() => {
+    const AMap = namespaceRef.current;
+    const map = mapRef.current;
+    if (status !== "ready" || !AMap || !map) return;
+    if (userVenueOverlaysRef.current.length > 0) {
+      map.remove(userVenueOverlaysRef.current);
+      userVenueOverlaysRef.current = [];
+    }
+    if (!ugcEnabled || !userVenuesVisible || userVenues.length === 0) return;
+    const markers = userVenues.map((venue) => {
+      const selected = venue.id === selectedUserVenueId;
+      const marker = new AMap.Marker({
+        position: [venue.lng, venue.lat],
+        title: venue.name,
+        anchor: "center",
+        content: `<button class="user-venue-map-marker${selected ? " selected" : ""}" aria-label="用户发现地点"><span>✦</span></button>`,
+        zIndex: selected ? 72 : 45
+      });
+      (marker as AMapEventTarget).on("click", () => setSelectedUserVenueId(venue.id));
+      return marker;
+    });
+    map.add(markers);
+    userVenueOverlaysRef.current = markers;
+    return () => {
+      map.remove(markers);
+      if (userVenueOverlaysRef.current === markers) userVenueOverlaysRef.current = [];
+    };
+  }, [selectedUserVenueId, status, ugcEnabled, userVenues, userVenuesVisible]);
 
   // 热力图层独立 effect：只在 heatMode !== "off" 且地图就绪时拉取并渲染，
   // 不干扰上方路线 overlay effect。fetch 结果按 cacheKey 缓存，避免切换模式时重复请求。
@@ -1207,14 +1331,49 @@ export function RouteMapCanvas({
           <StaticMultiRouteMap
             geometries={drawableGeometries}
             onSelectRoute={onSelectRoute}
+            onSelectUserVenue={setSelectedUserVenueId}
             selectedRouteId={effectiveSelectedRouteId}
             status={status}
+            userVenues={ugcEnabled && userVenuesVisible ? userVenues : []}
             weather={routeWeather}
           />
         ) : null}
       </div>
 
       <MapWeatherAtmosphere weather={routeWeather} />
+
+      {ugcEnabled ? (
+        <div className="map-user-venues-control">
+          <label>
+            <input
+              checked={userVenuesVisible}
+              onChange={(event) => {
+                setUserVenuesVisible(event.target.checked);
+                if (!event.target.checked) setSelectedUserVenueId(undefined);
+              }}
+              type="checkbox"
+            />
+            <MapPin size={13} />
+            <span>用户地点</span>
+          </label>
+          <small>
+            {userVenuesLoading ? "加载中" : userVenuesError ? "暂不可用" : `${userVenues.length} 个`}
+          </small>
+        </div>
+      ) : null}
+
+      {selectedUserVenue ? (
+        <aside aria-label="用户发现地点详情" className="user-venue-detail-card">
+          <button aria-label="关闭地点详情" onClick={() => setSelectedUserVenueId(undefined)} type="button"><X size={14} /></button>
+          {selectedUserVenue.imageUrl ? (
+            <PreviewableImage alt={selectedUserVenue.name} src={selectedUserVenue.imageUrl} />
+          ) : null}
+          <span>用户发现</span>
+          <strong>{selectedUserVenue.name}</strong>
+          <p>{selectedUserVenue.address ?? selectedUserVenue.area ?? "城市小众地点"}</p>
+          {selectedUserVenue.tags.length > 0 ? <small>{selectedUserVenue.tags.slice(0, 6).join(" · ")}</small> : null}
+        </aside>
+      ) : null}
 
       {showGestureHint ? <MapGestureHint onDismiss={dismissGestureHint} /> : null}
 
@@ -1360,13 +1519,17 @@ function StaticMultiRouteMap({
   geometries,
   selectedRouteId,
   onSelectRoute,
+  onSelectUserVenue,
   status,
+  userVenues,
   weather
 }: {
   geometries: RouteGeometry[];
   selectedRouteId?: string;
   onSelectRoute: (routeId: string) => void;
+  onSelectUserVenue: (venueId: string) => void;
   status: string;
+  userVenues: UserVenuePoint[];
   weather: RouteWeatherImpact;
 }) {
   const allPoints = geometries.flatMap((geometry) => geometry.points);
@@ -1444,6 +1607,22 @@ function StaticMultiRouteMap({
         })}
       </svg>
       <div className="static-map-marker-layer">
+        {userVenues.flatMap((venue) => {
+          if (venue.lng < minLng || venue.lng > maxLng || venue.lat < minLat || venue.lat > maxLat) return [];
+          const { x, y } = project([venue.lng, venue.lat]);
+          return [
+            <button
+              aria-label={`用户发现：${venue.name}`}
+              className="static-user-venue-marker"
+              key={`user-venue-${venue.id}`}
+              onClick={() => onSelectUserVenue(venue.id)}
+              style={{ left: `${x}%`, top: `${y}%` }}
+              type="button"
+            >
+              ✦
+            </button>
+          ];
+        })}
         {geometries.flatMap((geometry) =>
           geometry.points.map((point) => {
             const selected = geometry.routeId === selectedRouteId;

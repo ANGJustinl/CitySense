@@ -1,6 +1,7 @@
 import { RecommendationWorkspace } from "@/components/RecommendationWorkspace";
 import { DEFAULT_DEMO_USER_ID, DEMO_USER_PERSONA_INTERESTS, isDemoUser } from "@/lib/demo-users";
 import { getOptionalUser } from "@/server/auth/current-user";
+import { isUgcEnabled } from "@/server/config/ugc";
 import { getUserProfileSummary } from "@/server/recommendation/user-profile-v2";
 import { recommend } from "@/server/recommendation/recommend";
 
@@ -62,6 +63,7 @@ export default async function Home({
     <RecommendationWorkspace
       initialData={initialData}
       initialUserId={userId}
+      ugcEnabled={isUgcEnabled()}
       viewer={viewer ? {
         id: viewer.appUser.id,
         email: viewer.authUser.email ?? null,

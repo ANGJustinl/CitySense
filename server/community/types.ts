@@ -41,3 +41,18 @@ export type CommunityCommentView = {
   publishedAt: string;
   createdAt: string;
 };
+
+export type VenueVoteType = "NICHE" | "HOT";
+
+export type VenueRankingEntryView = {
+  id: string;
+  name: string;
+  city: string;
+  area: string | null;
+  address: string | null;
+  imageUrl: string | null;
+  tags: string[];
+  counts: { niche: number; hot: number };
+  viewer: { votedType: VenueVoteType | null } | null;
+  createdAt: string;
+};

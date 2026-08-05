@@ -7,7 +7,13 @@ x-app-environment: &app-environment
   DATABASE_POOL_TIMEOUT: ${DATABASE_POOL_TIMEOUT:-20}
   CITYSENSE_RELEASE: ${CITYSENSE_RELEASE}
   CITYSENSE_DEMO_MODE: ${CITYSENSE_DEMO_MODE:-false}
-  REDIS_URL: ${REDIS_URL:-}
+  CITYSENSE_ADMIN_EMAILS: ${CITYSENSE_ADMIN_EMAILS:-}
+  CITYSENSE_UGC_ENABLED: ${CITYSENSE_UGC_ENABLED:-false}
+  CITYSENSE_COMMUNITY_ENABLED: ${CITYSENSE_COMMUNITY_ENABLED:-false}
+  CITYSENSE_COMMUNITY_WRITE_ENABLED: ${CITYSENSE_COMMUNITY_WRITE_ENABLED:-false}
+  CITYSENSE_UGC_AUTO_PUBLISH_ENABLED: ${CITYSENSE_UGC_AUTO_PUBLISH_ENABLED:-false}
+  CITYSENSE_UGC_NOVEL_AUTO_PUBLISH_ENABLED: ${CITYSENSE_UGC_NOVEL_AUTO_PUBLISH_ENABLED:-false}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379}
   AMAP_API_KEY: ${AMAP_API_KEY:-}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.5}
@@ -19,7 +25,17 @@ x-app-environment: &app-environment
   NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
   SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
   CITYSENSE_SUBMISSION_ORIGINAL_BUCKET: ${CITYSENSE_SUBMISSION_ORIGINAL_BUCKET:-submission-originals}
+  NEXT_PUBLIC_CITYSENSE_SUBMISSION_ORIGINAL_BUCKET: ${NEXT_PUBLIC_CITYSENSE_SUBMISSION_ORIGINAL_BUCKET:-submission-originals}
   CITYSENSE_VENUE_IMAGE_BUCKET: ${CITYSENSE_VENUE_IMAGE_BUCKET:-venue-images}
+  CITYSENSE_SUBMISSION_MAX_IMAGES: ${CITYSENSE_SUBMISSION_MAX_IMAGES:-5}
+  CITYSENSE_SUBMISSION_MAX_IMAGE_BYTES: ${CITYSENSE_SUBMISSION_MAX_IMAGE_BYTES:-10485760}
+  CITYSENSE_SUBMISSION_RATE_LIMIT_PER_DAY: ${CITYSENSE_SUBMISSION_RATE_LIMIT_PER_DAY:-5}
+  CITYSENSE_SUBMISSION_POLICY_VERSION: ${CITYSENSE_SUBMISSION_POLICY_VERSION:-v1}
+  CITYSENSE_COMMUNITY_ORIGINAL_BUCKET: ${CITYSENSE_COMMUNITY_ORIGINAL_BUCKET:-community-originals}
+  CITYSENSE_COMMUNITY_IMAGE_BUCKET: ${CITYSENSE_COMMUNITY_IMAGE_BUCKET:-community-images}
+  NEXT_PUBLIC_CITYSENSE_COMMUNITY_IMAGE_BUCKET: ${NEXT_PUBLIC_CITYSENSE_COMMUNITY_IMAGE_BUCKET:-community-images}
+  CITYSENSE_COMMUNITY_MAX_IMAGES: ${CITYSENSE_COMMUNITY_MAX_IMAGES:-9}
+  CITYSENSE_COMMUNITY_MAX_IMAGE_BYTES: ${CITYSENSE_COMMUNITY_MAX_IMAGE_BYTES:-10485760}
 
 x-logging: &default-logging
   driver: json-file
@@ -28,6 +44,21 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - citysense-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+    logging: *default-logging
+
   db:
     image: postgres:16-bookworm
     restart: unless-stopped
@@ -57,6 +88,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment: *app-environment
     networks:
       - backend
@@ -71,10 +104,16 @@ services:
       args:
         NEXT_PUBLIC_AMAP_JS_API_KEY: ${NEXT_PUBLIC_AMAP_JS_API_KEY:-}
         NEXT_PUBLIC_AMAP_SECURITY_JS_CODE: ${NEXT_PUBLIC_AMAP_SECURITY_JS_CODE:-}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+        NEXT_PUBLIC_CITYSENSE_SUBMISSION_ORIGINAL_BUCKET: ${NEXT_PUBLIC_CITYSENSE_SUBMISSION_ORIGINAL_BUCKET:-submission-originals}
+        NEXT_PUBLIC_CITYSENSE_COMMUNITY_IMAGE_BUCKET: ${NEXT_PUBLIC_CITYSENSE_COMMUNITY_IMAGE_BUCKET:-community-images}
     restart: unless-stopped
     init: true
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment: *app-environment
     ports:
@@ -98,6 +137,48 @@ services:
     cpus: 1.5
     logging: *default-logging
 
+  submission-worker:
+    image: citysense/worker:${CITYSENSE_RELEASE}
+    build:
+      context: .
+      dockerfile: dockerfiles/citysense-web.Dockerfile
+      target: worker
+    command: ["pnpm", "worker:submissions"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment: *app-environment
+    networks:
+      - backend
+      - outbound
+    mem_limit: 1g
+    cpus: 0.75
+    logging: *default-logging
+
+  community-worker:
+    image: citysense/worker:${CITYSENSE_RELEASE}
+    build:
+      context: .
+      dockerfile: dockerfiles/citysense-web.Dockerfile
+      target: worker
+    command: ["pnpm", "worker:community"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment: *app-environment
+    networks:
+      - backend
+      - outbound
+    mem_limit: 1g
+    cpus: 0.5
+    logging: *default-logging
+
 networks:
   backend:
     internal: true
@@ -105,3 +186,4 @@ networks:
 
 volumes:
   citysense-postgres:
+  citysense-redis:

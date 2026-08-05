@@ -32,7 +32,8 @@ export const RATE_LIMITS = {
   communityComment: { limit: 20, windowSeconds: 600, failClosed: true },
   communityReaction: { limit: 120, windowSeconds: 60, failClosed: true },
   communityFollow: { limit: 30, windowSeconds: 3_600, failClosed: true },
-  communityReport: { limit: 10, windowSeconds: 3_600, failClosed: true }
+  communityReport: { limit: 10, windowSeconds: 3_600, failClosed: true },
+  venueVote: { limit: 120, windowSeconds: 60, failClosed: true }
 } satisfies Record<string, RateLimitPolicy>;
 
 export async function enforceRateLimit(action: string, subject: string, policy: RateLimitPolicy) {

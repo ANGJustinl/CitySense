@@ -42,7 +42,7 @@ export function AuthPage({
         ? "找回你的账户"
         : "设置新密码";
   const description = isRegister
-    ? "使用邮箱和密码创建 CitySense 账户，注册后请完成邮箱验证。"
+    ? "使用邮箱和密码创建账户，我们会向你的邮箱发送 6 位验证码。"
     : isLogin
       ? "使用注册邮箱和密码登录，继续你的城市探索。"
       : isForgot

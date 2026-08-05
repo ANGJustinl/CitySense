@@ -1,4 +1,5 @@
-import type { CommunityCommentView, CommunityPostView, CommunityProfileView } from "@/server/community/types";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import type { CommunityCommentView, CommunityPostView, CommunityProfileView, VenueRankingEntryView } from "@/server/community/types";
 
 export function communityProfile(profile: {
   userId: string;
@@ -55,5 +56,22 @@ export function communityComment(comment: any): CommunityCommentView {
     author: profile ? communityProfile(profile) : null,
     publishedAt: comment.publishedAt.toISOString(),
     createdAt: comment.createdAt.toISOString()
+  };
+}
+
+
+export function venueRankingEntry(venue: any, viewerId?: string): VenueRankingEntryView {
+  const votes = venue.venueVotes ?? [];
+  return {
+    id: venue.id,
+    name: venue.name,
+    city: venue.city,
+    area: venue.area,
+    address: venue.address,
+    imageUrl: venue.imageUrl,
+    tags: venue.tags ?? [],
+    counts: { niche: venue.nicheVoteCount, hot: venue.hotVoteCount },
+    viewer: viewerId ? { votedType: votes.length ? votes[0].type : null } : null,
+    createdAt: venue.createdAt.toISOString()
   };
 }
