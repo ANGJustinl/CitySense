@@ -4,6 +4,70 @@ enum AppRole {
   ADMIN
 }
 
+enum BuddyIntentMode {
+  POST
+  AUTO
+}
+
+enum BuddyIntentStatus {
+  ACTIVE
+  MATCHED
+  CANCELLED
+  EXPIRED
+}
+
+enum BuddyApplicationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+  CANCELLED
+}
+
+enum BuddyGroupStatus {
+  ACTIVE
+  CANCELLED
+  COMPLETED
+}
+
+enum BuddyGroupMemberRole {
+  OWNER
+  MEMBER
+}
+
+enum BuddyGroupMemberStatus {
+  ACTIVE
+  LEFT
+  REMOVED
+}
+
+enum BuddyNotificationType {
+  APPLICATION_RECEIVED
+  APPLICATION_ACCEPTED
+  APPLICATION_REJECTED
+  AUTO_MATCHED
+  GROUP_CANCELLED
+  MEMBER_LEFT
+  NEW_MESSAGE
+  REPORT_RECEIVED
+}
+
+enum BuddyReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+enum BuddyReportCategory {
+  HARASSMENT
+  FRAUD
+  UNSAFE_BEHAVIOR
+  INAPPROPRIATE_CONTENT
+  IMPERSONATION
+  OTHER
+}
+
 enum VenuePublicationStatus {
   PUBLISHED
   UNLISTED
@@ -48,6 +112,47 @@ enum ModerationActorType {
   USER
 }
 
+enum CommunityPostStatus {
+  DRAFT
+  PUBLISHED
+  HIDDEN
+  REMOVED
+}
+
+enum CommunityModerationStatus {
+  PENDING
+  APPROVED
+  FLAGGED
+  REJECTED
+}
+
+enum CommunityImageStatus {
+  RESERVED
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+  DELETED
+}
+
+enum CommunityAttachmentType {
+  PLACE
+  ROUTE
+}
+
+enum CommunityReportTargetType {
+  POST
+  COMMENT
+  USER
+}
+
+enum CommunityReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -58,15 +163,38 @@ datasource db {
 }
 
 model AppUser {
-  id                String                       @id @db.Uuid
-  role              AppRole                      @default(USER)
-  emailSnapshot     String?
-  disabledAt        DateTime?
-  lastSignedInAt    DateTime?
-  submissions       VenueSubmission[]
-  moderationActions SubmissionModerationAction[]
-  createdAt         DateTime                     @default(now())
-  updatedAt         DateTime                     @updatedAt
+  id                    String                       @id @db.Uuid
+  role                  AppRole                      @default(USER)
+  emailSnapshot         String?
+  disabledAt            DateTime?
+  lastSignedInAt        DateTime?
+  submissions           VenueSubmission[]
+  moderationActions     SubmissionModerationAction[]
+  recommendationLogs    RecommendationLog[]          @relation("RecommendationOwner")
+  buddyProfile          BuddyPublicProfile?
+  buddyIntents          BuddyIntent[]                @relation("BuddyIntentOwner")
+  buddyApplications     BuddyApplication[]           @relation("BuddyApplicationApplicant")
+  createdBuddyGroups    BuddyGroup[]                 @relation("BuddyGroupCreator")
+  buddyMemberships      BuddyGroupMember[]
+  buddyMessages         BuddyMessage[]
+  buddyNotifications    BuddyNotification[]          @relation("BuddyNotificationUser")
+  buddyNotificationActs BuddyNotification[]          @relation("BuddyNotificationActor")
+  buddyBlocksCreated    BuddyBlock[]                 @relation("BuddyBlocker")
+  buddyBlocksReceived   BuddyBlock[]                 @relation("BuddyBlocked")
+  buddyReportsCreated   BuddyReport[]                @relation("BuddyReporter")
+  buddyReportsReceived  BuddyReport[]                @relation("BuddyReportedUser")
+  communityPosts        CommunityPost[]              @relation("CommunityPostAuthor")
+  communityComments     CommunityComment[]           @relation("CommunityCommentAuthor")
+  communityPostImages   CommunityPostImage[]         @relation("CommunityImageUploader")
+  communityLikes        CommunityPostLike[]
+  communityBookmarks    CommunityBookmark[]
+  communityFollows      CommunityFollow[]            @relation("CommunityFollower")
+  communityFollowers    CommunityFollow[]            @relation("CommunityFollowing")
+  communityReports      CommunityReport[]            @relation("CommunityReporter")
+  communityReportsAbout CommunityReport[]            @relation("CommunityReportedUser")
+  communityModeration   CommunityModerationAction[]
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
 }
 
 model VenueSubmission {
@@ -255,8 +383,8 @@ model Event {
 }
 
 model Venue {
-  id                      String                 @id @default(cuid())
-  sourceKey               String?                @unique
+  id                      String                    @id @default(cuid())
+  sourceKey               String?                   @unique
   name                    String
   description             String?
   city                    String
@@ -272,22 +400,23 @@ model Venue {
   sourceUrl               String?
   imageUrl                String?
   imageSource             String?
-  trendScore              Float                  @default(0)
-  confidence              Float                  @default(0)
-  qualityScore            Float                  @default(50)
-  qualityFlags            String[]               @default([])
-  publicationStatus       VenuePublicationStatus @default(PUBLISHED)
+  trendScore              Float                     @default(0)
+  confidence              Float                     @default(0)
+  qualityScore            Float                     @default(50)
+  qualityFlags            String[]                  @default([])
+  publicationStatus       VenuePublicationStatus    @default(PUBLISHED)
   publishedAt             DateTime?
   unpublishedAt           DateTime?
   publicationReason       String?
-  publicationVersion      Int                    @default(1)
-  createdFromSubmissionId String?                @unique
-  events                  Event[]                @relation("EventVenue")
-  matchedSubmissions      VenueSubmission[]      @relation("SubmissionMatchedVenue")
-  resultingSubmissions    VenueSubmission[]      @relation("SubmissionResultingVenue")
+  publicationVersion      Int                       @default(1)
+  createdFromSubmissionId String?                   @unique
+  events                  Event[]                   @relation("EventVenue")
+  matchedSubmissions      VenueSubmission[]         @relation("SubmissionMatchedVenue")
+  resultingSubmissions    VenueSubmission[]         @relation("SubmissionResultingVenue")
   images                  VenueImage[]
-  createdAt               DateTime               @default(now())
-  updatedAt               DateTime               @updatedAt
+  communityAttachments    CommunityPostAttachment[]
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
 
   @@index([city])
   @@index([area])
@@ -418,12 +547,15 @@ model UserPreference {
 model RecommendationLog {
   id                String   @id @default(cuid())
   userId            String?
+  ownerUserId       String?  @db.Uuid
+  ownerUser         AppUser? @relation("RecommendationOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   input             Json
   recommendedRoutes Json
   feedback          Json?
   createdAt         DateTime @default(now())
 
   @@index([userId])
+  @@index([ownerUserId])
   @@index([createdAt])
 }
 
@@ -467,6 +599,402 @@ model RecommendationFeatureSnapshot {
   @@index([recommendationId])
   @@index([candidateId])
   @@index([ranker])
+}
+
+model BuddyPublicProfile {
+  userId      String   @id @db.Uuid
+  user        AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName String
+  avatarUrl   String?
+  bio         String?
+  city        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model BuddyIntent {
+  id                String             @id @default(cuid())
+  ownerId           String             @db.Uuid
+  owner             AppUser            @relation("BuddyIntentOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  mode              BuddyIntentMode
+  status            BuddyIntentStatus  @default(ACTIVE)
+  version           Int                @default(1)
+  idempotencyKey    String?
+  routeSnapshotId   String
+  recommendationId  String
+  routeLocalId      String
+  routeSnapshot     Json
+  city              String
+  area              String?
+  departureStart    DateTime
+  departureEnd      DateTime
+  timezone          String             @default("Asia/Shanghai")
+  meetingLabel      String
+  meetingArea       String?
+  meetingLat        Float?
+  meetingLng        Float?
+  publicNote        String?
+  preferenceSpec    Json
+  algorithmSnapshot Json?
+  capacity          Int                @default(2)
+  expiresAt         DateTime
+  matchedAt         DateTime?
+  cancelledAt       DateTime?
+  applications      BuddyApplication[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@unique([ownerId, idempotencyKey])
+  @@index([routeSnapshotId, mode, status, departureStart])
+  @@index([ownerId, status])
+  @@index([status, expiresAt])
+}
+
+model BuddyApplication {
+  id                 String                 @id @default(cuid())
+  intentId           String
+  intent             BuddyIntent            @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  applicantId        String                 @db.Uuid
+  applicant          AppUser                @relation("BuddyApplicationApplicant", fields: [applicantId], references: [id], onDelete: Cascade)
+  status             BuddyApplicationStatus @default(PENDING)
+  message            String?
+  preferenceSnapshot Json?
+  version            Int                    @default(1)
+  decidedAt          DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  @@unique([intentId, applicantId])
+  @@index([applicantId, status])
+  @@index([intentId, status, createdAt])
+}
+
+model BuddyGroup {
+  id                 String              @id @default(cuid())
+  sourceMode         BuddyIntentMode
+  status             BuddyGroupStatus    @default(ACTIVE)
+  version            Int                 @default(1)
+  capacity           Int                 @default(2)
+  routeSnapshotId    String
+  routeSnapshot      Json
+  city               String
+  area               String?
+  departureStart     DateTime
+  departureEnd       DateTime
+  timezone           String              @default("Asia/Shanghai")
+  meetingLabel       String
+  meetingArea        String?
+  meetingLat         Float?
+  meetingLng         Float?
+  createdById        String?             @db.Uuid
+  createdBy          AppUser?            @relation("BuddyGroupCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  matchedAt          DateTime            @default(now())
+  cancelledAt        DateTime?
+  completedAt        DateTime?
+  cancellationReason String?
+  members            BuddyGroupMember[]
+  messages           BuddyMessage[]
+  notifications      BuddyNotification[]
+  reports            BuddyReport[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([routeSnapshotId, status])
+  @@index([status, departureStart])
+  @@index([createdById])
+}
+
+model BuddyGroupMember {
+  id                String                 @id @default(cuid())
+  groupId           String
+  group             BuddyGroup             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId            String                 @db.Uuid
+  user              AppUser                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role              BuddyGroupMemberRole
+  status            BuddyGroupMemberStatus @default(ACTIVE)
+  joinedAt          DateTime               @default(now())
+  leftAt            DateTime?
+  lastReadMessageAt DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@unique([groupId, userId])
+  @@index([userId, status])
+  @@index([groupId, status])
+}
+
+model BuddyMessage {
+  id              String        @id @default(cuid())
+  groupId         String
+  group           BuddyGroup    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  senderId        String        @db.Uuid
+  sender          AppUser       @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  clientMessageId String
+  body            String
+  createdAt       DateTime      @default(now())
+  editedAt        DateTime?
+  deletedAt       DateTime?
+  reports         BuddyReport[]
+
+  @@unique([groupId, senderId, clientMessageId])
+  @@index([groupId, createdAt, id])
+}
+
+model BuddyNotification {
+  id            String                @id @default(cuid())
+  userId        String                @db.Uuid
+  user          AppUser               @relation("BuddyNotificationUser", fields: [userId], references: [id], onDelete: Cascade)
+  type          BuddyNotificationType
+  actorUserId   String?               @db.Uuid
+  actorUser     AppUser?              @relation("BuddyNotificationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  intentId      String?
+  applicationId String?
+  groupId       String?
+  group         BuddyGroup?           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  payload       Json?
+  readAt        DateTime?
+  createdAt     DateTime              @default(now())
+
+  @@index([userId, readAt, createdAt])
+  @@index([groupId, createdAt])
+}
+
+model BuddyBlock {
+  id        String   @id @default(cuid())
+  blockerId String   @db.Uuid
+  blocker   AppUser  @relation("BuddyBlocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String   @db.Uuid
+  blocked   AppUser  @relation("BuddyBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId, createdAt])
+}
+
+model BuddyReport {
+  id               String              @id @default(cuid())
+  reporterId       String              @db.Uuid
+  reporter         AppUser             @relation("BuddyReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedUserId   String?             @db.Uuid
+  reportedUser     AppUser?            @relation("BuddyReportedUser", fields: [reportedUserId], references: [id], onDelete: SetNull)
+  groupId          String?
+  group            BuddyGroup?         @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  messageId        String?
+  message          BuddyMessage?       @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  category         BuddyReportCategory
+  detail           String?
+  status           BuddyReportStatus   @default(OPEN)
+  evidenceSnapshot Json?
+  idempotencyKey   String?
+  resolutionNote   String?
+  resolvedAt       DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@unique([reporterId, idempotencyKey])
+  @@index([reportedUserId, status, createdAt])
+  @@index([groupId, createdAt])
+  @@index([messageId])
+}
+
+model CommunityPost {
+  id                String                      @id @default(cuid())
+  authorId          String                      @db.Uuid
+  author            AppUser                     @relation("CommunityPostAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  body              String                      @default("")
+  city              String
+  area              String?
+  status            CommunityPostStatus         @default(DRAFT)
+  moderationStatus  CommunityModerationStatus   @default(PENDING)
+  version           Int                         @default(1)
+  idempotencyKey    String?
+  likeCount         Int                         @default(0)
+  commentCount      Int                         @default(0)
+  bookmarkCount     Int                         @default(0)
+  reportCount       Int                         @default(0)
+  publishedAt       DateTime?
+  hiddenAt          DateTime?
+  removedAt         DateTime?
+  deletedByAuthorAt DateTime?
+  moderationReason  String?
+  images            CommunityPostImage[]
+  attachments       CommunityPostAttachment[]
+  comments          CommunityComment[]
+  likes             CommunityPostLike[]
+  bookmarks         CommunityBookmark[]
+  reports           CommunityReport[]
+  moderationActions CommunityModerationAction[]
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+
+  @@unique([authorId, idempotencyKey])
+  @@index([status, city, publishedAt, id])
+  @@index([authorId, status, publishedAt, id])
+  @@index([moderationStatus, reportCount, publishedAt])
+  @@index([status, area, publishedAt, id])
+}
+
+model CommunityPostImage {
+  id                  String               @id @default(cuid())
+  postId              String
+  post                CommunityPost        @relation(fields: [postId], references: [id], onDelete: Cascade)
+  uploaderId          String               @db.Uuid
+  uploader            AppUser              @relation("CommunityImageUploader", fields: [uploaderId], references: [id], onDelete: Restrict)
+  position            Int
+  status              CommunityImageStatus @default(RESERVED)
+  originalObjectPath  String               @unique
+  processedObjectPath String?
+  publicObjectPath    String?              @unique
+  publicUrl           String?
+  declaredMimeType    String?
+  detectedMimeType    String?
+  byteSize            Int?
+  width               Int?
+  height              Int?
+  sha256              String?
+  altText             String?
+  validationError     String?
+  validatedAt         DateTime?
+  publishedAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@unique([postId, position])
+  @@index([postId, status])
+  @@index([uploaderId, createdAt])
+  @@index([sha256])
+}
+
+model CommunityPostAttachment {
+  id               String                  @id @default(cuid())
+  postId           String
+  post             CommunityPost           @relation(fields: [postId], references: [id], onDelete: Cascade)
+  type             CommunityAttachmentType
+  position         Int
+  venueId          String?
+  venue            Venue?                  @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  routeSnapshotId  String?
+  routeSnapshot    Json?
+  titleSnapshot    String
+  subtitleSnapshot String?
+  createdAt        DateTime                @default(now())
+
+  @@unique([postId, position])
+  @@index([postId, type])
+  @@index([venueId])
+  @@index([routeSnapshotId])
+}
+
+model CommunityComment {
+  id                String                      @id @default(cuid())
+  postId            String
+  post              CommunityPost               @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId          String                      @db.Uuid
+  author            AppUser                     @relation("CommunityCommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  body              String
+  status            CommunityPostStatus         @default(PUBLISHED)
+  moderationStatus  CommunityModerationStatus   @default(PENDING)
+  version           Int                         @default(1)
+  idempotencyKey    String?
+  reportCount       Int                         @default(0)
+  publishedAt       DateTime                    @default(now())
+  deletedAt         DateTime?
+  reports           CommunityReport[]
+  moderationActions CommunityModerationAction[]
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+
+  @@unique([authorId, idempotencyKey])
+  @@index([postId, status, createdAt, id])
+  @@index([authorId, createdAt])
+  @@index([moderationStatus, reportCount, createdAt])
+}
+
+model CommunityPostLike {
+  postId    String
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String        @db.Uuid
+  user      AppUser       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@id([postId, userId])
+  @@index([userId, createdAt])
+}
+
+model CommunityBookmark {
+  postId    String
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String        @db.Uuid
+  user      AppUser       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@id([postId, userId])
+  @@index([userId, createdAt])
+}
+
+model CommunityFollow {
+  followerId  String   @db.Uuid
+  follower    AppUser  @relation("CommunityFollower", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String   @db.Uuid
+  following   AppUser  @relation("CommunityFollowing", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@id([followerId, followingId])
+  @@index([followingId, createdAt])
+}
+
+model CommunityReport {
+  id                String                      @id @default(cuid())
+  reporterId        String                      @db.Uuid
+  reporter          AppUser                     @relation("CommunityReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  targetType        CommunityReportTargetType
+  postId            String?
+  post              CommunityPost?              @relation(fields: [postId], references: [id], onDelete: SetNull)
+  commentId         String?
+  comment           CommunityComment?           @relation(fields: [commentId], references: [id], onDelete: SetNull)
+  reportedUserId    String?                     @db.Uuid
+  reportedUser      AppUser?                    @relation("CommunityReportedUser", fields: [reportedUserId], references: [id], onDelete: SetNull)
+  category          BuddyReportCategory
+  detail            String?
+  status            CommunityReportStatus       @default(OPEN)
+  evidenceSnapshot  Json
+  idempotencyKey    String?
+  resolutionNote    String?
+  resolvedAt        DateTime?
+  moderationActions CommunityModerationAction[]
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+
+  @@unique([reporterId, idempotencyKey])
+  @@index([postId, status, createdAt])
+  @@index([commentId, status, createdAt])
+  @@index([reportedUserId, status, createdAt])
+}
+
+model CommunityModerationAction {
+  id          String              @id @default(cuid())
+  postId      String?
+  post        CommunityPost?      @relation(fields: [postId], references: [id], onDelete: SetNull)
+  commentId   String?
+  comment     CommunityComment?   @relation(fields: [commentId], references: [id], onDelete: SetNull)
+  reportId    String?
+  report      CommunityReport?    @relation(fields: [reportId], references: [id], onDelete: SetNull)
+  actorUserId String?             @db.Uuid
+  actorUser   AppUser?            @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorType   ModerationActorType
+  action      String
+  fromStatus  String?
+  toStatus    String?
+  reasonCode  String?
+  reasonText  String?
+  metadata    Json?
+  createdAt   DateTime            @default(now())
+
+  @@index([postId, createdAt])
+  @@index([commentId, createdAt])
+  @@index([reportId, createdAt])
+  @@index([actorUserId, createdAt])
 }
 
 model RecommendationFeedback {

@@ -1,34 +1,24 @@
-import Link from "next/link";
-import { ArrowLeft, LogIn } from "lucide-react";
-import { MagicLinkForm } from "@/components/auth/MagicLinkForm";
-import { getOptionalUser } from "@/server/auth/current-user";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { AuthPage } from "@/components/auth/AuthPage";
+import { safeAuthNext } from "@/lib/auth/redirect";
+import { getOptionalAuthUser } from "@/server/auth/current-user";
 
 export const dynamic = "force-dynamic";
 
-function safeNext(value: string | undefined) {
-  return value?.startsWith("/") && !value.startsWith("//") ? value : "/submit-place";
-}
+export const metadata: Metadata = {
+  title: "登录 · CitySense",
+  description: "登录 CitySense，分享城市地点并查看投稿状态。"
+};
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+export default async function LoginPage({
+  searchParams
+}: {
+  searchParams: Promise<{ next?: string; error?: string }>;
+}) {
   const params = await searchParams;
-  const nextPath = safeNext(params.next);
-  if (await getOptionalUser()) {
-    redirect(nextPath as never);
-  }
+  const nextPath = safeAuthNext(params.next);
+  if (await getOptionalAuthUser()) redirect(nextPath as never);
 
-  return (
-    <main className="detail-shell">
-      <Link className="back-link" href="/"><ArrowLeft size={16} />返回工作台</Link>
-      <section className="detail-panel">
-        <LogIn size={28} />
-        <div>
-          <p className="eyebrow">CitySense Account</p>
-          <h1>邮箱登录</h1>
-          <p>登录后可以分享小众地点、上传照片，并查看投稿状态。</p>
-          <MagicLinkForm nextPath={nextPath} />
-        </div>
-      </section>
-    </main>
-  );
+  return <AuthPage errorCode={params.error} intent="login" nextPath={nextPath} />;
 }

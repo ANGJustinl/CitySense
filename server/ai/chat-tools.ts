@@ -267,8 +267,7 @@ function summarizeRouteDetail(detail: NonNullable<Awaited<ReturnType<typeof getR
     })),
     sourceSignals: route.sourceSignals.slice(0, 5),
     reason: route.reason,
-    tips: route.tips,
-    originalInput: recommendation.input
+    tips: route.tips
   });
 }
 

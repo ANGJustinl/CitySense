@@ -1,5 +1,6 @@
 import { RecommendationWorkspace } from "@/components/RecommendationWorkspace";
 import { DEFAULT_DEMO_USER_ID, DEMO_USER_PERSONA_INTERESTS, isDemoUser } from "@/lib/demo-users";
+import { getOptionalUser } from "@/server/auth/current-user";
 import { getUserProfileSummary } from "@/server/recommendation/user-profile-v2";
 import { recommend } from "@/server/recommendation/recommend";
 
@@ -21,11 +22,12 @@ export default async function Home({
   searchParams: Promise<{ userId?: string }>;
 }) {
   const params = await searchParams;
-  // 只接受 demo 账号；其他自定义 userId 走默认 user1（避免任意输入穿透）。
-  const userId = isDemoUser(params.userId) ? params.userId! : DEFAULT_DEMO_USER_ID;
+  const viewer = await getOptionalUser();
+  const demoUserId = isDemoUser(params.userId) ? params.userId! : DEFAULT_DEMO_USER_ID;
+  const userId = viewer?.appUser.id ?? demoUserId;
 
-  // 优先用画像 topPositiveTags 作为 interests；无画像时用 persona 默认。
-  let interests = DEMO_USER_PERSONA_INTERESTS[userId] ?? ["咖啡", "展览", "书店"];
+  // 登录用户优先使用真实画像；匿名/demo 场景回退 persona 默认。
+  let interests = DEMO_USER_PERSONA_INTERESTS[demoUserId] ?? ["咖啡", "展览", "书店"];
   try {
     const summary = await getUserProfileSummary(userId);
     if (summary.summary && summary.summary.topPositiveTags.length > 0) {
@@ -52,12 +54,19 @@ export default async function Home({
     waypointCount: 3,
     useRealtimeTraffic: false,
     useSocialSignals: true
+  }, {
+    ownerUserId: viewer?.appUser.id
   });
 
   return (
     <RecommendationWorkspace
       initialData={initialData}
       initialUserId={userId}
+      viewer={viewer ? {
+        id: viewer.appUser.id,
+        email: viewer.authUser.email ?? null,
+        role: viewer.appUser.role
+      } : null}
     />
   );
 }

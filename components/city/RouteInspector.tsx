@@ -13,6 +13,7 @@ import {
   RadioTower,
   ShieldCheck,
   Sparkles,
+  UserRoundPlus,
   Waypoints
 } from "lucide-react";
 import type { RecommendedRoute } from "@/server/recommendation/types";
@@ -28,6 +29,8 @@ import { TrafficBadge } from "@/components/city/TrafficBadge";
 import { VenueCard } from "@/components/city/VenueCard";
 import { MomentRecommendationCard } from "@/components/city/MomentRecommendationCard";
 import { getRouteWeatherImpact } from "@/components/city/weather-impact";
+import { BuddyIntentComposer } from "@/components/buddy/BuddyIntentComposer";
+import { useState } from "react";
 
 type RouteInspectorProps = {
   routes: RecommendedRoute[];
@@ -63,6 +66,7 @@ export function RouteInspector({
   onFeedbackRecorded,
   isLoading
 }: RouteInspectorProps) {
+  const [buddyOpen, setBuddyOpen] = useState(false);
   const selectedRoute =
     routes.find((route) => route.id === selectedRouteId) ?? routes[0];
 
@@ -316,6 +320,20 @@ export function RouteInspector({
           </section>
         ) : null}
 
+        {userId ? (
+          <button className="buddy-route-cta" onClick={() => setBuddyOpen(true)} type="button">
+            <span><UserRoundPlus size={18} /></span>
+            <strong>找一位路线搭子</strong>
+            <small>发布组队或让系统自动匹配</small>
+          </button>
+        ) : (
+          <Link className="buddy-route-cta" href={`/login?next=${encodeURIComponent(`/buddy?routeId=${selectedRoute.id}`)}`}>
+            <span><UserRoundPlus size={18} /></span>
+            <strong>登录后找搭子</strong>
+            <small>共同使用这条推荐路线</small>
+          </Link>
+        )}
+
         <RouteFeedbackButtons
           key={selectedRoute.id}
           recommendationId={recommendationId}
@@ -330,6 +348,14 @@ export function RouteInspector({
           路线详情
           <ExternalLink size={14} />
         </Link>
+        {buddyOpen ? (
+          <BuddyIntentComposer
+            onClose={() => setBuddyOpen(false)}
+            onCreated={() => { window.location.href = `/buddy?routeId=${encodeURIComponent(selectedRoute.id)}`; }}
+            routeId={selectedRoute.id}
+            routeTitle={selectedRoute.title}
+          />
+        ) : null}
       </div>
     </div>
   );

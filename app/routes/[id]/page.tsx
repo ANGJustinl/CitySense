@@ -215,6 +215,15 @@ export default async function RouteDetail({
             )}
           </div>
 
+          <div className="route-detail-community-actions">
+            <Link className="buddy-route-detail-cta" href={`/buddy?routeId=${encodeURIComponent(route.id)}`}>
+              找搭子走这条路线
+            </Link>
+            <Link className="community-route-detail-cta" href={`/community/new?routeId=${encodeURIComponent(route.id)}`}>
+              分享这条路线
+            </Link>
+          </div>
+
           <a className="text-link" href={`/api/routes/${route.id}`}>
             查看 API 响应
             <ExternalLink size={14} />

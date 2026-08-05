@@ -5,17 +5,27 @@ import {
   sanitizeProfileScopedInput
 } from "@/server/auth/profile-access";
 import { recommend } from "@/server/recommendation/recommend";
+import { getOptionalUser } from "@/server/auth/current-user";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    const viewer = await getOptionalUser();
     const input =
       body && typeof body === "object" && !Array.isArray(body)
-        ? sanitizeProfileScopedInput(body as Record<string, unknown>)
+        ? viewer
+          ? {
+              ...(body as Record<string, unknown>),
+              userId: viewer.appUser.id,
+              sessionId: undefined
+            }
+          : sanitizeProfileScopedInput(body as Record<string, unknown>)
         : body;
-    const result = await recommend(input);
+    const result = await recommend(input, {
+      ownerUserId: viewer?.appUser.id
+    });
 
     return NextResponse.json(result);
   } catch (error) {

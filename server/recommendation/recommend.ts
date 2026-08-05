@@ -240,7 +240,10 @@ async function getRecommendationConditions(input: RecommendInput): Promise<CityC
   }
 }
 
-export async function recommend(rawInput: unknown): Promise<RecommendResponse> {
+export async function recommend(
+  rawInput: unknown,
+  options: { ownerUserId?: string } = {}
+): Promise<RecommendResponse> {
   const input = await resolveRecommendationOrigin(recommendRequestSchema.parse(rawInput));
   const experiment = assignRecommendationExperiment(input);
   const candidates = await retrieveDatabaseCandidates(input);
@@ -264,7 +267,13 @@ export async function recommend(rawInput: unknown): Promise<RecommendResponse> {
   const routesWithMomentCards = await attachMomentCards(routes, input, {
     profileApplied: rankerResult.profileApplied
   });
-  const snapshot = await persistRecommendationSnapshot(input, routesWithMomentCards, experimentRanked, experiment);
+  const snapshot = await persistRecommendationSnapshot(
+    input,
+    routesWithMomentCards,
+    experimentRanked,
+    experiment,
+    options.ownerUserId
+  );
   const recallChannels: RecallChannel[] = [
     ...new Set<RecallChannel>(
       candidates.flatMap((candidate) => candidate.recallChannels ?? ["base"])

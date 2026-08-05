@@ -193,6 +193,8 @@ export function UserProfilePanel({ response, profileKey, profileRevision = 0 }: 
       {profileKey ? (
         <div className="profile-panel-actions">
           <Link className="text-link" href={`/profile?userId=${encodeURIComponent(profileKey)}`}>完整画像</Link>
+          <Link className="text-link" href="/submit-place">分享地点</Link>
+          <Link className="text-link" href="/my-submissions">我的投稿</Link>
           <button type="button" className="profile-clear-btn" onClick={handleClear} disabled={clearing}>
             <Trash2 size={14} />{clearing ? "清空中…" : "清空画像"}
           </button>

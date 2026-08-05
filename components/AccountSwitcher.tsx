@@ -7,7 +7,7 @@ import { DEMO_USERS, findDemoUser } from "@/lib/demo-users";
 const STORAGE_KEY = "cs-userId";
 
 /**
- * 全局账号切换器：头像按钮 + 弹出菜单。
+ * 全局演示画像切换器：头像按钮 + 弹出菜单。
  *
  * 点头像弹出下拉菜单，列出 user1/user2，每项显示头像/名字/人设摘要。
  * 选中后写 localStorage + 触发 onChange，由宿主决定刷新方式。
@@ -33,8 +33,15 @@ export function AccountSwitcher({
         setOpen(false);
       }
     }
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
     document.addEventListener("mousedown", handleOutside);
-    return () => document.removeEventListener("mousedown", handleOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
   }, [open]);
 
   function handleSelect(userId: string) {
@@ -64,7 +71,7 @@ export function AccountSwitcher({
           {activeUser.label.charAt(0)}
         </span>
         <span className="account-trigger-text">
-          <span className="account-name">{activeUser.label}</span>
+          <span className="account-name">演示画像 · {activeUser.label}</span>
           <span className="account-persona">{personaLabel(activeUser.persona)}</span>
         </span>
         <ChevronDown size={14} className="account-caret" />
@@ -72,7 +79,7 @@ export function AccountSwitcher({
 
       {open ? (
         <div className="account-menu" role="menu">
-          <div className="account-menu-header">切换 demo 账号</div>
+          <div className="account-menu-header">切换推荐演示画像</div>
           {DEMO_USERS.map((user) => {
             const isActive = user.userId === currentUserId;
             return (
@@ -95,6 +102,7 @@ export function AccountSwitcher({
               </button>
             );
           })}
+          <p className="account-menu-note">仅影响演示推荐，不代表你的登录账户。</p>
         </div>
       ) : null}
     </div>

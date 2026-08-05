@@ -35,12 +35,22 @@ export type RouteMapView = {
   markers: RouteMapMarker[];
 };
 
-export type RouteDetailResponse = {
+export type RouteDetailRecord = {
   route: RecommendedRoute;
   recommendation: {
     id: string;
     userId?: string;
+    ownerUserId?: string;
     input: RecommendInput;
+    generatedAt: string;
+  };
+  map: RouteMapView;
+};
+
+export type RouteDetailResponse = {
+  route: RecommendedRoute;
+  recommendation: {
+    id: string;
     generatedAt: string;
   };
   map: RouteMapView;
@@ -186,13 +196,15 @@ export async function persistRecommendationSnapshot(
   input: RecommendInput,
   routes: RecommendedRoute[],
   rankedCandidates?: TrafficCandidate[],
-  experiment?: RecommendExperimentMeta
+  experiment?: RecommendExperimentMeta,
+  ownerUserId?: string
 ) {
   const log = await prisma.recommendationLog.create({
     data: {
       // TASK-P2-002:profileKey = userId ?? sessionId,与 feedback 链路对齐,
       // 匿名会话推荐也写入 userId 列,作为后续画像曝光数据来源。
       userId: input.userId ?? input.sessionId,
+      ownerUserId,
       input: toJson(experiment ? { ...input, experiment } : input),
       recommendedRoutes: toJson(routes)
     }
@@ -215,7 +227,7 @@ export async function persistRecommendationSnapshot(
   };
 }
 
-export async function getRouteDetail(routeSnapshotId: string): Promise<RouteDetailResponse | null> {
+export async function getRouteDetailRecord(routeSnapshotId: string): Promise<RouteDetailRecord | null> {
   const parsed = parseRouteSnapshotId(routeSnapshotId);
 
   if (!parsed) {
@@ -244,9 +256,26 @@ export async function getRouteDetail(routeSnapshotId: string): Promise<RouteDeta
     recommendation: {
       id: log.id,
       userId: log.userId ?? undefined,
+      ownerUserId: log.ownerUserId ?? undefined,
       input: log.input as unknown as RecommendInput,
       generatedAt: log.createdAt.toISOString()
     },
     map: buildRouteMapView(route)
   };
+}
+
+export function toPublicRouteDetail(detail: RouteDetailRecord): RouteDetailResponse {
+  return {
+    route: detail.route,
+    recommendation: {
+      id: detail.recommendation.id,
+      generatedAt: detail.recommendation.generatedAt
+    },
+    map: detail.map
+  };
+}
+
+export async function getRouteDetail(routeSnapshotId: string): Promise<RouteDetailResponse | null> {
+  const detail = await getRouteDetailRecord(routeSnapshotId);
+  return detail ? toPublicRouteDetail(detail) : null;
 }

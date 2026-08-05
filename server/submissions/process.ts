@@ -101,6 +101,20 @@ export async function processSubmission(submissionId: string) {
       return prisma.venueSubmission.update({ where: { id: submission.id }, data: { status: "NEEDS_REVIEW", matchType: "EXISTING_EXACT", matchedVenueId: duplicate.id, technicalFlags: ["removed_venue_match"] } });
     }
     if (duplicate) {
+      if (process.env.CITYSENSE_UGC_AUTO_PUBLISH_ENABLED !== "true") {
+        return prisma.venueSubmission.update({
+          where: { id: submission.id },
+          data: {
+            status: "NEEDS_REVIEW",
+            matchType: "EXISTING_EXACT",
+            matchedVenueId: duplicate.id,
+            verifiedAddress: geocode.address,
+            verifiedLat: geocode.lat,
+            verifiedLng: geocode.lng,
+            publicStatusMessage: "等待管理员确认并发布图片"
+          }
+        });
+      }
       const updated = await prisma.venueSubmission.update({
         where: { id: submission.id },
         data: { status: "AUTO_PUBLISHED", matchType: "EXISTING_EXACT", matchedVenueId: duplicate.id, resultingVenueId: duplicate.id, verifiedAddress: geocode.address, verifiedLat: geocode.lat, verifiedLng: geocode.lng, publishedAt: new Date(), publicStatusMessage: "已关联到现有地点" }

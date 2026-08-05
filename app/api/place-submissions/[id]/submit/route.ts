@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/server/auth/current-user";
 import { authErrorResponse } from "@/server/auth/http";
+import { assertUgcWriteEnabled, featureErrorResponse } from "@/server/config/ugc";
+import { enforceRateLimit, RATE_LIMITS, rateLimitErrorResponse } from "@/server/rate-limit";
 import { prisma } from "@/server/db/prisma";
 import { enqueueSubmissionReview, isSubmissionQueueConfigured } from "@/server/submissions/queue";
 import { processSubmission } from "@/server/submissions/process";
@@ -8,6 +10,8 @@ import { processSubmission } from "@/server/submissions/process";
 export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const user = await requireUser();
+    assertUgcWriteEnabled();
+    await enforceRateLimit("submission:submit", user.appUser.id, RATE_LIMITS.submissionSubmit);
     const { id } = await context.params;
     const submission = await prisma.venueSubmission.findFirst({
       where: { id, submitterId: user.appUser.id, status: { in: ["DRAFT", "CHANGES_REQUESTED"] } },
@@ -24,6 +28,9 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     else await processSubmission(id);
     return NextResponse.json(await prisma.venueSubmission.findUnique({ where: { id }, include: { images: true, resultingVenue: true } }), { status: 202 });
   } catch (error) {
-    return authErrorResponse(error) ?? NextResponse.json({ error: error instanceof Error ? error.message : "Submission failed" }, { status: 500 });
+    return authErrorResponse(error)
+      ?? featureErrorResponse(error)
+      ?? rateLimitErrorResponse(error)
+      ?? NextResponse.json({ error: error instanceof Error ? error.message : "Submission failed" }, { status: 500 });
   }
 }

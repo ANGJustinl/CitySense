@@ -4,6 +4,11 @@ const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
 };
 
+/**
+ * 把连接池参数追加到 DATABASE_URL。
+ * 在 PrismaClient 初始化前修改 process.env.DATABASE_URL，
+ * 不用运行时 datasources 覆盖（Prisma 6.x 会报 P6001 要求 prisma:// 协议）。
+ */
 export function withPrismaPoolParams(
   url: string | undefined,
   options: { connectionLimit?: string; poolTimeout?: string } = {
@@ -32,21 +37,13 @@ export function withPrismaPoolParams(
     .join("&")}`;
 }
 
-const datasourceUrl = withPrismaPoolParams(process.env.DATABASE_URL);
+const enrichedUrl = withPrismaPoolParams(process.env.DATABASE_URL);
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient(
-    datasourceUrl
-      ? {
-          datasources: {
-            db: {
-              url: datasourceUrl
-            }
-          }
-        }
-      : undefined
-  );
+if (enrichedUrl && enrichedUrl !== process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = enrichedUrl;
+}
+
+export const prisma = globalForPrisma.prisma ?? new PrismaClient();
 
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;

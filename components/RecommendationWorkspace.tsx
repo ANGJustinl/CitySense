@@ -26,6 +26,7 @@ import type {
   TimeWindow
 } from "@/server/recommendation/types";
 import { AccountSwitcher } from "@/components/AccountSwitcher";
+import { AuthNavigation, type AuthViewer } from "@/components/auth/AuthNavigation";
 import { CityPulsePanel } from "@/components/city/CityPulsePanel";
 import { RouteInspector } from "@/components/city/RouteInspector";
 import { RouteMapCanvas } from "@/components/city/RouteMapCanvas";
@@ -34,12 +35,14 @@ import { UserProfilePanel } from "@/components/city/UserProfilePanel";
 import { ChatDock } from "@/components/assistant/ChatDock";
 import { ChatDrawer } from "@/components/assistant/ChatDrawer";
 import { DEFAULT_DEMO_USER_ID, DEMO_USER_PERSONA_INTERESTS } from "@/lib/demo-users";
+import { getDistrictsForCity } from "@/lib/city-districts";
 
 type WorkspaceProps = {
   initialData: RecommendResponse;
   /** 页面传入的用户 ID（来自 URL ?userId=），兼容 initialUserId 别名。 */
   userId?: string;
   initialUserId?: string;
+  viewer?: AuthViewer;
 };
 
 /** Identifiers for the floating dock panels that can be collapsed. */
@@ -114,11 +117,11 @@ function formatGeneratedAt(value: string) {
   });
 }
 
-export function RecommendationWorkspace({ initialData, userId, initialUserId }: WorkspaceProps) {
+export function RecommendationWorkspace({ initialData, userId, initialUserId, viewer = null }: WorkspaceProps) {
   // 兼容 main 的 initialUserId prop 和 ai-assistant 的 userId prop。
-  const initialResolvedUserId = userId ?? initialUserId ?? DEFAULT_DEMO_USER_ID;
+  const initialResolvedUserId = viewer?.id ?? userId ?? initialUserId ?? DEFAULT_DEMO_USER_ID;
   const [activeUserId, setActiveUserId] = useState(initialResolvedUserId);
-  const resolvedUserId = activeUserId;
+  const resolvedUserId = viewer?.id ?? activeUserId;
   const [chatOpen, setChatOpen] = useState(false);
   const [city, setCity] = useState("上海");
   const [area, setArea] = useState("");
@@ -144,6 +147,16 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
     pulse: true
   });
   const [mounted, setMounted] = useState(false);
+
+  // 区域预选：根据当前城市动态生成区列表。未知城市回退自由文本输入。
+  const districtOptions = useMemo(() => getDistrictsForCity(city), [city]);
+
+  // 城市切换后，若已选区域不属于新城市，重置为"全城"，避免脏数据。
+  useEffect(() => {
+    if (area && districtOptions.length > 0 && !districtOptions.includes(area)) {
+      setArea("");
+    }
+  }, [area, districtOptions]);
 
   const togglePanel = useCallback((id: FloatingPanelId) => {
     setCollapsedPanels((current) => ({ ...current, [id]: !current[id] }));
@@ -411,10 +424,12 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
           </div>
         </div>
         <nav className="top-actions" aria-label="primary">
-          <AccountSwitcher currentUserId={activeUserId} onChange={handleAccountChange} />
-          <a href="/admin/sources">Sources</a>
-          <a href="/discover">Discover</a>
+          <a href="/community">社区</a>
           <a href={`/profile?userId=${activeUserId}`}>画像</a>
+          {viewer ? null : (
+            <AccountSwitcher currentUserId={activeUserId} onChange={handleAccountChange} />
+          )}
+          <AuthNavigation viewer={viewer} />
         </nav>
       </header>
 
@@ -441,14 +456,37 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
             <input value={city} onChange={(event) => setCity(event.target.value)} />
           </label>
 
-          <label className="field">
+          <div className="field">
             <span>区域</span>
-            <input
-              value={area}
-              onChange={(event) => setArea(event.target.value)}
-              placeholder="全城"
-            />
-          </label>
+            {districtOptions.length > 0 ? (
+              <div className="chip-grid area-chips">
+                <button
+                  className={area === "" ? "chip active" : "chip"}
+                  key="all"
+                  onClick={() => setArea("")}
+                  type="button"
+                >
+                  全城
+                </button>
+                {districtOptions.map((district) => (
+                  <button
+                    className={area === district ? "chip active" : "chip"}
+                    key={district}
+                    onClick={() => setArea(district)}
+                    type="button"
+                  >
+                    {district}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <input
+                value={area}
+                onChange={(event) => setArea(event.target.value)}
+                placeholder="全城"
+              />
+            )}
+          </div>
 
           <div className="origin-control">
             <div className="section-heading compact">
@@ -674,6 +712,7 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId }: 
             recommendationId={data.meta.recommendationId}
             routes={data.routes}
             selectedRouteId={selectedRoute?.id}
+            userId={viewer?.id}
           />
         </div>
       </aside>

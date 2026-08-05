@@ -15,6 +15,14 @@ function bootstrapRole(email: string | undefined) {
   return email && admins.includes(email.toLowerCase()) ? "ADMIN" as const : "USER" as const;
 }
 
+export async function getOptionalAuthUser() {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) return null;
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) return null;
+  return data.user;
+}
+
 export async function getOptionalUser() {
   const supabase = await createSupabaseServerClient();
   if (!supabase) return null;
