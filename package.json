@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "worker:ingest": "tsx workers/ingest-worker.ts",
     "worker:normalize": "tsx workers/normalize-worker.ts",
+    "worker:community": "tsx workers/community-worker.ts",
     "worker:submissions": "tsx workers/submission-review-worker.ts",
     "worker:city-state": "tsx workers/city-state-refresh-worker.ts",
     "smoke:xhs": "node --env-file=.env --import tsx tools/xhs-ingest-smoke.ts",
