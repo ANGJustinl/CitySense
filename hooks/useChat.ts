@@ -25,7 +25,11 @@ export type ChatMessage = {
 export type ChatCard =
   | { kind: "route"; title: string; score: number; places: string[]; duration: number; reason: string; routeId?: string }
   | { kind: "weather"; city: string; phenomenon: string; temperature: string; forecast: Array<{ date: string; dayWeather: string; dayTemp: string }> }
-  | { kind: "activity"; title: string; area?: string; tags: string[]; trendScore: number; startTime?: string };
+  | { kind: "activity"; title: string; area?: string; tags: string[]; trendScore: number; startTime?: string }
+  | { kind: "action_pending"; actionId: string; actionToken: string; tool: string; title: string; preview: string; expiresAt: number }
+  | { kind: "post_created"; postId: string; url: string }
+  | { kind: "place_drafted"; submissionId: string; name: string }
+  | { kind: "intent_created"; intentId: string; mode: string };
 
 export type ChatContext = {
   profileKey?: string;

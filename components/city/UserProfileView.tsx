@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import {
   Activity,
   Check,
@@ -59,6 +60,15 @@ const traceToneLabel: Record<TraceTone, string> = {
   info: "信息"
 };
 
+const radarDimensionColors = [
+  "#087f7a",
+  "#e46d55",
+  "#d39a3a",
+  "#4c80b8",
+  "#9b6b8f",
+  "#718650"
+];
+
 /**
  * Six-axis radar chart rendered as pure SVG (zero chart deps).
  * 6 vertices around a center, concentric hexagonal grid at 20/40/60/80/100.
@@ -116,7 +126,23 @@ function RadarChart({ dimensions }: { dimensions: DimensionScore[] }) {
         className="radar-chart"
         role="img"
         viewBox={`0 0 ${size} ${size}`}
+        style={{ "--radar-accent": radarDimensionColors[0] } as CSSProperties}
       >
+        <defs>
+          <linearGradient id="radar-fill" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#087f7a" stopOpacity="0.42" />
+            <stop offset="52%" stopColor="#4c80b8" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="#e46d55" stopOpacity="0.34" />
+          </linearGradient>
+          <filter id="radar-glow" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
         {/* Concentric grid */}
         {gridPolygons.map((poly, i) => (
           <polygon
@@ -141,6 +167,8 @@ function RadarChart({ dimensions }: { dimensions: DimensionScore[] }) {
         {/* Data polygon */}
         <polygon
           className="radar-data"
+          fill="url(#radar-fill)"
+          filter="url(#radar-glow)"
           points={dataPolygon}
         />
 
@@ -151,7 +179,8 @@ function RadarChart({ dimensions }: { dimensions: DimensionScore[] }) {
             cx={p.x}
             cy={p.y}
             key={`vertex-${i}`}
-            r={4}
+            r={5}
+            style={{ "--vertex-color": radarDimensionColors[i % radarDimensionColors.length] } as CSSProperties}
           >
             <title>
               {`${dimensions[i].label}: ${dimensions[i].value}${
@@ -193,10 +222,11 @@ function RadarChart({ dimensions }: { dimensions: DimensionScore[] }) {
 
       {/* Dimension legend with top tags */}
       <div className="radar-legend">
-        {dimensions.map((dim) => (
+        {dimensions.map((dim, index) => (
           <div
             className={`radar-legend-item ${dim.value > 60 ? "strong" : ""}`}
             key={dim.key}
+            style={{ "--legend-color": radarDimensionColors[index % radarDimensionColors.length] } as CSSProperties}
           >
             <span className="radar-legend-label">
               {dim.label} <strong>{dim.value}</strong>

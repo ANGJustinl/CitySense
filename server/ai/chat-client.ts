@@ -66,6 +66,8 @@ export type ChatContext = {
   recommendationId?: string;
   city?: string;
   area?: string;
+  /** Server-only marker used when committing a confirmed action. */
+  confirmedAction?: boolean;
 };
 
 class ZhipuChatClient implements ChatCompletionClient {

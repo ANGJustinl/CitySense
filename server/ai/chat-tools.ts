@@ -29,6 +29,7 @@ import { createCommunityPost } from "@/server/community/posts";
 import { setPostLike, setPostBookmark, setCommunityFollow } from "@/server/community/interactions";
 import { createSubmission } from "@/server/submissions/service";
 import { createBuddyIntent, applyToBuddyIntent, saveBuddyProfile } from "@/server/buddy/service";
+import { createPendingAction } from "@/server/ai/pending-actions";
 
 /** 工具定义,传给 LLM 的 tools 参数。 */
 export const CHAT_TOOLS: ChatTool[] = [
@@ -373,7 +374,7 @@ function summarizeCityPulse(pulse: Awaited<ReturnType<typeof getCityPulse>>): st
 }
 
 function summarizeRouteDetail(detail: NonNullable<Awaited<ReturnType<typeof getRouteDetail>>>): string {
-  const { route, recommendation } = detail;
+  const { route } = detail;
   return JSON.stringify({
     routeId: route.id,
     title: route.title,
@@ -687,8 +688,68 @@ export async function executeChatTool(
         };
       }
 
-      // ===== 写操作工具(要求 appUserId 存在) =====
-      case "save_user_profile": {
+      // ===== 写操作工具：先生成待确认动作，不直接产生副作用 =====
+      case "save_user_profile":
+      case "create_community_post":
+      case "submit_place":
+      case "create_buddy_intent":
+      case "apply_buddy_intent":
+      case "like_post":
+      case "bookmark_post":
+      case "follow_user": {
+        if (!context.appUserId) return { content: "此操作需要登录。请先登录后再试。" };
+        const labels: Record<string, string> = {
+          save_user_profile: "更新公开资料",
+          create_community_post: "发布城市手记",
+          submit_place: "提交小众地点",
+          create_buddy_intent: "发起搭子组队",
+          apply_buddy_intent: "申请加入搭子",
+          like_post: "点赞城市手记",
+          bookmark_post: "收藏城市手记",
+          follow_user: "关注用户"
+        };
+        const action = createPendingAction({ tool: name, args, context, preview: labels[name] });
+        return {
+          content: JSON.stringify({ status: "awaiting_confirmation", actionId: action.id, actionToken: action.token, action: labels[name], preview: action.preview, expiresAt: action.expiresAt }),
+          display: `等待确认：${labels[name]}`,
+          cards: [{ kind: "action_pending", actionId: action.id, actionToken: action.token, tool: name, title: labels[name], preview: action.preview, expiresAt: action.expiresAt }]
+        };
+      }
+
+      // ===== Server-only commit path, reachable only from the confirmation endpoint =====
+      case "__commit_action__": {
+        if (!context.confirmedAction || !context.appUserId) return { content: "非法操作" };
+        const target = args.tool as string;
+        const payload = (args.args ?? {}) as Record<string, unknown>;
+        if (target === "save_user_profile") {
+          const profile = await saveBuddyProfile(context.appUserId, payload);
+          return { content: `公开资料已更新：${profile.displayName}`, display: "更新公开资料" };
+        }
+        if (target === "create_community_post") {
+          const post = await createCommunityPost({ authorId: context.appUserId, idempotencyKey: `chat-confirm-${context.sessionId ?? "anon"}-${Date.now()}`, payload: { ...payload, publish: true } });
+          return { content: `城市手记已发布：/community/posts/${post.id}`, display: "发布城市手记", cards: [{ kind: "post_created", postId: post.id, url: `/community/posts/${post.id}` }] };
+        }
+        if (target === "submit_place") {
+          const submission = await createSubmission({ submitterId: context.appUserId, idempotencyKey: `chat-confirm-${context.sessionId ?? "anon"}-${Date.now()}`, payload: payload });
+          return { content: `地点投稿草稿已创建：${submission.id}。请在投稿页完成图片上传和提交审核。`, display: "创建地点投稿" };
+        }
+        if (target === "create_buddy_intent") {
+          const result = await createBuddyIntent(context.appUserId, payload, `chat-confirm-${context.sessionId ?? "anon"}-${Date.now()}`);
+          return { content: `搭子组队已发起：${result.intent.id}`, display: "发起搭子组队" };
+        }
+        if (target === "apply_buddy_intent") {
+          const intentId = payload.intentId as string;
+          await applyToBuddyIntent(context.appUserId, intentId, payload);
+          return { content: `已申请加入搭子：${intentId}`, display: "申请加入搭子" };
+        }
+        if (target === "like_post") { await setPostLike(context.appUserId, payload.postId as string, true); return { content: "已点赞手记。", display: "点赞手记" }; }
+        if (target === "bookmark_post") { await setPostBookmark(context.appUserId, payload.postId as string, true); return { content: "已收藏手记。", display: "收藏手记" }; }
+        if (target === "follow_user") { await setCommunityFollow(context.appUserId, payload.targetUserId as string, true); return { content: "已关注。", display: "关注用户" }; }
+        return { content: `未知确认操作：${target}` };
+      }
+
+      // ===== legacy cases are kept unreachable behind the prepare branch above =====
+      case "legacy_save_user_profile": {
         const userId = context.appUserId;
         if (!userId) return { content: "此操作需要登录。请引导用户先登录后再试。" };
         const profile = await saveBuddyProfile(userId, args);

@@ -95,11 +95,9 @@ test("write tools require login (appUserId) and return a login hint when absent"
   }
 });
 
-test("write tools validate required params and return a missing-param message", async () => {
-  // 已登录但缺参数:应在 appUserId 检查之后、调 server 函数之前因参数不足而失败。
-  // 这里用缺少必填参数触发 server 函数内部的校验/异常,被外层 catch 转为失败文案。
+test("write tools prepare a pending action instead of executing immediately", async () => {
   const loggedIn = { sessionId: "s", profileKey: "user1", appUserId: "user1", city: "北京" };
-  const result = await executeChatTool("like_post", "{}", loggedIn);
-  // appUserId 存在但无 postId → 返回"缺少 postId"
-  assert.ok(result.content.includes("缺少 postId"), `got: ${result.content}`);
+  const result = await executeChatTool("like_post", JSON.stringify({ postId: "post-1" }), loggedIn);
+  assert.ok(result.content.includes("awaiting_confirmation"), `got: ${result.content}`);
+  assert.ok(result.cards?.some((card) => card.kind === "action_pending"));
 });

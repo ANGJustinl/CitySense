@@ -90,7 +90,7 @@ function routeFacts(routes: RecommendedRoute[]): RouteExplanationFact[] {
   }));
 }
 
-function localExplainRoutes(routes: RecommendedRoute[], input: RecommendInput) {
+export function localExplainRoutes(routes: RecommendedRoute[], input: RecommendInput) {
   return routes.map((route) => {
     const topSignal = route.sourceSignals[0];
     const firstPlace = route.places[0];
@@ -336,6 +336,61 @@ function mergeModelExplanations(
       tips: explanation.tips
     };
   });
+}
+
+/**
+ * 后台 LLM 解释工作流：调 LLM 生成路线解释 → grounding 校验 → 更新 RecommendationLog。
+ *
+ * 这是一个 fire-and-forget 任务：推荐流水线先用本地模板解释返回（秒开），
+ * 本函数在后台异步执行 LLM 调用（通常 5-8 秒），完成后更新数据库中已持久化的路线。
+ * 用户刷新或下次加载时会拿到 LLM 增强版解释。
+ *
+ * 任何阶段失败（LLM 超时、grounding 不过、DB 更新失败）都静默降级——
+ * 本地解释已经入库，不影响用户体验。
+ */
+export async function explainRoutesInBackground(
+  recommendationLogId: string,
+  routes: RecommendedRoute[],
+  input: RecommendInput,
+  sourceContext: SourceContextItem[],
+  updateFn: (logId: string, routes: RecommendedRoute[]) => Promise<void>
+) {
+  const client = createDefaultRouteExplanationClient();
+  if (!client) return; // 无 LLM key,保持本地解释
+
+  try {
+    const localRoutes = localExplainRoutes(routes, input);
+    const request: RouteExplanationRequest = {
+      input: routeInput(input),
+      routes: routeFacts(localRoutes),
+      sourceContext
+    };
+
+    const payload = await withLlmTimeout({
+      timeoutMs: llmTimeoutMs("OPENAI_TIMEOUT_MS", DEFAULT_LLM_TIMEOUT_MS),
+      task: (signal) => client.explain(request, signal)
+    });
+
+    const merged = mergeModelExplanations(localRoutes, payload, sourceContext);
+
+    // 只在至少一条路线的 reason 被 LLM 改写时才更新（避免无意义的 DB 写入）
+    const hasLLMExplanation = merged.some(
+      (route, i) => route.reason !== localRoutes[i].reason
+    );
+    if (!hasLLMExplanation) return;
+
+    // routes 的 id 需要还原为持久化快照里的带 snapshot id 的版本
+    // merged 的顺序和 routes 一致,但 reason/tips 已被 LLM 改写
+    const updatedRoutes = routes.map((route, i) => ({
+      ...route,
+      reason: merged[i].reason,
+      tips: merged[i].tips
+    }));
+
+    await updateFn(recommendationLogId, updatedRoutes);
+  } catch {
+    // 静默降级：本地解释已入库，LLM 失败不影响用户
+  }
 }
 
 export async function explainRoutes(

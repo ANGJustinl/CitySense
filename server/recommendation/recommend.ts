@@ -10,7 +10,7 @@ import { retrieveDatabaseCandidates } from "@/server/recommendation/candidates";
 import { enrichAndRerankByTraffic } from "@/server/recommendation/traffic-rerank";
 import { buildRoutesWithMeta } from "@/server/recommendation/route-builder";
 import { planRoutesLegs } from "@/server/maps/route-legs";
-import { buildSourceContextItems, explainRoutes } from "@/server/ai/explain-route";
+import { buildSourceContextItems, explainRoutesInBackground, localExplainRoutes } from "@/server/ai/explain-route";
 import { attachMomentCards } from "@/server/ai/moment-card";
 import { persistRecommendationSnapshot } from "@/server/routes/route-detail";
 import { rankCandidates } from "@/server/recommendation/ranker";
@@ -246,11 +246,13 @@ export async function recommend(
 ): Promise<RecommendResponse> {
   const input = await resolveRecommendationOrigin(recommendRequestSchema.parse(rawInput));
   const experiment = assignRecommendationExperiment(input);
+  // 城市条件查询与候选召回/排序/交通重排无依赖,并行执行以减少 SSR 总耗时。
+  const conditionsPromise = getRecommendationConditions(input);
   const candidates = await retrieveDatabaseCandidates(input);
   const rankerResult = await rankCandidates(input, candidates);
   const scored = selectTrafficCandidatesForEnrichment(rankerResult.ranked);
   const trafficRanked = await enrichAndRerankByTraffic(scored, input);
-  const conditions = await getRecommendationConditions(input);
+  const conditions = await conditionsPromise;
   const momentRanked = rerankCandidatesByMoment(trafficRanked, input, conditions);
   const experimentRanked = applyRecommendationExperiment(momentRanked, experiment, conditions);
   const { routes: builtRoutes, appliedWaypointCount } = buildRoutesWithMeta(experimentRanked, input);
@@ -261,12 +263,13 @@ export async function recommend(
     useRealtimeTraffic: input.useRealtimeTraffic
   });
   const composedRoutes = attachMomentContextToRoutes(plannedRoutes, input, conditions);
-  const routes = await explainRoutes(composedRoutes, input, {
-    sourceContext: buildSourceContextItems(experimentRanked)
-  });
+  // 显式工作流：SSR 先用本地模板解释秒开,LLM 增强在后台异步执行。
+  const routes = localExplainRoutes(composedRoutes, input);
   const routesWithMomentCards = await attachMomentCards(routes, input, {
-    profileApplied: rankerResult.profileApplied
+    profileApplied: rankerResult.profileApplied,
+    timeoutMs: 3000
   });
+  const sourceContext = buildSourceContextItems(experimentRanked);
   const snapshot = await persistRecommendationSnapshot(
     input,
     routesWithMomentCards,
@@ -274,6 +277,23 @@ export async function recommend(
     experiment,
     options.ownerUserId
   );
+  // fire-and-forget：后台调 LLM 改写 reason/tips,完成后更新已持久化的 RecommendationLog。
+  // 用户首次加载看到本地解释,LLM 完成后刷新即得增强版。
+  void explainRoutesInBackground(
+    snapshot.recommendationId,
+    snapshot.routes,
+    input,
+    sourceContext,
+    async (logId, updatedRoutes) => {
+      const { prisma } = await import("@/server/db/prisma");
+      await prisma.recommendationLog.update({
+        where: { id: logId },
+        data: { recommendedRoutes: updatedRoutes as unknown as Parameters<typeof prisma.recommendationLog.update>[0]["data"]["recommendedRoutes"] }
+      });
+    }
+  ).catch(() => {
+    // 静默降级：本地解释已入库
+  });
   const recallChannels: RecallChannel[] = [
     ...new Set<RecallChannel>(
       candidates.flatMap((candidate) => candidate.recallChannels ?? ["base"])
