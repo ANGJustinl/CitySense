@@ -4,7 +4,7 @@ import type { ChatContext } from "@/server/ai/chat-client";
 export type PendingActionState = "awaiting_confirmation" | "executing" | "succeeded" | "failed" | "cancelled" | "expired";
 export type PendingAction = {
   id: string;
-  token: string;
+  tokenHash: string;
   tool: string;
   args: Record<string, unknown>;
   actorUserId: string;
@@ -28,9 +28,10 @@ export function createPendingAction(input: { tool: string; args: Record<string, 
   if (!input.context.appUserId) throw new Error("此操作需要登录。请先登录后再试。");
   const id = `act_${randomBytes(16).toString("hex")}`;
   const token = randomBytes(32).toString("base64url");
-  const action: PendingAction = { id, token, tool: input.tool, args: input.args, actorUserId: input.context.appUserId, sessionId: input.context.sessionId, preview: input.preview, state: "awaiting_confirmation", expiresAt: Date.now() + TTL_MS };
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const action: PendingAction = { id, tokenHash, tool: input.tool, args: input.args, actorUserId: input.context.appUserId, sessionId: input.context.sessionId, preview: input.preview, state: "awaiting_confirmation", expiresAt: Date.now() + TTL_MS };
   actions.set(id, action);
-  return action;
+  return { action, token };
 }
 
 export function getPendingAction(id: string, actorUserId: string) {
@@ -59,6 +60,11 @@ export function finishPendingAction(id: string, actorUserId: string, state: "suc
   const finished = { ...action, state, result };
   actions.set(id, finished);
   return finished;
+}
+
+export function verifyPendingActionToken(action: PendingAction, token: string) {
+  const hash = createHash("sha256").update(token).digest("hex");
+  return hash.length === action.tokenHash.length && hash === action.tokenHash;
 }
 
 export function pendingActionHash(action: PendingAction) {

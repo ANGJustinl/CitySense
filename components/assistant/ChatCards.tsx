@@ -93,7 +93,7 @@ export function ChatCards({ cards }: { cards: ChatCard[] }) {
 
         if (card.kind === "action_pending") return <ChatActionCard card={card} key={`action-${card.actionId}`} />;
         if (card.kind === "post_created") return <Link className="chat-card" href={{ pathname: card.url }} key={`post-${card.postId}`}>城市手记已发布，查看详情</Link>;
-        if (card.kind === "place_drafted") return <div className="chat-card" key={`place-${card.submissionId}`}><Link href="/my-submissions">地点草稿：{card.name}</Link><ChatPlaceUploadCard submissionId={card.submissionId} /></div>;
+        if (card.kind === "place_drafted") return <div className="chat-card" key={`place-${card.submissionId}`}><Link href="/my-submissions">地点草稿：{card.name}</Link><p className="chat-card-meta">可以直接在这里上传现场照片</p><ChatPlaceUploadCard submissionId={card.submissionId} /></div>;
         if (card.kind === "intent_created") return <Link className="chat-card" href={`/buddy/intents/${card.intentId}`} key={`intent-${card.intentId}`}>搭子组队已创建</Link>;
         return null;
       })}

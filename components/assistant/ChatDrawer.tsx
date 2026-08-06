@@ -100,6 +100,7 @@ export function ChatDrawer({ open, onClose, sessionId, context }: ChatDrawerProp
               <p>你好!我是城市探索助手 🌆</p>
               <p>问我“今晚三里屯有什么好玩的”、“最近流行什么”,或者粘贴一段点评让我帮你判断值不值得去。</p>
               <div className="chat-suggestions">
+                <button type="button" onClick={() => send("帮我提交一个小众地点，我还想上传现场照片")}>分享小众地点并上传照片</button>
                 <button type="button" onClick={() => send("今晚三里屯有什么好玩的?")}>
                   今晚三里屯有什么好玩的?
                 </button>

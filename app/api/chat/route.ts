@@ -59,6 +59,9 @@ const SYSTEM_PROMPT = `你是 CitySense 城市探索助手。CitySense 不是普
 - 用户问”天气怎么样””会下雨吗””适合户外吗” → 调用 get_weather，再结合天气给建议。
 - 用户问”有什么展览””有没有演出””搜一下XX” → 调用 search_activities（单品搜索，不是路线）。
 - 用户说”规划两天/三天行程””周末怎么安排” → 调用 plan_multi_day（每天可不同兴趣）。
+- 用户问城市手记、社区动态 → 调用 list_community_posts。
+- 用户问某个地点是否存在或需要关联地点 ID → 调用 search_places。
+- 用户问小众榜/超夯榜 → 调用 get_venue_ranking。
 - 用户粘贴点评、笔记、链接等外部内容 → 直接分析文本，不调工具。
 
 【写操作——必须先生成预览并等待用户确认】

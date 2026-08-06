@@ -95,6 +95,12 @@ test("write tools require login (appUserId) and return a login hint when absent"
   }
 });
 
+test("write tools validate required parameters before preparing", async () => {
+  const loggedIn = { sessionId: "s", profileKey: "user1", appUserId: "user1", city: "北京" };
+  const result = await executeChatTool("like_post", "{}", loggedIn);
+  assert.ok(result.content.includes("postId"), `got: ${result.content}`);
+});
+
 test("write tools prepare a pending action instead of executing immediately", async () => {
   const loggedIn = { sessionId: "s", profileKey: "user1", appUserId: "user1", city: "北京" };
   const result = await executeChatTool("like_post", JSON.stringify({ postId: "post-1" }), loggedIn);

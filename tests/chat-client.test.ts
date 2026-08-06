@@ -168,8 +168,8 @@ test("chat-client surfaces network error from fetch throw", async () => {
   assert.ok(err!.message.includes("connection refused"));
 });
 
-test("CHAT_TOOLS defines 16 tools with required function metadata", () => {
-  assert.equal(CHAT_TOOLS.length, 16);
+test("CHAT_TOOLS defines 19 tools with required function metadata", () => {
+  assert.equal(CHAT_TOOLS.length, 19);
 
   const names = CHAT_TOOLS.map((t) => t.function.name).sort();
 
@@ -182,13 +182,16 @@ test("CHAT_TOOLS defines 16 tools with required function metadata", () => {
     "get_city_pulse",
     "get_route_detail",
     "get_user_profile",
+    "get_venue_ranking",
     "get_weather",
     "like_post",
+    "list_community_posts",
     "plan_multi_day",
     "recommend_routes",
     "record_feedback",
     "save_user_profile",
     "search_activities",
+    "search_places",
     "submit_place"
   ]);
 

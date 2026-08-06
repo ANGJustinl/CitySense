@@ -27,6 +27,9 @@ import { requireOwnedProfileKey } from "@/server/auth/profile-access";
 // 写操作:直接复用 server 函数,无 HTTP 中转
 import { createCommunityPost } from "@/server/community/posts";
 import { setPostLike, setPostBookmark, setCommunityFollow } from "@/server/community/interactions";
+import { searchPublishedVenues } from "@/server/community/venues";
+import { listCommunityFeed } from "@/server/community/feed";
+import { listVenueRanking } from "@/server/community/votes";
 import { createSubmission } from "@/server/submissions/service";
 import { createBuddyIntent, applyToBuddyIntent, saveBuddyProfile } from "@/server/buddy/service";
 import { createPendingAction } from "@/server/ai/pending-actions";
@@ -205,6 +208,30 @@ export const CHAT_TOOLS: ChatTool[] = [
       }
     }
   },
+  {
+    type: "function",
+    function: {
+      name: "search_places",
+      description: "搜索 CitySense 中已发布的地点，返回可用于手记关联或地点选择的公开地点 ID。",
+      parameters: { type: "object", properties: { query: { type: "string", description: "地点名称关键词" }, city: { type: "string", description: "城市，可选" } }, required: ["query"], additionalProperties: false }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_community_posts",
+      description: "查看城市中最新发布的公开城市手记。",
+      parameters: { type: "object", properties: { city: { type: "string" }, limit: { type: "number" } }, additionalProperties: false }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_venue_ranking",
+      description: "查询城市的小众榜或超夯榜。",
+      parameters: { type: "object", properties: { city: { type: "string" }, type: { type: "string", enum: ["NICHE", "HOT"] }, area: { type: "string" } }, required: ["type"], additionalProperties: false }
+    }
+  },
   // ===== 写操作工具(要求用户已登录) =====
   {
     type: "function",
@@ -243,7 +270,7 @@ export const CHAT_TOOLS: ChatTool[] = [
     type: "function",
     function: {
       name: "submit_place",
-      description: "帮用户提交一个小众地点(创建草稿,仅文字信息)。注意:图片需要用户自己去上传,工具完成后提醒用户去 /submit-place 补传照片并提交审核。",
+      description: "帮用户提交一个小众地点(创建草稿,仅文字信息)。草稿卡片会直接提供上传现场照片的选项，用户可在 AI 助手内选择相册或调用手机相机上传，完成后提交审核。",
       parameters: {
         type: "object",
         properties: {
@@ -546,6 +573,24 @@ export async function executeChatTool(
         };
       }
 
+      case "search_places": {
+        const query = args.query as string;
+        if (!query) return { content: "缺少 query 参数" };
+        const places = await searchPublishedVenues({ query, city: (args.city as string) || context.city, limit: 10 });
+        return { content: JSON.stringify(places), display: `找到 ${places.length} 个地点` };
+      }
+
+      case "list_community_posts": {
+        const feed = await listCommunityFeed({ city: (args.city as string) || context.city || "北京", scope: "city", limit: Math.min(Number(args.limit) || 10, 20), viewerId: context.appUserId });
+        return { content: JSON.stringify(feed.posts.map((post) => ({ id: post.id, body: post.body.slice(0, 300), city: post.city, area: post.area, author: post.author?.displayName ?? "已注销用户", likeCount: post.counts.likes }))), display: `找到 ${feed.posts.length} 条城市手记` };
+      }
+
+      case "get_venue_ranking": {
+        const type = args.type === "NICHE" ? "NICHE" : "HOT";
+        const ranking = await listVenueRanking({ city: (args.city as string) || context.city || "北京", type, area: args.area as string | undefined, limit: 10, viewerId: context.appUserId });
+        return { content: JSON.stringify(ranking.entries), display: type === "HOT" ? "查询超夯榜" : "查询小众榜" };
+      }
+
       case "record_feedback": {
         const value = args.value as "up" | "down" | "save" | "dismiss";
         if (!value) {
@@ -708,11 +753,34 @@ export async function executeChatTool(
           bookmark_post: "收藏城市手记",
           follow_user: "关注用户"
         };
-        const action = createPendingAction({ tool: name, args, context, preview: labels[name] });
+        const required: Record<string, string[]> = {
+          save_user_profile: ["displayName"],
+          create_community_post: ["body", "city"],
+          submit_place: ["name", "description", "city", "address"],
+          create_buddy_intent: ["mode", "routeSnapshotId", "departureStart", "departureEnd", "meetingLabel"],
+          apply_buddy_intent: ["intentId"],
+          like_post: ["postId"],
+          bookmark_post: ["postId"],
+          follow_user: ["targetUserId"]
+        };
+        const missing = (required[name] ?? []).filter((key) => args[key] === undefined || args[key] === null || args[key] === "");
+        if (missing.length > 0) return { content: `缺少参数: ${missing.join(", ")}` };
+        const previewParts = [
+          args.name,
+          args.body,
+          args.displayName,
+          args.meetingLabel,
+          args.address
+        ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+        const preview = previewParts.length > 0
+          ? `${labels[name]}：${previewParts.map((value) => value.trim()).join(" · ").slice(0, 240)}`
+          : labels[name];
+        const pending = createPendingAction({ tool: name, args, context, preview });
+        const { action, token } = pending;
         return {
-          content: JSON.stringify({ status: "awaiting_confirmation", actionId: action.id, actionToken: action.token, action: labels[name], preview: action.preview, expiresAt: action.expiresAt }),
+          content: JSON.stringify({ status: "awaiting_confirmation", actionId: action.id, action: labels[name], preview: action.preview, expiresAt: action.expiresAt }),
           display: `等待确认：${labels[name]}`,
-          cards: [{ kind: "action_pending", actionId: action.id, actionToken: action.token, tool: name, title: labels[name], preview: action.preview, expiresAt: action.expiresAt }]
+          cards: [{ kind: "action_pending", actionId: action.id, actionToken: token, tool: name, title: labels[name], preview: action.preview, expiresAt: action.expiresAt }]
         };
       }
 
@@ -854,6 +922,9 @@ export const TOOL_DISPLAY_NAMES: Record<string, string> = {
   get_weather: "查询天气",
   search_activities: "搜索活动",
   plan_multi_day: "规划多日行程",
+  get_venue_ranking: "查询城市榜单",
+  list_community_posts: "查询城市手记",
+  search_places: "搜索地点",
   save_user_profile: "完善资料",
   create_community_post: "发布手记",
   submit_place: "提交地点",
