@@ -2707,7 +2707,7 @@ p {
   opacity: 1;
   position: fixed;
   top: 94px;
-  transform: translateX(calc(-100% - 8px));
+  transform: translateX(calc(-100% - 76px));
   z-index: 42;
 }
 
@@ -2754,7 +2754,7 @@ p {
   position: fixed;
   right: auto;
   top: 94px;
-  transform: translateX(8px);
+  transform: translateX(76px);
   z-index: 42;
 }
 
@@ -7022,7 +7022,15 @@ D
 .map-user-venues-control label { align-items: center; cursor: pointer; display: flex; font-size: 12px; font-weight: 800; gap: 6px; }
 .map-user-venues-control input { accent-color: var(--accent); }
 .map-user-venues-control small { color: var(--muted); font-size: 10px; }
-.map-fullscreen .map-user-venues-control { left: 18px; position: fixed; top: 94px; }
+.map-fullscreen .map-user-venues-control {
+  left: 50%;
+  min-height: 34px;
+  padding: 4px 9px;
+  position: fixed;
+  top: 94px;
+  transform: translateX(-50%);
+}
+.map-fullscreen .map-user-venues-control label { white-space: nowrap; }
 .user-venue-map-marker { align-items: center; background: #fff; border: 2px solid var(--coral); border-radius: 50% 50% 50% 4px; box-shadow: 0 5px 14px rgba(24,33,29,.25); color: var(--coral); display: flex; height: 26px; justify-content: center; padding: 0; transform: rotate(-45deg); width: 26px; }
 .user-venue-map-marker span { font-size: 12px; transform: rotate(45deg); }
 .user-venue-map-marker.selected { background: var(--coral); color: #fff; transform: rotate(-45deg) scale(1.18); }
@@ -7036,7 +7044,11 @@ D
 .user-venue-detail-card > p { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .user-venue-detail-card > small { color: var(--accent-strong); line-height: 1.5; }
 @media (max-width: 780px) {
-  .map-fullscreen .map-user-venues-control { left: 12px; top: 148px; }
+  .map-fullscreen .map-user-venues-control {
+    left: 50%;
+    top: 148px;
+    transform: translateX(-50%);
+  }
   .user-venue-detail-card, .map-fullscreen .user-venue-detail-card { bottom: 84px; left: 12px; max-width: calc(100vw - 24px); right: 12px; }
 }
 
