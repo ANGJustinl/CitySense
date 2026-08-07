@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
+  Archive,
   CalendarDays,
   Check,
   Mail,
@@ -138,7 +139,8 @@ export function BuddyIntentDetailClient({ id }: { id: string }) {
     ...data.preferences.soft.moods,
   ].filter(Boolean) as string[];
   const applicationPending = data.myApplication === "PENDING";
-  const canApply = data.status === "ACTIVE" && !applicationPending;
+  const archived = data.status !== "ACTIVE";
+  const canApply = data.status === "ACTIVE" && !data.myApplication;
 
   return (
     <section className="buddy-intent-editorial">
@@ -151,6 +153,8 @@ export function BuddyIntentDetailClient({ id }: { id: string }) {
           <BuddyStatus value={data.status} />
         </div>
       </header>
+
+      {archived ? <div className="buddy-archive-notice" role="status"><Archive aria-hidden="true" size={18} /><span><strong>这则同行邀请已经归档</strong><small>发起人和已有申请者仍可回看当时的路线与来信，所有操作保持只读。</small></span></div> : null}
 
       <div className="buddy-intent-layout">
         <article className="buddy-intent-document">
@@ -222,7 +226,7 @@ export function BuddyIntentDetailClient({ id }: { id: string }) {
                     <p>{application.message ?? "想和你一起出发。"}</p>
                     <BuddyStatus context="application" value={application.status} />
                   </div>
-                  {application.status === "PENDING" ? (
+                  {application.status === "PENDING" && !archived ? (
                     <span className="buddy-letter-actions">
                       <button disabled={busy === application.id} onClick={() => void decide(application, "reject")} type="button"><X aria-hidden="true" size={14} />暂不同行</button>
                       <button className="accept" disabled={busy === application.id} onClick={() => void decide(application, "accept")} type="button"><Check aria-hidden="true" size={14} />接受</button>
@@ -236,8 +240,8 @@ export function BuddyIntentDetailClient({ id }: { id: string }) {
               <span className="buddy-apply-icon"><Mail aria-hidden="true" size={19} /></span>
               <div>
                 <p className="buddy-folio-kicker">加入这次同行</p>
-                <h2>{applicationPending ? "来信已经送达" : "先用一句话认识彼此"}</h2>
-                <p>{applicationPending ? "发起人回应后，你会在“我的搭子”里看到最新状态。" : "说说你期待的节奏或喜欢这条路线的原因。"}</p>
+                <h2>{data.myApplication ? "这封来信已经留档" : archived ? "本次邀约已经结束" : "先用一句话认识彼此"}</h2>
+                <p>{applicationPending ? "发起人回应后，你会在“我的搭子”里看到最新状态。" : data.myApplication ? "你仍可回看路线与当时的同行安排。" : archived ? "历史邀请不再接受新的同行申请。" : "说说你期待的节奏或喜欢这条路线的原因。"}</p>
               </div>
               <textarea
                 disabled={!canApply}
@@ -247,7 +251,7 @@ export function BuddyIntentDetailClient({ id }: { id: string }) {
                 ref={messageRef}
                 value={message}
               />
-              <button disabled={!canApply || busy === "apply"} type="submit"><Send aria-hidden="true" size={16} />{busy === "apply" ? "正在送达" : applicationPending ? "等待回应" : data.status === "ACTIVE" ? "申请一起出发" : "本次邀约已结束"}</button>
+              <button disabled={!canApply || busy === "apply"} type="submit"><Send aria-hidden="true" size={16} />{busy === "apply" ? "正在送达" : applicationPending ? "等待回应" : data.myApplication ? "来信已归档" : data.status === "ACTIVE" ? "申请一起出发" : "本次邀约已结束"}</button>
               <p className="buddy-apply-safety"><ShieldCheck aria-hidden="true" size={14} />公开场合见面，行程中保持必要的安全联系。</p>
             </form>
           )}

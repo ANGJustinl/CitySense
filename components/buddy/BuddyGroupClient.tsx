@@ -2,7 +2,7 @@
 
 import { type FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Flag, Link2, LogOut, MapPin, MessageCircle, Send, ShieldCheck } from "lucide-react";
+import { Archive, ArrowLeft, Flag, Link2, LogOut, MapPin, MessageCircle, Send, ShieldCheck } from "lucide-react";
 import { BuddyAvatar, BuddyRouteLine, BuddyStatus } from "@/components/buddy/BuddyEditorial";
 import { useBuddyMessages } from "@/hooks/useBuddyMessages";
 import type { BuddyPublicProfileView, BuddyRouteView } from "@/server/buddy/types";
@@ -11,6 +11,7 @@ type BuddyGroupMemberClient = {
   id: string;
   userId: string;
   role: string;
+  status: string;
   user?: { buddyProfile?: BuddyPublicProfileView | null } | null;
 };
 
@@ -28,7 +29,9 @@ export function BuddyGroupClient({ id, viewerId }: { id: string; viewerId: strin
   const [group, setGroup] = useState<BuddyGroupClientView>();
   const [text, setText] = useState("");
   const [error, setError] = useState<string>();
-  const { messages, error: messageError, send } = useBuddyMessages(id);
+  const membership = group?.members.find((member) => member.userId === viewerId);
+  const readOnly = group ? group.status !== "ACTIVE" || membership?.status !== "ACTIVE" : true;
+  const { messages, error: messageError, send } = useBuddyMessages(id, !readOnly);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -53,7 +56,7 @@ export function BuddyGroupClient({ id, viewerId }: { id: string; viewerId: strin
   }
 
   async function leave() {
-    if (!group) return;
+    if (!group || readOnly) return;
     const response = await fetch(`/api/buddy/groups/${id}/leave`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: group.version }) });
     if (response.ok) location.reload();
   }
@@ -75,6 +78,8 @@ export function BuddyGroupClient({ id, viewerId }: { id: string; viewerId: strin
         <BuddyStatus context="group" value={group.status} />
       </header>
 
+      {readOnly ? <div className="buddy-archive-notice" role="status"><Archive aria-hidden="true" size={18} /><span><strong>这段同行已收进历史档案</strong><small>路线、成员和沿途来信仍可查看，但不能继续发送消息或更改行程。</small></span></div> : null}
+
       <div className="buddy-group-spread">
         <aside className="buddy-group-plan">
           <div className="buddy-member-pair">
@@ -92,7 +97,7 @@ export function BuddyGroupClient({ id, viewerId }: { id: string; viewerId: strin
             <small>{new Date(group.departureStart).toLocaleString("zh-CN")}</small>
           </div>
           <div className="buddy-safety-note"><ShieldCheck aria-hidden="true" size={17} /><p>站内沟通并在公共地点集合。遇到不适，可以随时退出或举报。</p></div>
-          <div className="buddy-safety-actions"><button onClick={() => void leave()} type="button"><LogOut aria-hidden="true" size={15} />退出行程</button><button onClick={() => void report()} type="button"><Flag aria-hidden="true" size={15} />举报并拉黑</button></div>
+          <div className="buddy-safety-actions">{!readOnly ? <button onClick={() => void leave()} type="button"><LogOut aria-hidden="true" size={15} />退出行程</button> : null}<button onClick={() => void report()} type="button"><Flag aria-hidden="true" size={15} />举报并拉黑</button></div>
         </aside>
 
         <section className="buddy-chat">
@@ -105,8 +110,8 @@ export function BuddyGroupClient({ id, viewerId }: { id: string; viewerId: strin
             }) : <div className="buddy-chat-empty"><MessageCircle aria-hidden="true" size={25} /><p>从确认集合细节开始，写下你们的第一条消息。</p></div>}
           </div>
           <form className="buddy-chat-form" onSubmit={submit}>
-            <textarea aria-label="发送给搭子的消息" disabled={group.status !== "ACTIVE"} maxLength={2000} onChange={(event) => setText(event.target.value)} placeholder={group.status === "ACTIVE" ? "确认集合细节，或聊聊对路线的期待…" : "行程已结束，聊天记录只读"} value={text} />
-            <button aria-label="发送消息" disabled={!text.trim() || group.status !== "ACTIVE"} type="submit"><Send aria-hidden="true" size={17} /></button>
+            <textarea aria-label="发送给搭子的消息" disabled={readOnly} maxLength={2000} onChange={(event) => setText(event.target.value)} placeholder={readOnly ? "历史行程仅供回看" : "确认集合细节，或聊聊对路线的期待…"} value={text} />
+            <button aria-label="发送消息" disabled={!text.trim() || readOnly} type="submit"><Send aria-hidden="true" size={17} /></button>
           </form>
           {error || messageError ? <p className="buddy-error" role="alert">{error ?? messageError}</p> : null}
         </section>

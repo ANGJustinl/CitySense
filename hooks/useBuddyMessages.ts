@@ -13,7 +13,7 @@ export type BuddyMessageClient = {
 type MessageResponse = { messages: BuddyMessageClient[] };
 type SendMessageResponse = { message: BuddyMessageClient };
 
-export function useBuddyMessages(groupId: string) {
+export function useBuddyMessages(groupId: string, live = true) {
   const [messages, setMessages] = useState<BuddyMessageClient[]>([]);
   const [error, setError] = useState<string>();
   const latestRef = useRef<string | undefined>(undefined);
@@ -42,9 +42,10 @@ export function useBuddyMessages(groupId: string) {
 
   useEffect(() => {
     void refresh();
+    if (!live) return;
     const timer = window.setInterval(refresh, 3000);
     return () => window.clearInterval(timer);
-  }, [refresh]);
+  }, [live, refresh]);
 
   async function send(body: string) {
     const clientMessageId = crypto.randomUUID();

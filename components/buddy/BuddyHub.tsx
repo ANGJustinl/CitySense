@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
   ArrowUpRight,
+  Archive,
   BookOpen,
   CheckCircle2,
   ChevronRight,
@@ -112,17 +113,22 @@ function IntentRow({ intent, index, featured = false }: { intent: BuddyIntentVie
   );
 }
 
-function GroupRow({ group, index, featured = false }: { group: BuddyDashboardGroup; index: number; featured?: boolean }) {
+function GroupRow({ group, index, viewerId, featured = false }: { group: BuddyDashboardGroup; index: number; viewerId: string; featured?: boolean }) {
   const profile = group.members.find((member) => member.role === "MEMBER")?.profile ?? group.members[0]?.profile;
+  const membership = group.members.find((member) => member.userId === viewerId);
+  const archived = group.status !== "ACTIVE" || membership?.status !== "ACTIVE";
+  const archiveLabel = membership?.status === "LEFT" || membership?.status === "REMOVED"
+    ? "已退出"
+    : group.status === "CANCELLED" ? "已取消" : "已结束";
   return (
-    <Link className={`buddy-match-row group-row ${featured ? "is-featured" : ""}`} href={`/buddy/groups/${group.id}` as AppRoute}>
+    <Link className={`buddy-match-row group-row ${featured ? "is-featured" : ""} ${archived ? "is-archived" : ""}`} href={`/buddy/groups/${group.id}` as AppRoute}>
       <span className="buddy-row-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
       <div className="buddy-row-person">
         <BuddyAvatar profile={profile as BuddyPublicProfileView | null} size="medium" />
         <span><strong>{profile?.displayName ?? "你的搭子"}</strong><small>共同路线 · {profile?.city ?? group.route.city}</small></span>
       </div>
       <div className="buddy-row-story">
-        <div>{featured ? <span className="buddy-row-featured">最近同行</span> : null}<BuddyStatus context="group" value={group.status} /></div>
+        <div>{featured ? <span className="buddy-row-featured">最近同行</span> : null}{archived ? <span className="buddy-editorial-status" data-status="expired">{archiveLabel}</span> : <BuddyStatus context="group" value={group.status} />}</div>
         <h2>{group.route.title ?? "共同路线"}</h2>
         <p>{group.route.summary ?? "两个人的城市行程已经开始。"}</p>
       </div>
@@ -247,6 +253,8 @@ export function BuddyHub({ route, initialCompose, initialTab = "discover", profi
   const empty = tab === "groups" ? groups.length === 0 : intentRows.length === 0;
   const city = readyRoute?.city ?? intents[0]?.city ?? mine[0]?.city ?? "北京";
   const pendingCount = mine.filter((intent) => intent.status === "ACTIVE").length + applications.filter((item) => item.status === "PENDING").length;
+  const activeGroups = groups.filter((group) => group.status === "ACTIVE" && group.members.some((member) => member.userId === viewerId && member.status === "ACTIVE"));
+  const archivedGroups = groups.filter((group) => !activeGroups.includes(group));
   const profileHref = readyRoute && composeMode
     ? `/settings/buddy-profile?next=${encodeURIComponent(`/buddy?routeId=${readyRoute.id}&compose=${composeMode}`)}`
     : "/settings/buddy-profile";
@@ -315,13 +323,16 @@ export function BuddyHub({ route, initialCompose, initialTab = "discover", profi
           ) : (
             <div className="buddy-match-list">
               {tab === "groups"
-                ? groups.map((group, index) => <GroupRow featured={index === 0} group={group} index={index} key={group.id} />)
+                ? <div className="buddy-group-sections">
+                    {activeGroups.length ? <section><header><MessageCircle aria-hidden="true" size={15} /><span><strong>正在同行</strong><small>{activeGroups.length} 段进行中的共同路线</small></span></header>{activeGroups.map((group, index) => <GroupRow featured={index === 0} group={group} index={index} key={group.id} viewerId={viewerId} />)}</section> : null}
+                    {archivedGroups.length ? <section className="archive"><header><Archive aria-hidden="true" size={15} /><span><strong>历史档案</strong><small>{archivedGroups.length} 段只读同行记录</small></span></header>{archivedGroups.map((group, index) => <GroupRow group={group} index={index} key={group.id} viewerId={viewerId} />)}</section> : null}
+                  </div>
                 : intentRows.map((intent, index) => <IntentRow featured={index === 0} index={index} intent={intent} key={intent.id} />)}
             </div>
           )}
         </div>
 
-        <TonightDesk groups={groups} mine={mine} onCompose={setComposeMode} profileReady={profileReady} route={readyRoute} viewerId={viewerId} />
+        <TonightDesk groups={activeGroups} mine={mine} onCompose={setComposeMode} profileReady={profileReady} route={readyRoute} viewerId={viewerId} />
       </div>
 
       {composeMode && readyRoute ? (
