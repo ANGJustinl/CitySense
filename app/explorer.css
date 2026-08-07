@@ -117,7 +117,7 @@
 
 .hero-eyebrow {
   font-size: clamp(12px, 2vw, 14px);
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: 0.3em;
   text-transform: uppercase;
   color: var(--bg-pulse);
@@ -127,7 +127,7 @@
 }
 
 .hero-title {
-  font-family: var(--font-display, 'LXGW WenKai GB', serif);
+  font-family: var(--font-display);
   font-size: clamp(42px, 8vw, 96px);
   font-weight: 700;
   line-height: 1.1;
@@ -181,7 +181,7 @@
 
 .hero-scroll-text {
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--text-secondary);
@@ -232,7 +232,7 @@
 
 .section-label {
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: 0.3em;
   text-transform: uppercase;
   color: var(--bg-pulse);
@@ -241,7 +241,7 @@
 }
 
 .section-title {
-  font-family: var(--font-display, 'LXGW WenKai GB', serif);
+  font-family: var(--font-display);
   font-size: clamp(28px, 5vw, 42px);
   font-weight: 700;
   color: var(--text-primary);
@@ -399,7 +399,7 @@
 
 .mood-label {
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -429,7 +429,7 @@
   background: var(--text-primary);
   color: white;
   font-size: 16px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   border: none;
@@ -542,7 +542,7 @@
   left: 50%;
   transform: translateX(-50%) rotate(-45deg);
   font-size: 10px;
-  font-weight: 900;
+  font-weight: 700;
   color: white;
   letter-spacing: 0.1em;
 }
@@ -563,7 +563,7 @@
 }
 
 .route-gift-title {
-  font-family: var(--font-display, 'LXGW WenKai GB', serif);
+  font-family: var(--font-display);
   font-size: 24px;
   font-weight: 700;
   color: var(--text-primary);
