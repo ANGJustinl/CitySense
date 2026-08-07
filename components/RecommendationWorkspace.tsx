@@ -4,20 +4,18 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState
 } from "react";
 import {
-  Activity,
   ChevronDown,
-  Clock3,
   Crosshair,
   LocateFixed,
   Loader2,
   MapPin,
   Navigation,
   RefreshCw,
-  SlidersHorizontal,
-  TriangleAlert
+  SlidersHorizontal
 } from "lucide-react";
 import type {
   Budget,
@@ -26,14 +24,14 @@ import type {
   TimeWindow
 } from "@/server/recommendation/types";
 import { AccountSwitcher } from "@/components/AccountSwitcher";
-import { AuthNavigation, type AuthViewer } from "@/components/auth/AuthNavigation";
-import { CityPulsePanel } from "@/components/city/CityPulsePanel";
+import type { AuthViewer } from "@/components/auth/AuthNavigation";
+import { ProductHeader } from "@/components/ProductHeader";
 import { RouteInspector } from "@/components/city/RouteInspector";
+import { RouteActionBar } from "@/components/city/RouteActionBar";
+import { RouteFeedbackPrompt } from "@/components/city/RouteFeedbackPrompt";
 import { RouteMapCanvas } from "@/components/city/RouteMapCanvas";
-import { RouteTimeline } from "@/components/city/RouteTimeline";
-import { UserProfilePanel } from "@/components/city/UserProfilePanel";
-import { ChatDock } from "@/components/assistant/ChatDock";
 import { ChatDrawer } from "@/components/assistant/ChatDrawer";
+import { RouteBuddySheet } from "@/components/buddy/RouteBuddySheet";
 import { DEFAULT_DEMO_USER_ID, DEMO_USER_PERSONA_INTERESTS } from "@/lib/demo-users";
 import { getDistrictsForCity } from "@/lib/city-districts";
 
@@ -47,7 +45,7 @@ type WorkspaceProps = {
 };
 
 /** Identifiers for the floating dock panels that can be collapsed. */
-type FloatingPanelId = "controls" | "inspector" | "pulse";
+type RouteSheetSnap = "peek" | "mid" | "full";
 
 const interestOptions = ["咖啡", "展览", "书店", "漫画", "独立音乐", "夜生活"];
 const moodOptions: { value: Mood; label: string }[] = [
@@ -105,19 +103,6 @@ function formatCoordinate(origin: Pick<WorkspaceOrigin, "lat" | "lng">) {
   return `${origin.lat.toFixed(4)}, ${origin.lng.toFixed(4)}`;
 }
 
-function formatGeneratedAt(value: string) {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "刚刚";
-  }
-
-  return date.toLocaleTimeString("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
 export function RecommendationWorkspace({ initialData, userId, initialUserId, viewer = null, ugcEnabled = false }: WorkspaceProps) {
   // 兼容 main 的 initialUserId prop 和 ai-assistant 的 userId prop。
   const initialResolvedUserId = viewer?.id ?? userId ?? initialUserId ?? DEFAULT_DEMO_USER_ID;
@@ -142,51 +127,48 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId, vi
     initialData.routes[0]?.id
   );
   const [isLoading, setIsLoading] = useState(false);
-  const [profileRevision, setProfileRevision] = useState(0);
-  const [collapsedPanels, setCollapsedPanels] = useState<Record<FloatingPanelId, boolean>>({
-    controls: true,
-    inspector: true,
-    pulse: true
-  });
-  const [mounted, setMounted] = useState(false);
+  const [controlsCollapsed, setControlsCollapsed] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [routeSheetSnap, setRouteSheetSnap] = useState<RouteSheetSnap>("mid");
+  const [buddyOpen, setBuddyOpen] = useState(false);
+  const routeDragRef = useRef<{ y: number; snap: RouteSheetSnap; dragged: boolean } | undefined>(undefined);
+
+  const cycleRouteSheet = useCallback(() => {
+    const drag = routeDragRef.current;
+    if (drag?.dragged) { routeDragRef.current = undefined; return; }
+    setRouteSheetSnap((value) => value === "peek" ? "mid" : value === "mid" ? "full" : "peek");
+  }, []);
+
+  const finishRouteDrag = useCallback((clientY: number) => {
+    const drag = routeDragRef.current;
+    if (!drag) return;
+    const delta = clientY - drag.y;
+    if (Math.abs(delta) >= 42) {
+      const order: RouteSheetSnap[] = ["peek", "mid", "full"];
+      const currentIndex = order.indexOf(drag.snap);
+      const nextIndex = Math.max(0, Math.min(order.length - 1, currentIndex + (delta < 0 ? 1 : -1)));
+      setRouteSheetSnap(order[nextIndex]);
+      setInspectorOpen(true);
+      drag.dragged = true;
+    }
+  }, []);
 
   // 区域预选：根据当前城市动态生成区列表。未知城市回退自由文本输入。
   const districtOptions = useMemo(() => getDistrictsForCity(city), [city]);
 
-  // 城市切换后，若已选区域不属于新城市，重置为"全城"，避免脏数据。
-  useEffect(() => {
-    if (area && districtOptions.length > 0 && !districtOptions.includes(area)) {
-      setArea("");
-    }
-  }, [area, districtOptions]);
-
-  const togglePanel = useCallback((id: FloatingPanelId) => {
-    setCollapsedPanels((current) => ({ ...current, [id]: !current[id] }));
-  }, []);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => setMounted(true), 0);
-
-    return () => window.clearTimeout(timeout);
-  }, []);
+  const changeCity = useCallback((nextCity: string) => {
+    setCity(nextCity);
+    if (area && getDistrictsForCity(nextCity).length > 0 && !getDistrictsForCity(nextCity).includes(area)) setArea("");
+  }, [area]);
 
   const heatContext = useMemo(
     () => ({ city, area: area || undefined, interests, mood, budget }),
     [area, budget, city, interests, mood]
   );
 
-  const amapRouteCount = useMemo(
-    () => data.routes.filter((route) => route.traffic.provider === "amap").length,
-    [data.routes]
-  );
   const selectedRoute =
     data.routes.find((route) => route.id === selectedRouteId) ?? data.routes[0];
-  const isEstimatedTraffic = data.meta.trafficProvider === "estimated";
   const resolvedOrigin = data.meta.origin;
-  const originLabel =
-    originMode === "manual"
-      ? originAddress.trim() || resolvedOrigin?.label || "手动起点"
-      : origin.label;
   const originStatusText = useMemo(() => {
     if (originMode === "manual") {
       if (resolvedOrigin?.status === "resolved" && resolvedOrigin.source === "manual") {
@@ -415,35 +397,17 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId, vi
 
   return (
     <main className="app-shell map-fullscreen">
-      <header className="topbar floating-topbar">
-        <div className="brand-lockup">
-          <span className="brand-mark">
-            <Activity size={20} />
-          </span>
-          <div>
-            <p className="eyebrow">Project CitySense</p>
-            <h1>城市脉搏</h1>
-          </div>
-        </div>
-        <nav className="top-actions" aria-label="primary">
-          <a href="/community">社区</a>
-          <a href={viewer ? "/profile" : `/profile?userId=${activeUserId}`}>画像</a>
-          {viewer ? null : (
-            <AccountSwitcher currentUserId={activeUserId} onChange={handleAccountChange} />
-          )}
-          <AuthNavigation viewer={viewer} />
-        </nav>
-      </header>
+      <ProductHeader active="routes" assistantOpen={chatOpen} city={city} contextAction={viewer ? null : <AccountSwitcher currentUserId={activeUserId} onChange={handleAccountChange} />} onAssistantToggle={() => setChatOpen((value) => !value)} variant="map" viewer={viewer} />
 
       <aside
         aria-label="recommendation controls"
         className="floating-panel dock-left controls-panel"
-        data-collapsed={collapsedPanels.controls ? "true" : "false"}
+        data-collapsed={controlsCollapsed ? "true" : "false"}
       >
         <button
-          aria-expanded={!collapsedPanels.controls}
+          aria-expanded={!controlsCollapsed}
           className="panel-toggle"
-          onClick={() => togglePanel("controls")}
+          onClick={() => setControlsCollapsed((value) => !value)}
           type="button"
         >
           <span className="panel-toggle-label">
@@ -455,7 +419,7 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId, vi
         <div className="panel-body">
           <label className="field">
             <span>城市</span>
-            <input value={city} onChange={(event) => setCity(event.target.value)} />
+            <input value={city} onChange={(event) => changeCity(event.target.value)} />
           </label>
 
           <div className="field">
@@ -650,34 +614,6 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId, vi
         </div>
       </aside>
 
-      {/* Fullscreen map: RouteMapCanvas renders its own .map-canvas-panel which is
-          promoted to position:fixed;inset:0 under .map-fullscreen. The metrics
-          strip, timeline, and dock panels below all float over it. */}
-      <div className="map-metrics floating-metrics" aria-label="recommendation pipeline metrics">
-        <div>
-          <MapPin size={16} />
-          <span>起点</span>
-          <strong>{originLabel}</strong>
-        </div>
-        <div className={isEstimatedTraffic ? "degraded" : ""}>
-          {isEstimatedTraffic ? <TriangleAlert size={16} /> : <Navigation size={16} />}
-          <span>高德 ETA</span>
-          <strong>
-            {isEstimatedTraffic ? "估算降级" : `${amapRouteCount}/${data.routes.length}`}
-          </strong>
-        </div>
-        <div>
-          <Navigation size={16} />
-          <span>路线</span>
-          <strong>{data.routes.length} 条 / {data.meta.candidateCount} 候选</strong>
-        </div>
-        <div>
-          <Clock3 size={16} />
-          <span>生成</span>
-          <strong>{mounted ? formatGeneratedAt(data.meta.generatedAt) : "…"}</strong>
-        </div>
-      </div>
-
       <RouteMapCanvas
         heatContext={heatContext}
         isLoading={isLoading}
@@ -686,65 +622,33 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId, vi
         selectedRouteId={selectedRoute?.id}
         ugcEnabled={ugcEnabled}
         userVenueContext={{ city, area: area || undefined }}
+        viewportInsets={{ desktop: [84, 500, 80, controlsCollapsed ? 72 : 330], tablet: [76, 440, 70, 34], mobile: [64, 24, 380, 24] }}
       />
-
-      <div className="floating-timeline">
-        <RouteTimeline route={selectedRoute} />
-      </div>
 
       <aside
         aria-label="route inspector"
-        className="floating-panel dock-right-top inspector-panel"
-        data-collapsed={collapsedPanels.inspector ? "true" : "false"}
+        className="commercial-route-panel"
+        data-open={inspectorOpen ? "true" : "false"}
+        data-snap={routeSheetSnap}
       >
-        <button
-          aria-expanded={!collapsedPanels.inspector}
-          className="panel-toggle"
-          onClick={() => togglePanel("inspector")}
-          type="button"
-        >
-          <span className="panel-toggle-label">
-            <Navigation size={16} />
-            <span>路线详情</span>
-          </span>
-          <ChevronDown className="panel-toggle-caret" size={16} />
-        </button>
-        <div className="panel-body">
+        <div className="commercial-route-panel-head">
+          <button aria-label="拖动或点击切换路线面板高度" className="route-sheet-handle" onClick={cycleRouteSheet} onPointerDown={(event) => { routeDragRef.current = { y: event.clientY, snap: routeSheetSnap, dragged: false }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { const drag = routeDragRef.current; if (drag && Math.abs(event.clientY - drag.y) >= 42) drag.dragged = true; }} onPointerUp={(event) => finishRouteDrag(event.clientY)} type="button"><span /></button>
+          <span><Navigation size={16} />今晚的路线</span>
+          <button aria-expanded={inspectorOpen} aria-label={inspectorOpen ? "收起路线面板" : "展开路线面板"} onClick={() => setInspectorOpen((value) => !value)} type="button"><ChevronDown size={18} /></button>
+        </div>
+        <div className="commercial-route-panel-scroll">
           <RouteInspector
             isLoading={isLoading}
-            onFeedbackRecorded={() => setProfileRevision((current) => current + 1)}
             onSelectRoute={setSelectedRouteId}
-            recommendationId={data.meta.recommendationId}
             routes={data.routes}
             selectedRouteId={selectedRoute?.id}
-            userId={viewer?.id}
           />
+          {selectedRoute ? <RouteFeedbackPrompt key={`feedback-${selectedRoute.id}`} onRecorded={() => undefined} recommendationId={data.meta.recommendationId} routeId={selectedRoute.id} userId={viewer?.id} /> : null}
+          {selectedRoute ? <a className="commercial-route-detail-link" href={`/routes/${selectedRoute.id}`}>打开独立路线页<Navigation size={15} /></a> : null}
         </div>
+        {selectedRoute ? <RouteActionBar canBuddy={Boolean(viewer)} key={`actions-${selectedRoute.id}`} onBuddyRequest={() => setBuddyOpen(true)} recommendationId={data.meta.recommendationId} route={selectedRoute} userId={viewer?.id} /> : null}
       </aside>
-
-      <aside
-        aria-label="city pulse"
-        className="floating-panel dock-right-bottom pulse-panel"
-        data-collapsed={collapsedPanels.pulse ? "true" : "false"}
-      >
-        <button
-          aria-expanded={!collapsedPanels.pulse}
-          className="panel-toggle"
-          onClick={() => togglePanel("pulse")}
-          type="button"
-        >
-          <span className="panel-toggle-label">
-            <Activity size={16} />
-            <span>城市脉动</span>
-          </span>
-          <ChevronDown className="panel-toggle-caret" size={16} />
-        </button>
-        <div className="panel-body">
-          <CityPulsePanel area={area || undefined} city={city} response={data} />
-          <UserProfilePanel profileKey={resolvedUserId} profileRevision={profileRevision} response={data} />
-        </div>
-      </aside>
-      <ChatDock open={chatOpen} onToggle={() => setChatOpen((v) => !v)} />
+      {buddyOpen && selectedRoute ? <RouteBuddySheet onClose={() => setBuddyOpen(false)} onCreated={(result) => { window.location.href = result.groupId ? `/buddy/groups/${result.groupId}` : `/buddy?routeId=${encodeURIComponent(selectedRoute.id)}&tab=mine`; }} route={{ id: selectedRoute.id, title: selectedRoute.title, summary: selectedRoute.summary, durationLabel: `${selectedRoute.traffic.estimatedDurationMinutes} 分钟`, stopCount: selectedRoute.places.length }} viewerId={viewer?.id} /> : null}
       <ChatDrawer
         open={chatOpen}
         onClose={() => setChatOpen(false)}

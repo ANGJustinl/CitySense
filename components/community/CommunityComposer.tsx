@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { MapPin, Route, Send, X } from "lucide-react";
 
 type SelectedVenue = { id: string; name: string; area: string | null };
@@ -26,19 +26,11 @@ export function CommunityComposer({ defaultCity, routeSnapshotId }: { defaultCit
   const [venueQuery, setVenueQuery] = useState("");
   const [venueResults, setVenueResults] = useState<VenueSearchHit[]>([]);
   const [venueSearching, setVenueSearching] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
   // 防抖搜索：输入变化后 300ms 触发查询
   useEffect(() => {
     const term = venueQuery.trim();
-    if (term.length < 1) {
-      setVenueResults([]);
-      setVenueSearching(false);
-      return;
-    }
-    setVenueSearching(true);
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
+    if (term.length < 1) return;
+    const timer = setTimeout(async () => {
       try {
         const params = new URLSearchParams({ query: term });
         if (city) params.set("city", city);
@@ -56,7 +48,7 @@ export function CommunityComposer({ defaultCity, routeSnapshotId }: { defaultCit
         setVenueSearching(false);
       }
     }, 300);
-    return () => clearTimeout(debounceRef.current);
+    return () => clearTimeout(timer);
   }, [venueQuery, city, selectedVenues]);
 
   function addVenue(hit: VenueSearchHit) {
@@ -128,7 +120,12 @@ export function CommunityComposer({ defaultCity, routeSnapshotId }: { defaultCit
           {selectedVenues.length < 3 ? (
             <div className="community-venue-search">
               <input
-                onChange={(event) => setVenueQuery(event.target.value)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setVenueQuery(value);
+                  if (value.trim()) setVenueSearching(true);
+                  else { setVenueSearching(false); setVenueResults([]); }
+                }}
                 placeholder="输入地点名搜索，如「咖啡馆」「书店」"
                 value={venueQuery}
                 type="text"

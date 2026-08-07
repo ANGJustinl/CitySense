@@ -1,235 +1,43 @@
 import Link from "next/link";
-import {
-  ArrowLeft,
-  Clock3,
-  ExternalLink,
-  Gauge,
-  Info,
-  MapPin,
-  MapPinned,
-  RadioTower,
-  ShieldCheck
-} from "lucide-react";
-import { getRouteDetail } from "@/server/routes/route-detail";
-import { RouteDetailMap } from "@/components/city/RouteDetailMap";
-import { PreviewableImage } from "@/components/city/ImagePreview";
-import { TrafficBadge } from "@/components/city/TrafficBadge";
-import { MomentRecommendationCard } from "@/components/city/MomentRecommendationCard";
-import {
-  buildRouteChoiceSummary,
-  buildRouteJourneyItems,
-  buildRoutePersona
-} from "@/components/city/route-display";
+import { ArrowLeft, MapPinned } from "lucide-react";
+import { ProductHeader } from "@/components/ProductHeader";
+import { RouteDetailCommercial } from "@/components/city/RouteDetailCommercial";
+import { getOptionalUser } from "@/server/auth/current-user";
+import { getRouteDetailRecord } from "@/server/routes/route-detail";
 
-export default async function RouteDetail({
-  params
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export const dynamic = "force-dynamic";
+
+export default async function RouteDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const detail = await getRouteDetail(id);
+  const [detail, user] = await Promise.all([getRouteDetailRecord(id), getOptionalUser()]);
+  const viewer = user ? { id: user.appUser.id, email: user.authUser.email ?? null, role: user.appUser.role } : null;
 
   if (!detail) {
     return (
-      <main className="route-detail-shell">
-        <Link className="back-link" href="/">
-          <ArrowLeft size={16} />
-          返回工作台
-        </Link>
+      <main className="product-page route-missing-page">
+        <ProductHeader active="routes" variant="page" viewer={viewer} />
         <section className="route-empty-state">
           <MapPinned size={28} />
-          <p className="eyebrow">Route detail</p>
+          <p className="product-kicker">ROUTE DETAIL</p>
           <h1>路线不存在</h1>
-          <p>当前路线 id 没有匹配到推荐快照。请回到工作台重新生成路线。</p>
+          <p>当前链接没有匹配到推荐快照，请回到地图重新生成路线。</p>
+          <Link className="product-button primary" href="/"><ArrowLeft size={16} />返回路线地图</Link>
         </section>
       </main>
     );
   }
 
-  const { route, map, recommendation } = detail;
-  const summary = buildRouteChoiceSummary(route);
-  const persona = buildRoutePersona(route);
-  const journeyItems = buildRouteJourneyItems(route);
+  const ownerId = detail.recommendation.ownerUserId;
+  const ownsRoute = Boolean(viewer && ownerId && viewer.id === ownerId);
 
   return (
-    <main className="route-detail-shell">
-      <header className="route-detail-topbar">
-        <Link className="back-link" href="/">
-          <ArrowLeft size={16} />
-          返回工作台
-        </Link>
-        <span>Recommendation {recommendation.id.slice(0, 8)}</span>
-      </header>
-
-      <section className="route-detail-grid">
-        <div className="route-detail-map-panel">
-          <RouteDetailMap map={map} />
-        </div>
-
-        <aside className="route-detail-side">
-          <div className="route-detail-heading">
-            <p className="eyebrow">Route detail</p>
-            <h1>{route.title}</h1>
-            <p>{summary.endpointLabel}</p>
-          </div>
-
-          <MomentRecommendationCard card={route.momentCard} />
-
-          <div className={`route-detail-persona theme-${persona.themeKey}`}>
-            {persona.representativePlace.imageUrl ? (
-              <PreviewableImage
-                alt={persona.representativePlace.name}
-                className="route-detail-persona-image"
-                loading="lazy"
-                src={persona.representativePlace.imageUrl}
-              />
-            ) : (
-              <span>{persona.themeName.slice(0, 1)}</span>
-            )}
-            <div>
-              <strong>{persona.themeName}</strong>
-              <p>{persona.featureText}</p>
-              <div className="route-story-tags">
-                {persona.tags.length > 0 ? (
-                  persona.tags.map((tag) => <span key={tag}>{tag}</span>)
-                ) : (
-                  <span>城市探索</span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="route-detail-metrics">
-            <span>
-              <Clock3 size={15} />
-              {summary.durationLabel}
-            </span>
-            <span>
-              <MapPin size={15} />
-              {summary.stopCountLabel}
-            </span>
-            <span>
-              <Gauge size={15} />
-              {summary.scoreLabel}
-            </span>
-            <TrafficBadge traffic={route.traffic} />
-          </div>
-
-          <div className="route-detail-section compact">
-            <h2>路线亮点</h2>
-            <p>{route.reason}</p>
-          </div>
-
-          {route.momentFit ? (
-            <div className="route-detail-section compact">
-              <h2>此刻可行</h2>
-              <p>{route.momentFit.whyNow}</p>
-              <div className="moment-fact-row detail">
-                {route.momentFit.facts.map((fact) => (
-                  <span key={`${fact.label}-${fact.value}`}>
-                    {fact.label}: <strong>{fact.value}</strong>
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="route-journey-list">
-            {journeyItems.map((item) => (
-              <div
-                className={
-                  item.id === persona.representativePlace.id
-                    ? `route-journey-row ${item.type} featured`
-                    : `route-journey-row ${item.type}`
-                }
-                key={item.id}
-              >
-                <span>{item.label}</span>
-                <div>
-                  {"legLabel" in item && item.legLabel ? <em>{item.legLabel}</em> : null}
-                  <strong>{item.title}</strong>
-                  {"address" in item ? <p>{item.address}</p> : null}
-                  {"tags" in item && item.tags.length > 0 ? (
-                    <div className="tag-row">
-                      {item.tags.slice(0, 4).map((tag) => (
-                        <em key={tag}>{tag}</em>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {route.evidence ? (
-            <div className="route-detail-section">
-              <h2>
-                <ShieldCheck size={16} />
-                可信证据
-              </h2>
-              <div className="route-signal-list evidence">
-                {route.evidence.placeChecks.map((check) => (
-                  <div key={check.placeId}>
-                    <ShieldCheck size={15} />
-                    <span>{check.label}</span>
-                    <strong>{Math.round(check.confidence * 100)}%</strong>
-                  </div>
-                ))}
-              </div>
-              {route.evidence.caveats.length > 0 ? (
-                <div className="evidence-caveats detail">
-                  {route.evidence.caveats.map((caveat) => (
-                    <p key={caveat}>
-                      <Info size={13} />
-                      {caveat}
-                    </p>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="route-detail-section">
-            <h2>来源信号</h2>
-            <div className="route-signal-list">
-              {route.sourceSignals.length > 0 ? (
-                route.sourceSignals.map((signal) => (
-                  <div key={`${signal.source}-${signal.label}`}>
-                    <RadioTower size={15} />
-                    <span>{signal.label}</span>
-                    <strong>{signal.score}</strong>
-                  </div>
-                ))
-              ) : (
-                <p className="pulse-empty">暂无来源信号</p>
-              )}
-            </div>
-          </div>
-
-          <div className="route-detail-section">
-            <h2>出行建议</h2>
-            {route.tips.length > 0 ? (
-              route.tips.map((tip) => <p key={tip}>{tip}</p>)
-            ) : (
-              <p className="pulse-empty">暂无额外建议</p>
-            )}
-          </div>
-
-          <div className="route-detail-community-actions">
-            <Link className="buddy-route-detail-cta" href={`/buddy?routeId=${encodeURIComponent(route.id)}&compose=POST`}>
-              找搭子走这条路线
-            </Link>
-            <Link className="community-route-detail-cta" href={`/community/new?routeId=${encodeURIComponent(route.id)}`}>
-              分享这条路线
-            </Link>
-          </div>
-
-          <a className="text-link" href={`/api/routes/${route.id}`}>
-            查看 API 响应
-            <ExternalLink size={14} />
-          </a>
-        </aside>
-      </section>
-    </main>
+    <RouteDetailCommercial
+      city={detail.recommendation.input.city ?? "北京"}
+      map={detail.map}
+      ownsRoute={ownsRoute}
+      recommendationId={detail.recommendation.id}
+      route={detail.route}
+      viewer={viewer}
+    />
   );
 }

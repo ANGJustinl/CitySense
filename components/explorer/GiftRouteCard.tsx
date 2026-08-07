@@ -270,7 +270,7 @@ const giftCardStyles = `
 }
 
 .gift-title {
-  font-family: 'Noto Serif SC', serif;
+  font-family: var(--font-display, 'LXGW WenKai GB', serif);
   font-size: 20px;
   font-weight: 700;
   color: var(--text-primary, #1a2e2b);

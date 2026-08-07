@@ -18,7 +18,7 @@
 .submit-place-lede { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0; max-width: 430px; }
 .submit-place-steps { border-top: 1px solid rgba(24, 33, 29, .13); display: grid; gap: 17px; list-style: none; margin: 38px 0 0; padding: 19px 0 0; }
 .submit-place-steps li { align-items: start; display: flex; gap: 13px; }
-.submit-place-steps b { color: var(--coral); font-family: Georgia, serif; font-size: 12px; padding-top: 2px; }
+.submit-place-steps b { color: var(--coral); font-family: var(--font-body); font-size: 12px; padding-top: 2px; }
 .submit-place-steps span { display: grid; gap: 3px; }
 .submit-place-steps strong { font-size: 13px; }
 .submit-place-steps small { color: var(--muted); font-size: 11px; line-height: 1.5; }
@@ -33,7 +33,7 @@
 .submit-place-form { display: grid; gap: 27px; }
 .submit-place-section { border-bottom: 1px solid rgba(24, 33, 29, .1); display: grid; gap: 15px; padding-bottom: 27px; }
 .submit-place-section-title { align-items: start; display: flex; gap: 12px; margin-bottom: 2px; }
-.submit-place-section-title > span { color: var(--coral); font-family: Georgia, serif; font-size: 13px; padding-top: 2px; }
+.submit-place-section-title > span { color: var(--coral); font-family: var(--font-body); font-size: 13px; padding-top: 2px; }
 .submit-place-section-title div { display: grid; gap: 3px; }
 .submit-place-section-title h3 { font-size: 17px; margin: 0; }
 .submit-place-section-title p { color: var(--muted); font-size: 11px; margin: 0; }

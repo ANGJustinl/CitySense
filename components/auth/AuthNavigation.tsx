@@ -14,6 +14,7 @@ import {
   UserRound
 } from "lucide-react";
 import { signOut } from "@/app/auth/actions";
+import { UserAvatar } from "@/components/UserAvatar";
 
 export type AuthViewer = {
   id: string;
@@ -51,7 +52,6 @@ export function AuthNavigation({ viewer }: { viewer: AuthViewer }) {
   }
 
   const email = viewer.email ?? "CitySense 用户";
-  const initial = email.charAt(0).toUpperCase();
   const canManage = viewer.role === "ADMIN" || viewer.role === "MODERATOR";
 
   return (
@@ -63,7 +63,7 @@ export function AuthNavigation({ viewer }: { viewer: AuthViewer }) {
         onClick={() => setOpen((value) => !value)}
         type="button"
       >
-        <span className="auth-account-avatar">{initial}</span>
+        <UserAvatar className="auth-account-avatar" identity={viewer.id} name={email} />
         <span className="auth-account-copy">
           <span>{email}</span>
           <small>CitySense 账户</small>

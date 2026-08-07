@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+@font-face {
+  font-display: swap;
+  font-family: "LXGW Neo XiHei";
+  font-style: normal;
+  font-weight: 400;
+  src: url("/fonts/LXGWNeoXiHei-v1.304.woff") format("woff");
+}
+
 :root {
   --bg: #f4f6f2;
   --surface: #ffffff;
@@ -32,9 +40,25 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+    "LXGW Neo XiHei", "PingFang SC", "Microsoft YaHei", ui-sans-serif,
+    system-ui, sans-serif;
   letter-spacing: 0;
+}
+
+.default-user-avatar {
+  align-items: center;
+  background-color: #dce8e2;
+  border-radius: 50%;
+  display: inline-flex;
+  flex: 0 0 auto;
+  justify-content: center;
+  overflow: hidden;
+  image-rendering: auto;
+}
+
+.default-user-avatar.generated {
+  background-color: #f3f0e7;
+  box-shadow: inset 0 0 0 1px rgba(23, 61, 53, 0.22);
 }
 
 button,
@@ -3782,7 +3806,7 @@ p {
   box-shadow: 0 10px 24px rgba(24, 33, 29, 0.16);
   color: var(--ink);
   display: grid;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: "LXGW Neo XiHei", "PingFang SC", "Microsoft YaHei", sans-serif;
   gap: 2px;
   max-width: 178px;
   min-width: 112px;
@@ -3864,7 +3888,7 @@ p {
   box-shadow: 0 8px 18px rgba(24, 33, 29, 0.22);
   color: white;
   display: inline-flex;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: "LXGW Neo XiHei", "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 13px;
   font-weight: 900;
   height: 30px;
@@ -6122,7 +6146,7 @@ D
 }
 
 .hero-title {
-  font-family: 'Noto Serif SC', serif;
+  font-family: var(--font-display, "LXGW WenKai GB", serif);
   font-size: clamp(42px, 8vw, 96px);
   font-weight: 700;
   line-height: 1.1;
@@ -6236,7 +6260,7 @@ D
 }
 
 .section-title {
-  font-family: 'Noto Serif SC', serif;
+  font-family: var(--font-display, "LXGW WenKai GB", serif);
   font-size: clamp(28px, 5vw, 42px);
   font-weight: 700;
   color: var(--text-primary);
@@ -6558,7 +6582,7 @@ D
 }
 
 .route-gift-title {
-  font-family: 'Noto Serif SC', serif;
+  font-family: var(--font-display, "LXGW WenKai GB", serif);
   font-size: 24px;
   font-weight: 700;
   color: var(--text-primary);
@@ -6860,7 +6884,7 @@ D
   margin-bottom: 18px;
 }
 .auth-story-copy h2 {
-  font-family: Georgia, "Noto Serif SC", serif;
+  font-family: var(--font-display, "LXGW WenKai GB", serif);
   font-size: clamp(42px, 5.4vw, 72px);
   font-weight: 500;
   letter-spacing: -0.055em;
@@ -6900,7 +6924,7 @@ D
 .auth-intent-nav a { border-radius: 7px; color: var(--muted); font-size: 13px; font-weight: 800; padding: 10px; text-align: center; }
 .auth-intent-nav a.active { background: white; box-shadow: 0 3px 12px rgba(24, 33, 29, 0.09); color: var(--ink); }
 .auth-card-heading { align-items: center; display: flex; gap: 13px; }
-.auth-card-heading h1 { font-family: Georgia, "Noto Serif SC", serif; font-size: 30px; font-weight: 500; letter-spacing: -0.035em; }
+.auth-card-heading h1 { font-family: var(--font-display, "LXGW WenKai GB", serif); font-size: 30px; font-weight: 500; letter-spacing: -0.035em; }
 .auth-card-icon { align-items: center; background: #e4f2ef; border-radius: 10px; color: var(--accent); display: inline-flex; height: 42px; justify-content: center; width: 42px; }
 .auth-description { color: var(--muted); font-size: 14px; line-height: 1.65; margin-top: 15px; }
 .auth-alert, .auth-form-error { background: #fff0eb; border: 1px solid rgba(199, 88, 58, 0.24); border-radius: 9px; color: #9c3e27; font-size: 12px; line-height: 1.55; padding: 11px 12px; }
@@ -6993,14 +7017,6 @@ D
   .auth-submit { transition: none; }
 }
 
-/* Buddy — two people sharing one city route */
-.buddy-page-shell{min-height:100svh;padding:28px clamp(18px,5vw,76px) 72px;background:radial-gradient(circle at 8% 8%,rgba(8,127,122,.14),transparent 28%),radial-gradient(circle at 92% 12%,rgba(199,88,58,.12),transparent 26%),linear-gradient(145deg,#f4f6f2 0%,#eef3ee 48%,#f8f1e9 100%)}
-.buddy-page-shell.detail{display:grid;place-items:center}.buddy-page-nav{display:flex;justify-content:space-between;margin:0 auto 28px;max-width:1180px}.buddy-page-nav a,.buddy-route-filter{align-items:center;display:flex;gap:8px;color:var(--muted);font-size:14px}.buddy-hub{max-width:1180px;margin:auto}.buddy-hub-hero{align-items:center;display:grid;grid-template-columns:1fr auto;min-height:260px;padding:40px 44px;border:1px solid rgba(255,255,255,.8);border-radius:34px;background:rgba(255,255,255,.7);box-shadow:var(--shadow);backdrop-filter:blur(20px);overflow:hidden}.buddy-hub-hero h1{font-family:"STKaiti","KaiTi",serif;font-size:clamp(38px,6vw,76px);font-weight:500;line-height:1;margin:12px 0 20px;max-width:780px}.buddy-hub-hero p:last-child{color:var(--muted);max-width:620px;line-height:1.8}.buddy-orbit{align-items:center;background:var(--ink);border-radius:50%;color:#fff;display:flex;height:130px;justify-content:center;width:130px;box-shadow:0 0 0 24px rgba(8,127,122,.08),0 0 0 48px rgba(8,127,122,.04);animation:buddy-float 4s ease-in-out infinite}@keyframes buddy-float{50%{transform:translateY(-9px) rotate(8deg)}}
-.buddy-tabs{display:flex;gap:8px;margin:24px 0;padding:7px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.72);width:max-content;max-width:100%}.buddy-tabs button{border:0;border-radius:12px;background:transparent;color:var(--muted);padding:10px 15px}.buddy-tabs button.active{background:var(--ink);color:#fff}.buddy-tabs em{font-style:normal;opacity:.65;margin-left:5px}.buddy-tabs .buddy-refresh{margin-left:auto;color:var(--accent)}.buddy-card-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.buddy-intent-card{background:rgba(255,255,255,.84);border:1px solid rgba(255,255,255,.95);border-radius:24px;padding:22px;box-shadow:var(--shadow-quiet);transition:transform .2s ease,box-shadow .2s ease}.buddy-intent-card:hover{transform:translateY(-5px);box-shadow:var(--shadow)}.buddy-card-top{align-items:center;display:flex;gap:10px}.buddy-card-top>svg{margin-left:auto}.buddy-card-top div{display:grid}.buddy-card-top small{color:var(--muted)}.buddy-avatar{align-items:center;background:linear-gradient(135deg,var(--accent),var(--accent-strong));border:2px solid #fff;border-radius:50%;color:#fff;display:inline-flex;flex:0 0 auto;height:36px;justify-content:center;width:36px}.buddy-avatar.large{height:54px;width:54px}.buddy-intent-card h2{font-size:21px;margin:22px 0 8px}.buddy-intent-card>p{color:var(--muted);line-height:1.55;min-height:48px}.buddy-card-meta{border-top:1px solid var(--line);display:grid;gap:8px;margin-top:18px;padding-top:15px}.buddy-card-meta span{align-items:center;display:flex;gap:7px;font-size:13px}.buddy-empty{border:1px dashed var(--line);border-radius:22px;color:var(--muted);padding:44px;text-align:center}.buddy-empty.compact{padding:22px}.buddy-empty.error,.buddy-error{color:#9c382c}
-.buddy-route-cta,.buddy-route-detail-cta{align-items:center;background:linear-gradient(135deg,#102c28,#087f7a);border:0;border-radius:17px;color:#fff;display:grid;grid-template-columns:auto 1fr;gap:1px 12px;margin:16px 0;padding:15px 17px;text-align:left;width:100%}.buddy-route-cta span{grid-row:1/3;align-items:center;display:flex}.buddy-route-cta small{opacity:.7}.buddy-route-detail-cta{display:block;text-align:center;font-weight:700}.buddy-modal-backdrop{align-items:center;background:rgba(10,20,17,.54);display:flex;inset:0;justify-content:center;padding:20px;position:fixed;z-index:1000;backdrop-filter:blur(10px)}.buddy-composer{background:#fbfcf8;border-radius:28px;box-shadow:0 28px 90px rgba(0,0,0,.25);max-height:92vh;max-width:720px;overflow:auto;padding:32px;position:relative;width:100%}.buddy-composer-close{background:var(--surface-muted);border:0;border-radius:50%;display:grid;place-items:center;height:36px;position:absolute;right:22px;top:22px;width:36px}.buddy-composer h2{font-family:"STKaiti","KaiTi",serif;font-size:38px;font-weight:500;margin:8px 0}.buddy-composer-route{align-items:center;color:var(--accent);display:flex;gap:7px}.buddy-mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:24px 0}.buddy-mode-grid button{border:1px solid var(--line);border-radius:18px;background:#fff;display:grid;gap:5px;padding:18px;text-align:left}.buddy-mode-grid button.active{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);background:#edf8f5}.buddy-mode-grid span{color:var(--muted);font-size:13px}.buddy-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.buddy-form-grid label,.buddy-wide-field,.buddy-profile-editor label{display:grid;gap:7px}.buddy-form-grid label span,.buddy-wide-field span,.buddy-profile-editor label span{align-items:center;display:flex;gap:6px;color:var(--muted);font-size:13px}.buddy-form-grid input,.buddy-wide-field input,.buddy-wide-field textarea,.buddy-profile-editor input,.buddy-profile-editor textarea,.buddy-apply-box textarea,.buddy-chat-form textarea{border:1px solid var(--line);border-radius:13px;background:#fff;padding:12px 13px;resize:vertical}.buddy-wide-field{margin-top:14px}.buddy-submit{margin-top:20px;width:100%}.buddy-privacy-note{color:var(--muted);font-size:12px;text-align:center}
-.buddy-detail-card,.buddy-profile-editor{background:rgba(255,255,255,.88);border:1px solid #fff;border-radius:30px;box-shadow:var(--shadow);max-width:800px;padding:34px;width:100%}.buddy-detail-owner,.buddy-profile-portrait{align-items:center;display:flex;gap:18px;margin:28px 0}.buddy-detail-owner h1,.buddy-profile-portrait h1{font-family:"STKaiti","KaiTi",serif;font-size:36px;font-weight:500;margin:5px 0}.buddy-route-ticket{background:var(--ink);border-radius:22px;color:#fff;display:grid;gap:10px;padding:24px;position:relative;overflow:hidden}.buddy-route-ticket>span{color:#9fe0d9;font-size:13px}.buddy-route-ticket>strong{font-size:22px}.buddy-route-ticket div{display:flex;flex-wrap:wrap;gap:18px}.buddy-route-ticket em{align-items:center;display:flex;font-style:normal;gap:6px;opacity:.78}.buddy-detail-card blockquote{border-left:3px solid var(--coral);color:var(--muted);margin:22px 0;padding:8px 16px}.buddy-apply-box{display:grid;gap:12px;margin-top:22px}.buddy-applications article{align-items:center;border-top:1px solid var(--line);display:flex;justify-content:space-between;padding:16px 0}.buddy-applications article p{color:var(--muted);margin:5px 0}.buddy-applications article span{display:flex;gap:8px}.buddy-applications button,.buddy-safety-actions button{align-items:center;border:1px solid var(--line);border-radius:10px;background:#fff;display:flex;gap:5px;padding:8px 10px}.buddy-applications button.accept{background:var(--accent);border-color:var(--accent);color:#fff}
-.buddy-group-layout{display:grid;grid-template-columns:minmax(260px,370px) 1fr;gap:20px;max-width:1180px;margin:auto}.buddy-group-header{align-items:center;display:grid;grid-column:1/-1;grid-template-columns:1fr auto auto;gap:24px}.buddy-group-header>a{align-items:center;display:flex;gap:7px}.buddy-group-header h1{margin:4px 0}.buddy-status{border-radius:999px;background:#dff2e9;color:#267254;padding:7px 12px;font-size:12px}.buddy-status.cancelled{background:#f5dfda;color:#963e2e}.buddy-group-plan,.buddy-chat{background:rgba(255,255,255,.88);border:1px solid #fff;border-radius:26px;box-shadow:var(--shadow-quiet);padding:24px}.buddy-member-stack{display:flex}.buddy-member-stack .buddy-avatar+.buddy-avatar{margin-left:-12px}.buddy-meeting-card{background:var(--surface-muted);border-radius:18px;display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:24px 0;padding:18px}.buddy-meeting-card svg{grid-row:1/4}.buddy-meeting-card small{color:var(--muted)}.buddy-safety-actions{display:flex;gap:8px;flex-wrap:wrap}.buddy-chat{display:grid;grid-template-rows:1fr auto;min-height:620px}.buddy-message-list{display:flex;flex-direction:column;gap:17px;max-height:540px;overflow:auto;padding-right:7px}.buddy-message-list article{align-items:flex-start;display:flex;gap:10px}.buddy-message-list article div{background:var(--surface-muted);border-radius:4px 17px 17px 17px;max-width:75%;padding:11px 14px}.buddy-message-list strong{font-size:12px}.buddy-message-list p{margin:5px 0;white-space:pre-wrap}.buddy-message-list time{color:var(--muted);font-size:11px}.buddy-chat-form{align-items:end;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:16px;padding-top:16px}.buddy-chat-form button{align-items:center;background:var(--accent);border:0;border-radius:50%;color:#fff;display:flex;height:42px;justify-content:center;width:42px}.buddy-profile-editor form{display:grid;gap:16px}.buddy-form-message{color:var(--accent)}
-@media(max-width:860px){.buddy-card-grid{grid-template-columns:1fr}.buddy-hub-hero{grid-template-columns:1fr;padding:30px 24px}.buddy-orbit{display:none}.buddy-group-layout{grid-template-columns:1fr}.buddy-chat{min-height:520px}}@media(max-width:560px){.buddy-page-shell{padding:18px 12px 52px}.buddy-tabs{overflow:auto;width:100%}.buddy-tabs button{white-space:nowrap}.buddy-form-grid,.buddy-mode-grid{grid-template-columns:1fr}.buddy-composer{border-radius:22px;padding:25px 18px}.buddy-detail-card,.buddy-profile-editor{border-radius:22px;padding:22px 17px}.buddy-group-header{grid-template-columns:1fr auto}.buddy-group-header>div{grid-column:1/-1;grid-row:2}}
 
 
 /* Published user-submitted venue discovery layer. */
