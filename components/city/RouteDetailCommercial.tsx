@@ -3,7 +3,7 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { ArrowLeft, PenLine, RefreshCw } from "lucide-react";
 import type { RecommendedRoute } from "@/server/recommendation/types";
 import type { RouteMapView } from "@/server/routes/route-detail";
 import type { AuthViewer } from "@/components/auth/AuthNavigation";
@@ -45,7 +45,13 @@ export function RouteDetailCommercial({ route, map, recommendationId, city, view
                 <Link className="product-button quiet" href={`/?city=${encodeURIComponent(city)}` as Route}><RefreshCw size={16} />生成相似路线</Link>
               </div>
             ) : (
-              <RouteFeedbackPrompt recommendationId={recommendationId} routeId={route.id} userId={viewer?.id} />
+              <>
+                <Link className="commercial-route-community-link" href={`/community/new?routeId=${encodeURIComponent(route.id)}&city=${encodeURIComponent(city)}`}>
+                  <PenLine size={16} />
+                  <span><strong>把这条路线写成城市手记</strong><small>路线会作为可读注脚带入编辑台</small></span>
+                </Link>
+                <RouteFeedbackPrompt recommendationId={recommendationId} routeId={route.id} userId={viewer?.id} />
+              </>
             )}
           </div>
           <RouteActionBar

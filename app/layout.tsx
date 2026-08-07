@@ -34,8 +34,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN" suppressHydrationWarning>
-      <body className={`${neoXiHei.variable} ${wenKai.variable}`}>{children}</body>
+    <html className={`${neoXiHei.variable} ${wenKai.variable}`} lang="zh-CN" suppressHydrationWarning>
+      <body>{children}</body>
     </html>
   );
 }

@@ -645,6 +645,7 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId, vi
           />
           {selectedRoute ? <RouteFeedbackPrompt key={`feedback-${selectedRoute.id}`} onRecorded={() => undefined} recommendationId={data.meta.recommendationId} routeId={selectedRoute.id} userId={viewer?.id} /> : null}
           {selectedRoute ? <a className="commercial-route-detail-link" href={`/routes/${selectedRoute.id}`}>打开独立路线页<Navigation size={15} /></a> : null}
+          {selectedRoute && viewer ? <a className="commercial-route-community-link compact" href={`/community/new?routeId=${encodeURIComponent(selectedRoute.id)}&city=${encodeURIComponent(city)}`}>把路线写成城市手记</a> : null}
         </div>
         {selectedRoute ? <RouteActionBar canBuddy={Boolean(viewer)} key={`actions-${selectedRoute.id}`} onBuddyRequest={() => setBuddyOpen(true)} recommendationId={data.meta.recommendationId} route={selectedRoute} userId={viewer?.id} /> : null}
       </aside>

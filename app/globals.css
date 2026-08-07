@@ -32,6 +32,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-body);
+  font-synthesis: none;
   letter-spacing: 0;
 }
 
@@ -1995,7 +1996,7 @@ p {
 .moment-card-proof span {
   color: #6b604c;
   font-size: 12px;
-  font-weight: 820;
+  font-weight: 700;
   line-height: 1.45;
 }
 
@@ -2866,7 +2867,7 @@ p {
 .map-gesture-copy p {
   color: rgba(255, 255, 255, 0.78);
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 700;
   line-height: 1.35;
   margin: 0;
 }
@@ -3293,7 +3294,7 @@ p {
   color: var(--muted);
   display: none;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 700;
   line-height: 1.35;
 }
 
@@ -4179,7 +4180,7 @@ p {
 .route-story-card p {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 700;
   line-height: 1.35;
   margin: 0;
 }
@@ -4705,7 +4706,7 @@ p {
 .profile-note-link {
   font-size: 0.78rem;
   color: var(--accent);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .profile-note-link:hover {
@@ -4838,7 +4839,7 @@ p {
 
 .pulse-token-row .tone-ok {
   color: var(--accent);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .pulse-token-row .tone-drop {
@@ -5705,7 +5706,7 @@ D
   font-size: 0.82rem;
   color: var(--muted);
   margin-bottom: 12px;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 /* 待表态标签卡片网格 */
@@ -5885,7 +5886,7 @@ D
 
 .onboarding-form .field span {
   font-size: 0.82rem;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .onboarding-form input[type="text"] {
@@ -5980,7 +5981,7 @@ D
 
 .radar-legend-label {
   font-size: 0.82rem;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .radar-legend-label strong {
@@ -6848,7 +6849,7 @@ D
   color: var(--muted);
   display: inline-flex;
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 700;
   gap: 8px;
 }
 .auth-back-link:hover { color: var(--accent-strong); }
@@ -6876,7 +6877,7 @@ D
 .auth-story-copy h2 {
   font-family: var(--font-display);
   font-size: clamp(42px, 5.4vw, 72px);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.055em;
   line-height: 1.08;
 }
@@ -6914,7 +6915,7 @@ D
 .auth-intent-nav a { border-radius: 7px; color: var(--muted); font-size: 13px; font-weight: 700; padding: 10px; text-align: center; }
 .auth-intent-nav a.active { background: white; box-shadow: 0 3px 12px rgba(24, 33, 29, 0.09); color: var(--ink); }
 .auth-card-heading { align-items: center; display: flex; gap: 13px; }
-.auth-card-heading h1 { font-family: var(--font-display); font-size: 30px; font-weight: 500; letter-spacing: -0.035em; }
+.auth-card-heading h1 { font-family: var(--font-display); font-size: 30px; font-weight: 400; letter-spacing: -0.035em; }
 .auth-card-icon { align-items: center; background: #e4f2ef; border-radius: 10px; color: var(--accent); display: inline-flex; height: 42px; justify-content: center; width: 42px; }
 .auth-description { color: var(--muted); font-size: 14px; line-height: 1.65; margin-top: 15px; }
 .auth-alert, .auth-form-error { background: #fff0eb; border: 1px solid rgba(199, 88, 58, 0.24); border-radius: 9px; color: #9c3e27; font-size: 12px; line-height: 1.55; padding: 11px 12px; }

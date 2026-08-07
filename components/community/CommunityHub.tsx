@@ -1,6 +1,6 @@
 import type { Route } from "next";
 import Link from "next/link";
-import { ArrowUpRight, MapPin, PenLine, Route as RouteIcon } from "lucide-react";
+import { ArrowUpRight, BookOpenText, MapPin, PenLine, Route as RouteIcon, UsersRound } from "lucide-react";
 import { CommunityFeed } from "@/components/community/CommunityFeed";
 import { communityFeedContextKey, communityPageHref, type CommunityFeedContext } from "@/lib/community/feed-context";
 import type { CommunityPostView } from "@/server/community/types";
@@ -45,8 +45,8 @@ export function CommunityHub({
             <p className="eyebrow">CITY NOTES · 城市手记</p>
             <span><MapPin size={13} />{city}生活流</span>
           </div>
-          <h1>把今天的城市，留给同路的人。</h1>
-          <p>记录一间刚发现的小店、一条值得慢慢走的路线，或只是此刻街角的风。</p>
+          <h1>城市手记</h1>
+          <p>把今天遇见的店、路线与街角瞬间，留给下一位经过的人。</p>
           <div className="community-hero-actions">
             <a className="primary-button" href={viewerId ? "/community/new" : "/login?next=%2Fcommunity%2Fnew"}>
               <PenLine size={16} />写一则手记
@@ -57,10 +57,12 @@ export function CommunityHub({
           </div>
         </div>
         <aside aria-label="城市手记栏目" className="community-issue-mark">
-          <span>CITY FIELD NOTES</span>
-          <strong>{city}城市现场</strong>
-          <p>地点、路线与街角瞬间</p>
-          <div><span>真实分享</span><span>同城连接</span></div>
+          <p>CITY EDITOR&apos;S DESK</p>
+          <strong>{city}编辑部</strong>
+          <dl>
+            <div><dt><BookOpenText aria-hidden="true" size={15} />本页手记</dt><dd>{initialPosts.length}</dd></div>
+            <div><dt><UsersRound aria-hidden="true" size={15} />当前栏目</dt><dd>{scope === "following" ? "关注" : "全城"}</dd></div>
+          </dl>
         </aside>
       </header>
       <nav className="community-channel-strip" aria-label="社区频道">
