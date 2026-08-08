@@ -5,6 +5,7 @@ import { CloudRain, MapPin, Star, Sun, TrendingUp } from "lucide-react";
 import type { ChatCard } from "@/hooks/useChat";
 import { ChatActionCard } from "@/components/assistant/ChatActionCard";
 import { ChatPlaceUploadCard } from "@/components/assistant/ChatPlaceUploadCard";
+import { ChatPostUploadCard } from "@/components/assistant/ChatPostUploadCard";
 
 /**
  * 聊天气泡内的富文本卡片渲染。
@@ -92,7 +93,13 @@ export function ChatCards({ cards }: { cards: ChatCard[] }) {
         }
 
         if (card.kind === "action_pending") return <ChatActionCard card={card} key={`action-${card.actionId}`} />;
-        if (card.kind === "post_created") return <Link className="chat-card" href={{ pathname: card.url }} key={`post-${card.postId}`}>城市手记已发布，查看详情</Link>;
+        if (card.kind === "post_created") return (
+          <div className="chat-card" key={`post-${card.postId}`}>
+            <Link href={{ pathname: card.url }}>城市手记已发布，查看详情</Link>
+            <p className="chat-card-meta">可以直接在这里补充现场照片</p>
+            <ChatPostUploadCard postId={card.postId} />
+          </div>
+        );
         if (card.kind === "place_drafted") return <div className="chat-card" key={`place-${card.submissionId}`}><Link href="/my-submissions">地点草稿：{card.name}</Link><p className="chat-card-meta">可以直接在这里上传现场照片</p><ChatPlaceUploadCard submissionId={card.submissionId} /></div>;
         if (card.kind === "intent_created") return <Link className="chat-card" href={`/buddy/intents/${card.intentId}`} key={`intent-${card.intentId}`}>搭子组队已创建</Link>;
         return null;

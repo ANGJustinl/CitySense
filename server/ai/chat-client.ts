@@ -13,14 +13,24 @@
 
 
 const DEFAULT_CHAT_MODEL = "glm-4-flash";
+const DEFAULT_CHAT_VISION_MODEL = "glm-4.5v";
 const DEFAULT_CHAT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
 const DEFAULT_CHAT_TIMEOUT_MS = 30_000;
 const MAX_TOOL_ROUNDS = 5;
 
-/** OpenAI/智谱兼容的 chat message 格式。 */
+/**
+ * 多模态消息内容片段(OpenAI/智谱通用格式)。
+ * - text:纯文本片段。
+ * - image_url:图片片段,url 可为 https 链接或 base64 data URL。
+ */
+export type ChatContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+/** OpenAI/智谱兼容的 chat message 格式。content 可为纯文本或多模态片段数组。 */
 export type ChatMessage = {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
+  content: string | ChatContentPart[] | null;
   tool_calls?: Array<{
     id: string;
     type: "function";
@@ -68,6 +78,8 @@ export type ChatContext = {
   area?: string;
   /** Server-only marker used when committing a confirmed action. */
   confirmedAction?: boolean;
+  /** 待绑定到写操作(post/submission)的暂存图 ChatImage.id 列表(confirm 时透传)。 */
+  attachImageIds?: string[];
 };
 
 class ZhipuChatClient implements ChatCompletionClient {
@@ -275,6 +287,34 @@ export function createDefaultChatClient(): ChatCompletionClient | undefined {
   return new ZhipuChatClient({ apiKey, baseUrl, model });
 }
 
+/**
+ * 创建视觉(多模态)chat 客户端。无 OPENAI_API_KEY 时返回 undefined。
+ *
+ * 复用与文本客户端相同的 apiKey / baseUrl,仅切换模型:
+ * 模型优先级:CHAT_LLM_VISION_MODEL(默认 glm-4.5v)。
+ *
+ * 按需切换策略:纯文字消息走 createDefaultChatClient(glm-4-flash,tools 稳定);
+ * 带图消息走本客户端(glm-4.5v,支持 image_url 多模态输入)。
+ */
+export function createDefaultChatVisionClient(): ChatCompletionClient | undefined {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+
+  if (!apiKey) {
+    return undefined;
+  }
+
+  const baseUrl =
+    process.env.CHAT_LLM_BASE_URL?.trim() ||
+    process.env.OPENAI_BASE_URL?.trim() ||
+    process.env.OPENAI_API_BASE?.trim() ||
+    process.env.API_BASE?.trim() ||
+    DEFAULT_CHAT_BASE_URL;
+
+  const model = process.env.CHAT_LLM_VISION_MODEL?.trim() || DEFAULT_CHAT_VISION_MODEL;
+
+  return new ZhipuChatClient({ apiKey, baseUrl, model });
+}
+
 /** 供测试注入 mock fetch。 */
 export function createChatClient(input: {
   apiKey: string;
@@ -288,3 +328,4 @@ export function createChatClient(input: {
 export const CHAT_MAX_TOOL_ROUNDS = MAX_TOOL_ROUNDS;
 export const CHAT_DEFAULT_TIMEOUT_MS = DEFAULT_CHAT_TIMEOUT_MS;
 export const CHAT_DEFAULT_MODEL = DEFAULT_CHAT_MODEL;
+export const CHAT_DEFAULT_VISION_MODEL = DEFAULT_CHAT_VISION_MODEL;

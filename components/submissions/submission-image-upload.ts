@@ -41,11 +41,16 @@ export async function uploadSubmissionImage(submissionId: string, file: File) {
     body: JSON.stringify({ mimeType: file.type })
   });
   const slot = await readJsonResponse<{ path: string; token: string; image: { id: string } }>(reserve, "图片上传准备失败");
-  const supabase = createSupabaseBrowserClient();
-  const uploaded = await supabase.storage
-    .from(process.env.NEXT_PUBLIC_CITYSENSE_SUBMISSION_ORIGINAL_BUCKET ?? "submission-originals")
-    .uploadToSignedUrl(slot.path, slot.token, file, { contentType: file.type });
-  if (uploaded.error) throw uploaded.error;
-  const complete = await fetch(`/api/place-submissions/${submissionId}/images/${slot.image.id}/complete`, { method: "POST" });
-  await readJsonResponse(complete, "图片校验失败");
+  try {
+    const supabase = createSupabaseBrowserClient();
+    const uploaded = await supabase.storage
+      .from(process.env.NEXT_PUBLIC_CITYSENSE_SUBMISSION_ORIGINAL_BUCKET ?? "submission-originals")
+      .uploadToSignedUrl(slot.path, slot.token, file, { contentType: file.type });
+    if (uploaded.error) throw uploaded.error;
+    const complete = await fetch(`/api/place-submissions/${submissionId}/images/${slot.image.id}/complete`, { method: "POST" });
+    await readJsonResponse(complete, "图片校验失败");
+  } catch (error) {
+    await fetch(`/api/place-submissions/${submissionId}/images/${slot.image.id}`, { method: "DELETE" }).catch(() => undefined);
+    throw error;
+  }
 }

@@ -14,7 +14,7 @@
 1. 开启 Email Magic Link，并将 `/auth/callback` 的本地和生产 URL 加入 redirect allowlist。
 2. 创建私有 bucket `submission-originals`。
 3. 创建公开 bucket `venue-images`。
-4. 设置 `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY` 和仅服务端使用的 `SUPABASE_SERVICE_ROLE_KEY`。
+4. 设置 `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY` 和仅服务端使用的 `SUPABASE_SERVICE_ROLE_KEY`。如果 web 容器访问 Supabase 的地址与浏览器不同，另设 `SUPABASE_URL`；它必须与 public URL 指向同一 Supabase 项目。
 5. `CITYSENSE_ADMIN_EMAILS` 只用于首次 AppUser 管理员 bootstrap。
 
 ## 自动发布
@@ -32,6 +32,8 @@ CITYSENSE_UGC_NOVEL_AUTO_PUBLISH_ENABLED="true"
 ## 内容治理说明
 
 当前按产品决策不执行图片或文本内容审核。系统只校验图片格式、大小、像素和可解码性，并清除 EXIF/GPS。管理员需要在 `/admin/submissions` 后审自动发布内容，并可删除图片或下架地点。
+
+生产遇到“图片上传准备失败（HTTP 500）”时，先从实际 web 容器确认 `SUPABASE_URL`（或回退的 `NEXT_PUBLIC_SUPABASE_URL`）、`SUPABASE_SERVICE_ROLE_KEY` 和 bucket 名已设置；再使用同一 service-role 凭据确认私有 `submission-originals` bucket 存在且可创建 signed upload URL。修改任何 `NEXT_PUBLIC_*` 变量后必须重新构建 web 镜像，因为它们会在构建时嵌入浏览器 bundle。上传接口日志包含 request ID、失败阶段和上游错误状态，但不会记录密钥或签名 token。
 
 ## Worker
 

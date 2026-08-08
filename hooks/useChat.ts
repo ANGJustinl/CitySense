@@ -11,10 +11,15 @@ import { useCallback, useRef, useState } from "react";
 
 export type ChatRole = "user" | "assistant";
 
+/** 输入栏上传的图片:id 用于确认时绑定到 post/submission,url 用于视觉模型与渲染。 */
+export type ChatAttachment = { id: string; url: string };
+
 export type ChatMessage = {
   id: string;
   role: ChatRole;
   content: string;
+  /** 用户消息附带的图片缩略图(仅展示)。 */
+  attachments?: ChatAttachment[];
   /** 工具调用展示(可选)。 */
   tools?: Array<{ name: string; display: string; status: "running" | "done" }>;
   /** 结构化卡片数据(路线/天气等,可选,供富文本渲染)。 */
@@ -54,14 +59,16 @@ export function useChat({ sessionId, context }: UseChatOptions) {
   const abortRef = useRef<AbortController | null>(null);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, attachments?: ChatAttachment[]) => {
       const trimmed = text.trim();
 
       if (!trimmed || streaming) {
         return;
       }
 
-      const userMessage: ChatMessage = { id: makeId(), role: "user", content: trimmed };
+      const userMessage: ChatMessage = attachments && attachments.length > 0
+        ? { id: makeId(), role: "user", content: trimmed, attachments }
+        : { id: makeId(), role: "user", content: trimmed };
       const assistantMessage: ChatMessage = { id: makeId(), role: "assistant", content: "", tools: [] };
 
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
@@ -75,7 +82,13 @@ export function useChat({ sessionId, context }: UseChatOptions) {
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, message: trimmed, context }),
+          body: JSON.stringify({
+            sessionId,
+            message: trimmed,
+            context,
+            // 仅传 id 数组:服务端据此查 url 并校验归属,避免前端伪造任意图片 url。
+            imageIds: attachments && attachments.length > 0 ? attachments.map((item) => item.id) : undefined
+          }),
           signal: abortController.signal
         });
 

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { getRouteDetail } from "@/server/routes/route-detail";
 import { RouteDetailMap } from "@/components/city/RouteDetailMap";
+import { AmapOpenButton } from "@/components/city/AmapOpenButton";
 import { PreviewableImage } from "@/components/city/ImagePreview";
 import { TrafficBadge } from "@/components/city/TrafficBadge";
 import { MomentRecommendationCard } from "@/components/city/MomentRecommendationCard";
@@ -214,6 +215,12 @@ export default async function RouteDetail({
               <p className="pulse-empty">暂无额外建议</p>
             )}
           </div>
+
+          <AmapOpenButton
+            markers={map.markers}
+            mode={route.traffic.mode}
+            routeTitle={route.title}
+          />
 
           <div className="route-detail-community-actions">
             <Link className="buddy-route-detail-cta" href={`/buddy?routeId=${encodeURIComponent(route.id)}&compose=POST`}>

@@ -13,9 +13,16 @@ export async function GET() {
     const redis = getSharedRedis();
     const redisStatus = redis ? await redis.ping().then(() => "ok").catch(() => "unavailable") : "not_configured";
     const community = process.env.CITYSENSE_COMMUNITY_ENABLED === "true";
+    const ugc = process.env.CITYSENSE_UGC_ENABLED === "true";
+    const storageConfigured = Boolean(
+      (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL)
+      && process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
     const requiredConfig = community
-      ? Boolean(process.env.REDIS_URL && process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
-      : true;
+      ? Boolean(process.env.REDIS_URL && storageConfigured)
+      : ugc
+        ? storageConfigured
+        : true;
 
     return NextResponse.json({
       status: requiredConfig && redisStatus !== "unavailable" ? "ok" : "degraded",
@@ -23,6 +30,8 @@ export async function GET() {
       database: "ok",
       redis: redisStatus,
       community: community ? "enabled" : "disabled",
+      submissions: ugc ? "enabled" : "disabled",
+      submissionStorage: ugc ? (storageConfigured ? "configured" : "incomplete") : "not_required",
       configuration: requiredConfig ? "ok" : "incomplete",
       timestamp: new Date().toISOString()
     }, { status: requiredConfig && redisStatus !== "unavailable" ? 200 : 503 });

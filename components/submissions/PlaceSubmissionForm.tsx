@@ -13,8 +13,27 @@ import {
 } from "@/components/submissions/submission-image-upload";
 
 type Place = { id: string; name: string; address?: string; area?: string; lat?: number; lng?: number };
-type Draft = { id: string; status: string };
+type Draft = { id: string; status: string; version?: number };
 type SubmitStage = "idle" | "creating" | "uploading" | "validating" | "submitting";
+
+type SubmissionInitial = {
+  id: string;
+  version: number;
+  name: string;
+  description: string | null;
+  city: string;
+  area: string | null;
+  address: string;
+  userLat: number | null;
+  userLng: number | null;
+  tags: string[];
+  accessTips: string | null;
+  selectedAmapPoiId: string | null;
+  status: string;
+};
+
+type PlaceSubmissionFormProps = { initialSubmission?: SubmissionInitial; mode?: "create" | "edit" };
+
 
 function friendlyUploadError(message: string) {
   if (/mime|format|类型|格式/i.test(message)) return "照片格式不支持，请选择 JPG、PNG 或 WebP。";
@@ -23,12 +42,12 @@ function friendlyUploadError(message: string) {
   return message;
 }
 
-export function PlaceSubmissionForm() {
-  const [form, setForm] = useState({ name: "", description: "", city: "北京", area: "", address: "", tags: "", accessTips: "", selectedAmapPoiId: "" });
-  const [coordinate, setCoordinate] = useState<PlaceCoordinate>();
+export function PlaceSubmissionForm({ initialSubmission, mode = "create" }: PlaceSubmissionFormProps) {
+  const [form, setForm] = useState({ name: initialSubmission?.name ?? "", description: initialSubmission?.description ?? "", city: initialSubmission?.city ?? "北京", area: initialSubmission?.area ?? "", address: initialSubmission?.address ?? "", tags: initialSubmission?.tags.join("，") ?? "", accessTips: initialSubmission?.accessTips ?? "", selectedAmapPoiId: initialSubmission?.selectedAmapPoiId ?? "" });
+  const [coordinate, setCoordinate] = useState<PlaceCoordinate | undefined>(initialSubmission?.userLat != null && initialSubmission?.userLng != null ? { lat: initialSubmission.userLat, lng: initialSubmission.userLng } : undefined);
   const [query, setQuery] = useState("");
   const [places, setPlaces] = useState<Place[]>([]);
-  const [draft, setDraft] = useState<Draft>();
+  const [draft, setDraft] = useState<Draft | undefined>(initialSubmission ? { id: initialSubmission.id, status: initialSubmission.status, version: initialSubmission.version } : undefined);
   const [images, setImages] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
@@ -96,19 +115,22 @@ export function PlaceSubmissionForm() {
     if (images.length === 0) { setError("请至少上传一张现场照片。"); return; }
     setStage("creating"); setError(undefined); setMessage(undefined);
     try {
-      const create = await fetch("/api/place-submissions", {
+      const payload = { ...form, area: form.area || undefined, accessTips: form.accessTips || undefined, selectedAmapPoiId: form.selectedAmapPoiId || undefined, ...(coordinate ? { userLat: coordinate.lat, userLng: coordinate.lng } : {}), tags: form.tags.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean) };
+      const create = mode === "edit" && draft ? await fetch(`/api/place-submissions/${draft.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, expectedVersion: draft.version }) }) : await fetch("/api/place-submissions", {
         method: "POST",
         headers: { "content-type": "application/json", "idempotency-key": idempotencyKeyRef.current ?? (idempotencyKeyRef.current = crypto.randomUUID()) },
-        body: JSON.stringify({ ...form, area: form.area || undefined, accessTips: form.accessTips || undefined, selectedAmapPoiId: form.selectedAmapPoiId || undefined, ...(coordinate ? { userLat: coordinate.lat, userLng: coordinate.lng } : {}), tags: form.tags.split(/[，,]/).map((tag) => tag.trim()).filter(Boolean) })
+        body: JSON.stringify(payload)
       });
-      const submission = await readJsonResponse<Draft>(create, "创建投稿失败");
+      const submission = await readJsonResponse<Draft>(create, mode === "edit" ? "保存投稿失败" : "创建投稿失败");
       setDraft(submission);
-      setStage("uploading");
-      for (const image of images) await uploadSubmissionImage(submission.id, image);
+      if (mode === "create") setStage("uploading");
+      if (mode === "create") {
+        for (const image of images) await uploadSubmissionImage(submission.id, image);
+      }
       setStage("submitting");
-      const final = await fetch(`/api/place-submissions/${submission.id}/submit`, { method: "POST" });
+      const final = await fetch(`/api/place-submissions/${submission.id}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedVersion: submission.version }) });
       const result = await readJsonResponse<Draft>(final, "提交投稿失败");
-      setDraft(result); setMessage(result.status === "AUTO_PUBLISHED" ? "地点已加入 CitySense，可以去看看它的页面了。" : "投稿已收到，管理员会继续确认它。 ");
+      setDraft(result); setMessage(result.status === "AUTO_PUBLISHED" ? "地点已自动发布到 CitySense。" : "投稿已提交，系统正在自动处理。 ");
     } catch (cause) { setError(friendlyUploadError(cause instanceof Error ? cause.message : "投稿失败")); setStage("idle"); }
     finally { setStage((current) => current === "submitting" && message ? "idle" : current); }
   }

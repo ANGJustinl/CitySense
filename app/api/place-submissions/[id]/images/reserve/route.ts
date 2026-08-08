@@ -4,23 +4,20 @@ import { requireUser } from "@/server/auth/current-user";
 import { authErrorResponse } from "@/server/auth/http";
 import { assertUgcWriteEnabled, featureErrorResponse } from "@/server/config/ugc";
 import { enforceRateLimit, RATE_LIMITS, rateLimitErrorResponse } from "@/server/rate-limit";
-import { reserveSubmissionImage } from "@/server/submissions/images";
+import { describeSubmissionImageError, reserveSubmissionImage, SubmissionImageError } from "@/server/submissions/images";
 
 const schema = z.object({ mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]) }).strict();
-const IMAGE_RESERVE_CLIENT_ERRORS = new Set([
-  "Only JPEG, PNG and WebP are supported",
-  "Submission not found or not editable",
-  "Image limit reached"
-]);
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  const { id } = await context.params;
   try {
     const user = await requireUser();
     assertUgcWriteEnabled();
     await enforceRateLimit("submission:image", user.appUser.id, RATE_LIMITS.submissionImage);
-    const { id } = await context.params;
     const body = schema.parse(await request.json());
-    return NextResponse.json(await reserveSubmissionImage({ submissionId: id, submitterId: user.appUser.id, mimeType: body.mimeType }), { status: 201 });
+    const result = await reserveSubmissionImage({ submissionId: id, submitterId: user.appUser.id, mimeType: body.mimeType });
+    return NextResponse.json(result, { status: 201, headers: { "x-request-id": requestId } });
   } catch (error) {
     const auth = authErrorResponse(error);
     if (auth) return auth;
@@ -28,13 +25,21 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (feature) return feature;
     const rateLimit = rateLimitErrorResponse(error);
     if (rateLimit) return rateLimit;
-    if (error instanceof ZodError) return NextResponse.json({ error: "Invalid image request", issues: error.issues }, { status: 400 });
-    if (error instanceof Error && IMAGE_RESERVE_CLIENT_ERRORS.has(error.message)) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
+    if (error instanceof ZodError) return NextResponse.json({ error: "Invalid image request", code: "invalid_image_request", requestId }, { status: 400 });
+    const detail = describeSubmissionImageError(error);
     console.error("submission image reserve failed", {
-      error: error instanceof Error ? error.name : "UnknownError"
+      requestId,
+      operation: "submission_image.reserve",
+      submissionId: id,
+      bucket: process.env.CITYSENSE_SUBMISSION_ORIGINAL_BUCKET ?? "submission-originals",
+      release: process.env.CITYSENSE_RELEASE ?? "development",
+      hasSupabaseUrl: Boolean(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL),
+      hasServiceRoleKey: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+      error: detail
     });
-    return NextResponse.json({ error: "Image reserve failed" }, { status: 500 });
+    const safe = error instanceof SubmissionImageError
+      ? detail
+      : { code: "storage_unavailable", status: 503, message: "图片存储服务暂时不可用，请稍后重试" };
+    return NextResponse.json({ error: safe.message, code: safe.code, requestId }, { status: safe.status, headers: { "x-request-id": requestId } });
   }
 }

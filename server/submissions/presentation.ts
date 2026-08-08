@@ -12,16 +12,32 @@ export type SubmissionStatusMeta = {
 
 export const SUBMISSION_STATUS_META: Record<VenueSubmissionStatus, SubmissionStatusMeta> = {
   DRAFT: { label: "草稿", description: "尚未完成提交", group: "ACTION_REQUIRED", tone: "attention" },
-  CHANGES_REQUESTED: { label: "需要补充", description: "投稿需要补充信息", group: "ACTION_REQUIRED", tone: "attention" },
-  SUBMITTED: { label: "已提交", description: "投稿已收到", group: "IN_PROGRESS", tone: "progress" },
+  CHANGES_REQUESTED: { label: "需要补充", description: "投稿需要补充信息后重新提交", group: "ACTION_REQUIRED", tone: "attention" },
+  SUBMITTED: { label: "已提交", description: "正在等待自动处理", group: "IN_PROGRESS", tone: "progress" },
   PROCESSING: { label: "处理中", description: "正在自动处理", group: "IN_PROGRESS", tone: "progress" },
-  NEEDS_REVIEW: { label: "待确认", description: "等待人工确认", group: "IN_PROGRESS", tone: "progress" },
+  NEEDS_REVIEW: { label: "处理失败", description: "自动处理未完成，可以重试", group: "IN_PROGRESS", tone: "negative" },
   AUTO_PUBLISHED: { label: "已发布", description: "地点已发布到 CitySense", group: "COMPLETED", tone: "success" },
-  APPROVED: { label: "已通过", description: "投稿已审核通过", group: "COMPLETED", tone: "success" },
-  REJECTED: { label: "未通过", description: "投稿未通过审核", group: "COMPLETED", tone: "negative" },
+  APPROVED: { label: "已通过", description: "投稿已发布", group: "COMPLETED", tone: "success" },
+  REJECTED: { label: "未通过，可修改", description: "可以修改投稿后再次提交", group: "COMPLETED", tone: "negative" },
   WITHDRAWN: { label: "已撤回", description: "投稿已撤回", group: "COMPLETED", tone: "neutral" },
   REMOVED: { label: "已移除", description: "地点已从列表移除", group: "COMPLETED", tone: "negative" }
 };
+
+export function canEditSubmission(status: VenueSubmissionStatus) {
+  return ["DRAFT", "CHANGES_REQUESTED", "REJECTED", "AUTO_PUBLISHED", "APPROVED"].includes(status);
+}
+
+export function canWithdrawSubmission(status: VenueSubmissionStatus) {
+  return ["DRAFT", "CHANGES_REQUESTED", "REJECTED", "SUBMITTED", "PROCESSING", "NEEDS_REVIEW", "AUTO_PUBLISHED", "APPROVED"].includes(status);
+}
+
+export function canSubmitSubmission(status: VenueSubmissionStatus) {
+  return ["DRAFT", "CHANGES_REQUESTED", "REJECTED"].includes(status);
+}
+
+export function canRetrySubmission(status: VenueSubmissionStatus, technicalFlags: string[] = []) {
+  return status === "NEEDS_REVIEW" && technicalFlags.length > 0;
+}
 
 export const SUBMISSION_DISPLAY_GROUPS: Array<{ key: SubmissionDisplayGroup; label: string; description: string }> = [
   { key: "ACTION_REQUIRED", label: "待我处理", description: "尚未完成或需要补充的投稿" },

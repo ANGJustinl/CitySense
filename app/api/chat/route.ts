@@ -21,10 +21,13 @@
 import { NextResponse } from "next/server";
 import {
   createDefaultChatClient,
+  createDefaultChatVisionClient,
   CHAT_DEFAULT_TIMEOUT_MS,
   CHAT_MAX_TOOL_ROUNDS,
-  type ChatMessage
+  type ChatMessage,
+  type ChatContentPart
 } from "@/server/ai/chat-client";
+import { loadOwnedChatImages } from "@/server/ai/chat-images";
 import { CHAT_TOOLS, executeChatTool, TOOL_DISPLAY_NAMES } from "@/server/ai/chat-tools";
 import { appendChatMessages, clearChatHistory, loadChatHistory } from "@/server/ai/chat-session";
 import {
@@ -144,6 +147,8 @@ type ChatRequestBody = {
     city?: string;
     area?: string;
   };
+  /** 已上传的暂存图 ChatImage.id 列表(可选,最多 5 张)。 */
+  imageIds?: string[];
 };
 
 function sseData(payload: unknown): string {
@@ -160,8 +165,10 @@ export async function POST(request: Request) {
   }
 
   const message = body.message?.trim();
+  const imageIds = Array.isArray(body.imageIds) ? body.imageIds.filter((id) => typeof id === "string" && id.length > 0).slice(0, 5) : [];
 
-  if (!message) {
+  // 有图时允许纯图(无文字),但二者不可同时为空。
+  if (!message && imageIds.length === 0) {
     return NextResponse.json({ error: "message is required" }, { status: 400 });
   }
 
@@ -169,10 +176,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "message too long (max 2000 chars)" }, { status: 400 });
   }
 
-  const client = createDefaultChatClient();
+  // 解析登录用户(可选):图片校验、写操作都需要;读操作允许匿名。
+  const viewer = await getOptionalUser();
 
-  // 降级:无 LLM key。
-  if (!client) {
+  // 校验并加载图片 URL。图片必须属于当前登录用户,避免伪造他人图片。
+  let imageParts: ChatContentPart[] = [];
+  if (imageIds.length > 0) {
+    if (!viewer) {
+      return NextResponse.json({ error: "上传图片需先登录", code: "auth_required" }, { status: 401 });
+    }
+    const owned = await loadOwnedChatImages({ ownerUserId: viewer.appUser.id, imageIds });
+    // 按 imageIds 顺序对齐(丢弃不属于该用户的 id)。
+    const byId = new Map(owned.map((img) => [img.id, img]));
+    imageParts = imageIds
+      .map((id) => byId.get(id))
+      .filter((img): img is NonNullable<typeof img> => Boolean(img))
+      .map((img) => ({ type: "image_url" as const, image_url: { url: img.publicUrl } }));
+
+    if (imageParts.length === 0) {
+      return NextResponse.json({ error: "图片不存在或无权使用" }, { status: 400 });
+    }
+  }
+
+  const hasImages = imageParts.length > 0;
+  const textClient = createDefaultChatClient();
+  const visionClient = createDefaultChatVisionClient();
+
+  // 无 LLM key(任何模型都没有)→ 降级。
+  if (!textClient && !visionClient) {
     return new Response(
       sseData({ type: "error", message: "AI 助手未配置(缺少 OPENAI_API_KEY),请联系管理员。" }) +
         sseData({ type: "done" }),
@@ -181,6 +212,21 @@ export async function POST(request: Request) {
       }
     );
   }
+
+  // 带图消息但视觉模型未配置 → 友好降级,不把图喂给文本模型。
+  if (hasImages && !visionClient) {
+    return new Response(
+      sseData({ type: "error", message: "图片识别未配置(缺少 CHAT_LLM_VISION_MODEL),暂无法看图。请去掉图片后重试。" }) +
+        sseData({ type: "done" }),
+      {
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" }
+      }
+    );
+  }
+
+  // 按需切换:带图走视觉模型(glm-4.5v),纯文字走文本模型(glm-4-flash,tools 稳定)。
+  // 经上面两个 guard 后此处 client 必有值。
+  const client = (hasImages ? visionClient : textClient)!;
 
   let sessionId: string | undefined;
   let profileKey: string | undefined;
@@ -206,9 +252,6 @@ export async function POST(request: Request) {
     throw error;
   }
 
-  // 解析登录用户(可选):写操作需要 appUserId,读操作允许匿名。
-  const viewer = await getOptionalUser();
-
   const context = {
     sessionId,
     profileKey,
@@ -232,7 +275,16 @@ export async function POST(request: Request) {
       try {
         // 1. 读取历史 + 构建消息序列。
         const history = await loadChatHistory(sessionId);
-        const userMessage: ChatMessage = { role: "user", content: message };
+        // 有图时构建多模态 content(OpenAI/智谱通用格式);无图时保持纯文本。
+        const userMessage: ChatMessage = hasImages
+          ? {
+              role: "user",
+              content: [
+                ...(message ? [{ type: "text" as const, text: message }] : []),
+                ...imageParts
+              ]
+            }
+          : { role: "user", content: message };
         const messages: ChatMessage[] = [
           { role: "system", content: SYSTEM_PROMPT },
           ...history,

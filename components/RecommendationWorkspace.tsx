@@ -9,15 +9,13 @@ import {
 import {
   Activity,
   ChevronDown,
-  Clock3,
   Crosshair,
   LocateFixed,
   Loader2,
   MapPin,
   Navigation,
   RefreshCw,
-  SlidersHorizontal,
-  TriangleAlert
+  SlidersHorizontal
 } from "lucide-react";
 import type {
   Budget,
@@ -105,19 +103,6 @@ function formatCoordinate(origin: Pick<WorkspaceOrigin, "lat" | "lng">) {
   return `${origin.lat.toFixed(4)}, ${origin.lng.toFixed(4)}`;
 }
 
-function formatGeneratedAt(value: string) {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "刚刚";
-  }
-
-  return date.toLocaleTimeString("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
 export function RecommendationWorkspace({ initialData, userId, initialUserId, viewer = null, ugcEnabled = false }: WorkspaceProps) {
   // 兼容 main 的 initialUserId prop 和 ai-assistant 的 userId prop。
   const initialResolvedUserId = viewer?.id ?? userId ?? initialUserId ?? DEFAULT_DEMO_USER_ID;
@@ -175,18 +160,9 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId, vi
     [area, budget, city, interests, mood]
   );
 
-  const amapRouteCount = useMemo(
-    () => data.routes.filter((route) => route.traffic.provider === "amap").length,
-    [data.routes]
-  );
   const selectedRoute =
     data.routes.find((route) => route.id === selectedRouteId) ?? data.routes[0];
-  const isEstimatedTraffic = data.meta.trafficProvider === "estimated";
   const resolvedOrigin = data.meta.origin;
-  const originLabel =
-    originMode === "manual"
-      ? originAddress.trim() || resolvedOrigin?.label || "手动起点"
-      : origin.label;
   const originStatusText = useMemo(() => {
     if (originMode === "manual") {
       if (resolvedOrigin?.status === "resolved" && resolvedOrigin.source === "manual") {
@@ -653,31 +629,6 @@ export function RecommendationWorkspace({ initialData, userId, initialUserId, vi
       {/* Fullscreen map: RouteMapCanvas renders its own .map-canvas-panel which is
           promoted to position:fixed;inset:0 under .map-fullscreen. The metrics
           strip, timeline, and dock panels below all float over it. */}
-      <div className="map-metrics floating-metrics" aria-label="recommendation pipeline metrics">
-        <div>
-          <MapPin size={16} />
-          <span>起点</span>
-          <strong>{originLabel}</strong>
-        </div>
-        <div className={isEstimatedTraffic ? "degraded" : ""}>
-          {isEstimatedTraffic ? <TriangleAlert size={16} /> : <Navigation size={16} />}
-          <span>高德 ETA</span>
-          <strong>
-            {isEstimatedTraffic ? "估算降级" : `${amapRouteCount}/${data.routes.length}`}
-          </strong>
-        </div>
-        <div>
-          <Navigation size={16} />
-          <span>路线</span>
-          <strong>{data.routes.length} 条 / {data.meta.candidateCount} 候选</strong>
-        </div>
-        <div>
-          <Clock3 size={16} />
-          <span>生成</span>
-          <strong>{mounted ? formatGeneratedAt(data.meta.generatedAt) : "…"}</strong>
-        </div>
-      </div>
-
       <RouteMapCanvas
         heatContext={heatContext}
         isLoading={isLoading}

@@ -33,6 +33,7 @@ import { listVenueRanking } from "@/server/community/votes";
 import { createSubmission } from "@/server/submissions/service";
 import { createBuddyIntent, applyToBuddyIntent, saveBuddyProfile } from "@/server/buddy/service";
 import { createPendingAction } from "@/server/ai/pending-actions";
+import { attachChatImagesToPost, attachChatImagesToSubmission } from "@/server/ai/chat-images";
 
 /** 工具定义,传给 LLM 的 tools 参数。 */
 export const CHAT_TOOLS: ChatTool[] = [
@@ -795,11 +796,23 @@ export async function executeChatTool(
         }
         if (target === "create_community_post") {
           const post = await createCommunityPost({ authorId: context.appUserId, idempotencyKey: `chat-confirm-${context.sessionId ?? "anon"}-${Date.now()}`, payload: { ...payload, publish: true } });
-          return { content: `城市手记已发布：/community/posts/${post.id}`, display: "发布城市手记", cards: [{ kind: "post_created", postId: post.id, url: `/community/posts/${post.id}` }] };
+          // 第 3 层:把用户在动作卡里选的暂存图绑定到新手记。
+          let imageNote = "";
+          if (context.attachImageIds && context.attachImageIds.length > 0) {
+            const attached = await attachChatImagesToPost({ ownerUserId: context.appUserId, imageIds: context.attachImageIds, postId: post.id });
+            if (attached.attached > 0) imageNote = `（已附 ${attached.attached} 张照片）`;
+          }
+          return { content: `城市手记已发布：/community/posts/${post.id}${imageNote}`, display: "发布城市手记", cards: [{ kind: "post_created", postId: post.id, url: `/community/posts/${post.id}` }] };
         }
         if (target === "submit_place") {
           const submission = await createSubmission({ submitterId: context.appUserId, idempotencyKey: `chat-confirm-${context.sessionId ?? "anon"}-${Date.now()}`, payload: payload });
-          return { content: `地点投稿草稿已创建：${submission.id}。请在投稿页完成图片上传和提交审核。`, display: "创建地点投稿" };
+          // 第 3 层:把暂存图绑定到新投稿。
+          let imageNote = "";
+          if (context.attachImageIds && context.attachImageIds.length > 0) {
+            const attached = await attachChatImagesToSubmission({ ownerUserId: context.appUserId, imageIds: context.attachImageIds, submissionId: submission.id });
+            if (attached.attached > 0) imageNote = `（已附 ${attached.attached} 张照片）`;
+          }
+          return { content: `地点投稿草稿已创建：${submission.id}${imageNote}。可在投稿页继续补充并提交审核。`, display: "创建地点投稿" };
         }
         if (target === "create_buddy_intent") {
           const result = await createBuddyIntent(context.appUserId, payload, `chat-confirm-${context.sessionId ?? "anon"}-${Date.now()}`);

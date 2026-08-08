@@ -84,7 +84,7 @@ export async function processSubmission(submissionId: string) {
     if (!geocode) {
       return prisma.venueSubmission.update({
         where: { id: submission.id },
-        data: { status: "NEEDS_REVIEW", matchType: "AMBIGUOUS", technicalFlags: ["geocode_failed"], publicStatusMessage: "地址需要管理员确认" }
+        data: { status: "NEEDS_REVIEW", matchType: "AMBIGUOUS", technicalFlags: ["geocode_failed"], publicStatusMessage: "地址无法自动解析，请编辑地址后重试" }
       });
     }
     const pinDistance = submission.userLat && submission.userLng
@@ -93,7 +93,7 @@ export async function processSubmission(submissionId: string) {
     if (pinDistance > 500) {
       return prisma.venueSubmission.update({
         where: { id: submission.id },
-        data: { status: "NEEDS_REVIEW", matchType: "AMBIGUOUS", technicalFlags: ["pin_address_conflict"], verifiedAddress: geocode.address, verifiedLat: geocode.lat, verifiedLng: geocode.lng, publicStatusMessage: "地图位置和地址需要管理员确认" }
+        data: { status: "NEEDS_REVIEW", matchType: "AMBIGUOUS", technicalFlags: ["pin_address_conflict"], verifiedAddress: geocode.address, verifiedLat: geocode.lat, verifiedLng: geocode.lng, publicStatusMessage: "地图位置和地址不一致，请确认后重试" }
       });
     }
     const duplicate = await findDuplicate(submission, geocode.lat, geocode.lng);
@@ -101,30 +101,13 @@ export async function processSubmission(submissionId: string) {
       return prisma.venueSubmission.update({ where: { id: submission.id }, data: { status: "NEEDS_REVIEW", matchType: "EXISTING_EXACT", matchedVenueId: duplicate.id, technicalFlags: ["removed_venue_match"] } });
     }
     if (duplicate) {
-      if (process.env.CITYSENSE_UGC_AUTO_PUBLISH_ENABLED !== "true") {
-        return prisma.venueSubmission.update({
-          where: { id: submission.id },
-          data: {
-            status: "NEEDS_REVIEW",
-            matchType: "EXISTING_EXACT",
-            matchedVenueId: duplicate.id,
-            verifiedAddress: geocode.address,
-            verifiedLat: geocode.lat,
-            verifiedLng: geocode.lng,
-            publicStatusMessage: "等待管理员确认并发布图片"
-          }
-        });
-      }
       const updated = await prisma.venueSubmission.update({
         where: { id: submission.id },
-        data: { status: "AUTO_PUBLISHED", matchType: "EXISTING_EXACT", matchedVenueId: duplicate.id, resultingVenueId: duplicate.id, verifiedAddress: geocode.address, verifiedLat: geocode.lat, verifiedLng: geocode.lng, publishedAt: new Date(), publicStatusMessage: "已关联到现有地点" }
+        data: { status: "AUTO_PUBLISHED", matchType: "EXISTING_EXACT", matchedVenueId: duplicate.id, resultingVenueId: duplicate.id, verifiedAddress: geocode.address, verifiedLat: geocode.lat, verifiedLng: geocode.lng, publishedAt: new Date(), publicStatusMessage: "已自动关联到现有地点" }
       });
       await publishImages(submission.id, duplicate.id);
       await recordSystemAction({ submissionId, action: "AUTO_LINK_EXISTING", fromStatus: "PROCESSING", toStatus: "AUTO_PUBLISHED" });
       return updated;
-    }
-    if (process.env.CITYSENSE_UGC_AUTO_PUBLISH_ENABLED !== "true" || process.env.CITYSENSE_UGC_NOVEL_AUTO_PUBLISH_ENABLED !== "true") {
-      return prisma.venueSubmission.update({ where: { id: submission.id }, data: { status: "NEEDS_REVIEW", matchType: amap ? "AMAP_EXACT" : "NOVEL", verifiedAddress: geocode.address, verifiedLat: geocode.lat, verifiedLng: geocode.lng, publicStatusMessage: "等待管理员发布" } });
     }
     const venue = await prisma.$transaction(async (tx) => {
       const created = await tx.venue.create({
@@ -161,7 +144,7 @@ export async function processSubmission(submissionId: string) {
   } catch (error) {
     const updated = await prisma.venueSubmission.update({
       where: { id: submission.id },
-      data: { status: "NEEDS_REVIEW", technicalFlags: ["processing_failed"], publicStatusMessage: "自动处理失败，已转人工确认", automatedResult: { error: error instanceof Error ? error.message.slice(0, 300) : "processing failed" } as Prisma.InputJsonValue }
+      data: { status: "NEEDS_REVIEW", technicalFlags: ["processing_failed"], publicStatusMessage: "自动处理失败，可以重试", automatedResult: { error: error instanceof Error ? error.message.slice(0, 300) : "processing failed" } as Prisma.InputJsonValue }
     });
     await recordSystemAction({ submissionId, action: "PROCESSING_FAILED", fromStatus: "PROCESSING", toStatus: "NEEDS_REVIEW" });
     return updated;

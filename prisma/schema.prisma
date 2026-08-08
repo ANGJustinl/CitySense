@@ -135,6 +135,13 @@ enum CommunityImageStatus {
   DELETED
 }
 
+/// 聊天助手暂存图生命周期:TEMP(已上传到聊天桶,待绑定)→ ATTACHED(已绑定到 post/submission)→ EXPIRED(超时未用)。
+enum ChatImageStatus {
+  TEMP
+  ATTACHED
+  EXPIRED
+}
+
 enum CommunityAttachmentType {
   PLACE
   ROUTE
@@ -198,6 +205,7 @@ model AppUser {
   communityReports      CommunityReport[]            @relation("CommunityReporter")
   communityReportsAbout CommunityReport[]            @relation("CommunityReportedUser")
   communityModeration   CommunityModerationAction[]
+  chatImages            ChatImage[]                  @relation("ChatImageOwner")
   venueVotes            VenueVote[]
   createdAt             DateTime                     @default(now())
   updatedAt             DateTime                     @updatedAt
@@ -877,6 +885,30 @@ model CommunityPostImage {
   @@index([sha256])
 }
 
+/// AI 助手聊天里的暂存图。上传后用于:(a) 视觉对话 image_url;(b) 在用户确认写操作后绑定到新建的 post/submission。
+/// ownerUserId 标识上传者;status 从 TEMP(待绑定)→ ATTACHED(已绑定)→ EXPIRED(超时清理)。
+model ChatImage {
+  id           String          @id @default(cuid())
+  ownerUserId  String          @db.Uuid
+  owner        AppUser         @relation("ChatImageOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  status       ChatImageStatus @default(TEMP)
+  objectPath   String          @unique
+  publicUrl    String
+  mimeType     String?
+  byteSize     Int?
+  width        Int?
+  height       Int?
+  sha256       String?
+  /// 绑定目标(post/submission 的 id),仅 ATTACHED 后填充。
+  attachedKind String?
+  attachedId   String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([ownerUserId, status])
+  @@index([status, createdAt])
+}
+
 model CommunityPostAttachment {
   id               String                  @id @default(cuid())
   postId           String
@@ -1021,7 +1053,6 @@ model VenueVote {
   @@index([type, venueId])
   @@index([userId, createdAt])
 }
-
 
 model RecommendationFeedback {
   id                  String   @id @default(cuid())

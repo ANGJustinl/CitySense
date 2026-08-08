@@ -1,9 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Loader2, Send, Sparkles, Trash2, Wrench, X } from "lucide-react";
-import { useChat, type ChatContext } from "@/hooks/useChat";
+import { ImagePlus, Loader2, Send, Sparkles, Trash2, Wrench, X } from "lucide-react";
+import { useChat, type ChatAttachment, type ChatContext } from "@/hooks/useChat";
 import { ChatCards } from "@/components/assistant/ChatCards";
+import {
+  CHAT_IMAGE_ACCEPT,
+  MAX_CHAT_IMAGES,
+  uploadChatImage,
+  validateChatImages
+} from "@/components/assistant/chat-image-upload";
 
 type ChatDrawerProps = {
   open: boolean;
@@ -12,10 +18,24 @@ type ChatDrawerProps = {
   context?: ChatContext;
 };
 
+type PendingAttachment = {
+  key: string;
+  file: File;
+  previewUrl: string;
+  status: "uploading" | "done" | "error";
+  attachment?: ChatAttachment;
+  error?: string;
+};
+
 export function ChatDrawer({ open, onClose, sessionId, context }: ChatDrawerProps) {
   const { messages, streaming, error, send, stop, clear } = useChat({ sessionId, context });
   const [input, setInput] = useState("");
+  const [pending, setPending] = useState<PendingAttachment[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 释放已选图片的本地预览 URL,避免内存泄漏。
+  useEffect(() => () => pending.forEach((item) => URL.revokeObjectURL(item.previewUrl)), [pending]);
 
   // 消息列表自动滚到底部。
   useEffect(() => {
@@ -49,12 +69,64 @@ export function ChatDrawer({ open, onClose, sessionId, context }: ChatDrawerProp
       event.preventDefault();
     }
 
-    if (!input.trim() || streaming) {
+    // 有图片在上传中时禁止发送,避免丢图。
+    const uploading = pending.some((item) => item.status === "uploading");
+    if (streaming || uploading) {
+      return;
+    }
+    if (!input.trim() && pending.length === 0) {
       return;
     }
 
-    send(input);
+    const attachments = pending
+      .filter((item): item is PendingAttachment & { attachment: ChatAttachment } => Boolean(item.attachment))
+      .map((item) => item.attachment);
+
+    send(input, attachments.length > 0 ? attachments : undefined);
     setInput("");
+    // 清空并释放本地预览。
+    pending.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+    setPending([]);
+  }
+
+  async function handleSelectFiles(selected: File[]) {
+    const result = validateChatImages(selected, pending.length);
+    if (result.errors.length > 0) {
+      // 错误以首张失败图的状态展示,不入列。
+      window.setTimeout(() => window.alert(result.errors.join("\n")), 0);
+    }
+    for (const file of result.valid) {
+      const key = `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const previewUrl = URL.createObjectURL(file);
+      const entry: PendingAttachment = { key, file, previewUrl, status: "uploading" };
+      setPending((current) => [...current, entry]);
+      try {
+        const uploaded = await uploadChatImage(file);
+        setPending((current) =>
+          current.map((item) =>
+            item.key === key
+              ? { ...item, status: "done", attachment: { id: uploaded.id, url: uploaded.url } }
+              : item
+          )
+        );
+      } catch (err) {
+        setPending((current) =>
+          current.map((item) =>
+            item.key === key
+              ? { ...item, status: "error", error: err instanceof Error ? err.message : "上传失败" }
+              : item
+          )
+        );
+      }
+    }
+  }
+
+  function removePending(key: string) {
+    setPending((current) => {
+      const target = current.find((item) => item.key === key);
+      if (target) URL.revokeObjectURL(target.previewUrl);
+      return current.filter((item) => item.key !== key);
+    });
   }
 
   if (!open) {
@@ -126,6 +198,19 @@ export function ChatDrawer({ open, onClose, sessionId, context }: ChatDrawerProp
               <div key={message.id} className={`chat-bubble-wrap ${message.role}`}>
                 <div className={`chat-bubble ${message.role}`}>
                   {message.content || (message.role === "assistant" && streaming ? "…" : "")}
+                  {message.attachments && message.attachments.length > 0 ? (
+                    <div className="chat-bubble-images">
+                      {message.attachments.map((attachment) => (
+                        <img
+                          key={attachment.id}
+                          src={attachment.url}
+                          alt="用户上传的图片"
+                          className="chat-bubble-image"
+                          loading="lazy"
+                        />
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 {message.tools && message.tools.length > 0 ? (
                   <div className="chat-tools">
@@ -151,30 +236,79 @@ export function ChatDrawer({ open, onClose, sessionId, context }: ChatDrawerProp
         {error ? <div className="chat-error">{error}</div> : null}
 
         <div className="chat-input-bar">
-          <textarea
-            className="chat-input"
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={handleSubmit}
-            placeholder="输入你的问题…"
-            rows={1}
-            disabled={streaming}
-          />
-          {streaming ? (
-            <button type="button" className="chat-send stop" onClick={stop} aria-label="停止生成">
-              <Loader2 size={16} className="chat-tool-spin" />
-            </button>
-          ) : (
+          {pending.length > 0 ? (
+            <div className="chat-attach-previews" role="list" aria-label="待发送的图片">
+              {pending.map((item) => (
+                <div key={item.key} className={`chat-attach-preview ${item.status}`} role="listitem">
+                  <img src={item.previewUrl} alt="待发送图片预览" />
+                  {item.status === "uploading" ? (
+                    <span className="chat-attach-overlay"><Loader2 size={14} className="chat-tool-spin" /></span>
+                  ) : null}
+                  {item.status === "error" ? (
+                    <span className="chat-attach-overlay chat-attach-error" title={item.error}>!</span>
+                  ) : null}
+                  <button
+                    type="button"
+                    aria-label="移除图片"
+                    className="chat-attach-remove"
+                    onClick={() => removePending(item.key)}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <div className="chat-input-row">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={CHAT_IMAGE_ACCEPT}
+              multiple
+              capture="environment"
+              className="chat-attach-input"
+              disabled={streaming || pending.length >= MAX_CHAT_IMAGES}
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []);
+                if (files.length > 0) void handleSelectFiles(files);
+                event.target.value = "";
+              }}
+            />
             <button
               type="button"
-              className="chat-send"
-              onClick={() => handleSubmit()}
-              disabled={!input.trim()}
-              aria-label="发送"
+              className="chat-attach-btn"
+              aria-label="添加图片"
+              title="添加图片(可让助手看图分析)"
+              disabled={streaming || pending.length >= MAX_CHAT_IMAGES}
+              onClick={() => fileInputRef.current?.click()}
             >
-              <Send size={16} />
+              <ImagePlus size={20} />
             </button>
-          )}
+            <textarea
+              className="chat-input"
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={handleSubmit}
+              placeholder={pending.length > 0 ? "说点什么,或直接发送图片…" : "输入你的问题…"}
+              rows={1}
+              disabled={streaming}
+            />
+            {streaming ? (
+              <button type="button" className="chat-send stop" onClick={stop} aria-label="停止生成">
+                <Loader2 size={16} className="chat-tool-spin" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="chat-send"
+                onClick={() => handleSubmit()}
+                disabled={(!input.trim() && pending.length === 0) || pending.some((item) => item.status === "uploading")}
+                aria-label="发送"
+              >
+                <Send size={16} />
+              </button>
+            )}
+          </div>
         </div>
       </aside>
     </>
