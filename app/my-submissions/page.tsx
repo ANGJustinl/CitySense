@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, Plus } from "lucide-react";
 import { requireUser } from "@/server/auth/current-user";
 import { listOwnSubmissions } from "@/server/submissions/service";
+import { ProductPageHeader } from "@/components/ProductPageHeader";
 import {
   countSubmissionImages,
   groupSubmissionsForDisplay,
@@ -20,7 +21,7 @@ export default async function MySubmissionsPage() {
   const submissions = await listOwnSubmissions(user.appUser.id);
   const groups = groupSubmissionsForDisplay(submissions);
   return (
-    <main className="detail-shell">
+    <><ProductPageHeader active="submissions" /><main className="detail-shell submission-product-page">
       <Link className="back-link" href="/"><ArrowLeft size={16} />返回工作台</Link>
       <section className="detail-panel wide submission-list-wrap">
         <div className="submission-list-heading">
@@ -65,6 +66,6 @@ export default async function MySubmissionsPage() {
           </div>
         )}
       </section>
-    </main>
+    </main></>
   );
 }

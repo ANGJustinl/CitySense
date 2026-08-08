@@ -1,6 +1,7 @@
 type IntentLike = { status: string; mode?: string; expiresAt: Date; ownerId: string };
 type ApplicationLike = { status: string; applicantId: string };
 type GroupLike = { status: string };
+type VisibleIntentLike = { status: string; mode: string; ownerId: string };
 
 export function isExpired(intent: Pick<IntentLike, "expiresAt">, now = new Date()) {
   return intent.expiresAt <= now;
@@ -22,4 +23,19 @@ export function canSendMessage(group: GroupLike, membershipStatus: string, block
   return group.status === "ACTIVE" && membershipStatus === "ACTIVE" && !blocked;
 }
 
-export const buddyStateTesting = { isExpired, canApply, canDecideApplication, canCancelIntent, canSendMessage };
+export function canViewIntent(intent: VisibleIntentLike, viewerId: string, applicantIds: string[], blocked = false) {
+  if (intent.ownerId === viewerId) return true;
+  if (intent.mode === "AUTO") return false;
+  if (intent.status === "ACTIVE") return !blocked;
+  return applicantIds.includes(viewerId);
+}
+
+export function isBuddyGroupReadOnly(group: GroupLike, membershipStatus?: string) {
+  return group.status !== "ACTIVE" || membershipStatus !== "ACTIVE";
+}
+
+export function canReadBuddyGroup(membershipStatus?: string) {
+  return membershipStatus === "ACTIVE" || membershipStatus === "LEFT" || membershipStatus === "REMOVED";
+}
+
+export const buddyStateTesting = { isExpired, canApply, canDecideApplication, canCancelIntent, canSendMessage, canViewIntent, isBuddyGroupReadOnly, canReadBuddyGroup };

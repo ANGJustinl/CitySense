@@ -13,12 +13,12 @@
 .submit-place-layout { align-items: start; display: grid; gap: clamp(24px, 5vw, 74px); grid-template-columns: minmax(240px, .68fr) minmax(0, 1.32fr); }
 .submit-place-intro { padding: 18px 0; position: sticky; top: 24px; }
 .submit-place-mark { align-items: center; background: var(--ink); border-radius: 16px 5px 16px 5px; color: #fff; display: inline-flex; height: 52px; justify-content: center; margin-bottom: 28px; transform: rotate(-3deg); width: 52px; }
-.submit-place-eyebrow, .submit-place-kicker { color: var(--accent); font-size: 10px; font-weight: 900; letter-spacing: .14em; margin: 0 0 11px; text-transform: uppercase; }
-.submit-place-intro h1 { font-family: "LXGW WenKai GB", "STKaiti", serif; font-size: clamp(32px, 4vw, 56px); font-weight: 500; letter-spacing: -.04em; line-height: 1.1; margin: 0 0 18px; max-width: 500px; }
+.submit-place-eyebrow, .submit-place-kicker { color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: .14em; margin: 0 0 11px; text-transform: uppercase; }
+.submit-place-intro h1 { font-family: var(--font-display); font-size: clamp(32px, 4vw, 56px); font-weight: 400; letter-spacing: -.04em; line-height: 1.1; margin: 0 0 18px; max-width: 500px; }
 .submit-place-lede { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0; max-width: 430px; }
 .submit-place-steps { border-top: 1px solid rgba(24, 33, 29, .13); display: grid; gap: 17px; list-style: none; margin: 38px 0 0; padding: 19px 0 0; }
 .submit-place-steps li { align-items: start; display: flex; gap: 13px; }
-.submit-place-steps b { color: var(--coral); font-family: Georgia, serif; font-size: 12px; padding-top: 2px; }
+.submit-place-steps b { color: var(--coral); font-family: var(--font-body); font-size: 12px; padding-top: 2px; }
 .submit-place-steps span { display: grid; gap: 3px; }
 .submit-place-steps strong { font-size: 13px; }
 .submit-place-steps small { color: var(--muted); font-size: 11px; line-height: 1.5; }
@@ -28,19 +28,19 @@
 .submit-place-note p { color: var(--muted); font-size: 11px; line-height: 1.6; margin: 4px 0 0; }
 .submit-place-card { background: var(--submit-paper); border: 1px solid rgba(255, 255, 255, .9); border-radius: 5px 32px 5px 32px; box-shadow: var(--submit-shadow); min-width: 0; padding: clamp(22px, 4vw, 42px); backdrop-filter: blur(18px); }
 .submit-place-card-heading { align-items: end; border-bottom: 1px solid var(--line); display: flex; gap: 15px; justify-content: space-between; margin-bottom: 30px; padding-bottom: 21px; }
-.submit-place-card-heading h2 { font-family: "LXGW WenKai GB", "STKaiti", serif; font-size: clamp(28px, 4vw, 42px); font-weight: 500; line-height: 1; margin: 0; }
+.submit-place-card-heading h2 { font-family: var(--font-display); font-size: clamp(28px, 4vw, 42px); font-weight: 400; line-height: 1; margin: 0; }
 .submit-place-required { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .submit-place-form { display: grid; gap: 27px; }
 .submit-place-section { border-bottom: 1px solid rgba(24, 33, 29, .1); display: grid; gap: 15px; padding-bottom: 27px; }
 .submit-place-section-title { align-items: start; display: flex; gap: 12px; margin-bottom: 2px; }
-.submit-place-section-title > span { color: var(--coral); font-family: Georgia, serif; font-size: 13px; padding-top: 2px; }
+.submit-place-section-title > span { color: var(--coral); font-family: var(--font-body); font-size: 13px; padding-top: 2px; }
 .submit-place-section-title div { display: grid; gap: 3px; }
 .submit-place-section-title h3 { font-size: 17px; margin: 0; }
 .submit-place-section-title p { color: var(--muted); font-size: 11px; margin: 0; }
 .submit-place-field { display: grid; gap: 7px; min-width: 0; }
-.submit-place-field > span, .submit-place-map-heading > span { align-items: center; display: flex; font-size: 12px; font-weight: 800; gap: 6px; }
+.submit-place-field > span, .submit-place-map-heading > span { align-items: center; display: flex; font-size: 12px; font-weight: 700; gap: 6px; }
 .submit-place-field em { color: var(--coral); font-style: normal; }
-.submit-place-field i, .submit-place-map-heading i { color: var(--muted); font-size: 10px; font-style: normal; font-weight: 500; }
+.submit-place-field i, .submit-place-map-heading i { color: var(--muted); font-size: 10px; font-style: normal; font-weight: 400; }
 .submit-place-field input, .submit-place-field textarea, .submit-place-search input { background: rgba(255, 255, 255, .84); border: 1px solid rgba(24, 33, 29, .15); border-radius: 10px; color: var(--ink); font: inherit; font-size: 13px; min-height: 46px; outline: none; padding: 11px 13px; transition: border-color .2s ease, box-shadow .2s ease, background .2s ease; width: 100%; }
 .submit-place-field textarea { line-height: 1.65; min-height: 126px; resize: vertical; }
 .submit-place-field input:focus, .submit-place-field textarea:focus, .submit-place-search input:focus { background: #fff; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(8, 127, 122, .12); }
@@ -117,7 +117,7 @@
 .submit-place-progress { color: var(--accent-strong) !important; min-height: 15px; }
 .submit-place-success { display: grid; gap: 12px; justify-items: start; padding: 20px 0; }
 .submit-place-success > svg { color: var(--accent); }
-.submit-place-success h2 { font-family: "LXGW WenKai GB", "STKaiti", serif; font-size: 32px; font-weight: 500; margin: 0; }
+.submit-place-success h2 { font-family: var(--font-display); font-size: 32px; font-weight: 400; margin: 0; }
 .submit-place-success > p:not(.submit-place-kicker) { color: var(--muted); font-size: 13px; line-height: 1.7; margin: 0; }
 .submit-place-success > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
 .submit-place-success .quiet { text-decoration: none; }

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { BookOpenText, PenLine, RotateCw } from "lucide-react";
 import type { CommunityPostView } from "@/server/community/types";
 import type { CommunityFeedContext } from "@/lib/community/feed-context";
 import { communityFeedApiHref } from "@/lib/community/feed-context";
@@ -27,8 +29,17 @@ export function CommunityFeed({ initialPosts, initialCursor, context, viewerId, 
   }
   return <div className="community-feed-wrap">
     <div className="community-feed-heading"><div><p className="eyebrow">{copy.eyebrow}</p><h2>{copy.title}</h2></div><p>{posts.length ? copy.populated : copy.empty}</p></div>
-    <div className="community-feed">{posts.map((post, index) => <CommunityPostCard index={index} key={post.id} post={post} viewerId={viewerId} />)}</div>
+    {posts.length ? (
+      <div className="community-feed">{posts.map((post, index) => <CommunityPostCard index={index} key={post.id} post={post} viewerId={viewerId} />)}</div>
+    ) : (
+      <div className="community-feed-empty">
+        <BookOpenText aria-hidden="true" size={28} />
+        <strong>{copy.empty}</strong>
+        <p>城市内容不需要宏大，一段真实的现场就足够。</p>
+        <Link href="/community/new"><PenLine aria-hidden="true" size={15} />写第一则手记</Link>
+      </div>
+    )}
     {error ? <p className="community-feed-error" role="alert">{error}</p> : null}
-    {cursor ? <button className="community-load-more" disabled={loading} onClick={() => void loadMore()} type="button">{loading ? "正在翻开下一页…" : error ? "重新加载" : "继续读城市"}</button> : null}
+    {cursor ? <button className="community-load-more" disabled={loading} onClick={() => void loadMore()} type="button">{error ? <RotateCw aria-hidden="true" size={15} /> : null}{loading ? "正在翻开下一页…" : error ? "重新加载" : "继续读城市"}</button> : null}
   </div>;
 }

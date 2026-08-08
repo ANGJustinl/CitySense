@@ -170,6 +170,11 @@ type RouteMapCanvasProps = {
   heatContext?: HeatContext;
   ugcEnabled?: boolean;
   userVenueContext?: UserVenueContext;
+  viewportInsets?: {
+    desktop: [number, number, number, number];
+    tablet: [number, number, number, number];
+    mobile: [number, number, number, number];
+  };
 };
 
 function roundCoordinate(value: number) {
@@ -658,7 +663,8 @@ export function RouteMapCanvas({
   isLoading,
   heatContext,
   ugcEnabled = false,
-  userVenueContext
+  userVenueContext,
+  viewportInsets
 }: RouteMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<AMapMap | null>(null);
@@ -1052,20 +1058,27 @@ export function RouteMapCanvas({
     map.add(overlays);
     overlaysRef.current = overlays;
 
-    const fitSignature = drawableGeometries
+    const fitPadding = viewportInsets
+      ? window.innerWidth >= 1200
+        ? viewportInsets.desktop
+        : window.innerWidth >= 768
+          ? viewportInsets.tablet
+          : viewportInsets.mobile
+      : [64, 64, 64, 64] as [number, number, number, number];
+    const fitSignature = `${fitPadding.join(",")}|${drawableGeometries
       .map(
         (geometry) =>
           `${geometry.routeId}:${geometry.path.length}:${geometry.points
             .map((point) => point.position.join(","))
             .join(";")}`
       )
-      .join("|");
+      .join("|")}`;
 
     if (fitSignature !== fitSignatureRef.current) {
       fitSignatureRef.current = fitSignature;
-      map.setFitView(overlays, false, [64, 64, 64, 64]);
+      map.setFitView(overlays, false, fitPadding);
     }
-  }, [drawableGeometries, effectiveSelectedRouteId, routeWeather, status]);
+  }, [drawableGeometries, effectiveSelectedRouteId, routeWeather, status, viewportInsets]);
 
   useEffect(() => {
     const AMap = namespaceRef.current;

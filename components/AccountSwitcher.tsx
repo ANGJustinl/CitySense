@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Check } from "lucide-react";
+import { UserAvatar } from "@/components/UserAvatar";
 import { DEMO_USERS, findDemoUser } from "@/lib/demo-users";
 
 const STORAGE_KEY = "cs-userId";
@@ -67,9 +68,7 @@ export function AccountSwitcher({
         aria-expanded={open}
         title={activeUser.blurb}
       >
-        <span className={`account-avatar persona-${activeUser.persona}`}>
-          {activeUser.label.charAt(0)}
-        </span>
+        <UserAvatar className={`account-avatar persona-${activeUser.persona}`} identity={activeUser.userId} name={activeUser.label} />
         <span className="account-trigger-text">
           <span className="account-name">演示画像 · {activeUser.label}</span>
           <span className="account-persona">{personaLabel(activeUser.persona)}</span>
@@ -91,9 +90,7 @@ export function AccountSwitcher({
                 role="menuitemradio"
                 aria-checked={isActive}
               >
-                <span className={`account-avatar small persona-${user.persona}`}>
-                  {user.label.charAt(0)}
-                </span>
+                <UserAvatar className={`account-avatar small persona-${user.persona}`} identity={user.userId} name={user.label} />
                 <span className="account-menu-text">
                   <span className="account-name">{user.label}</span>
                   <span className="account-blurb">{user.blurb}</span>

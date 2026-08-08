@@ -3,6 +3,7 @@ import { ArrowLeft, Compass, MapPinPlus } from "lucide-react";
 import "./submit-place.css";
 import { requireUser } from "@/server/auth/current-user";
 import { PlaceSubmissionForm } from "@/components/submissions/PlaceSubmissionForm";
+import { ProductPageHeader } from "@/components/ProductPageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ export default async function SubmitPlacePage() {
   await requireUser();
 
   return (
-    <main className="submit-place-page">
+    <><ProductPageHeader active="submissions" /><main className="submit-place-page">
       <div className="submit-place-shell">
         <Link className="submit-place-back" href="/">
           <ArrowLeft size={16} />
@@ -45,6 +46,6 @@ export default async function SubmitPlacePage() {
           </section>
         </div>
       </div>
-    </main>
+    </main></>
   );
 }

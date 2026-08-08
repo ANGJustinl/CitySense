@@ -15,3 +15,23 @@ test("messages require an active group and unblocked member", () => {
   assert.equal(buddyStateTesting.canSendMessage({ status: "CANCELLED" }, "ACTIVE", false), false);
   assert.equal(buddyStateTesting.canSendMessage({ status: "ACTIVE" }, "ACTIVE", true), false);
 });
+
+test("archived intents remain visible only to their owner and existing applicants", () => {
+  const archived = { mode: "POST", status: "MATCHED", ownerId: "owner" };
+  assert.equal(buddyStateTesting.canViewIntent(archived, "owner", []), true);
+  assert.equal(buddyStateTesting.canViewIntent(archived, "applicant", ["applicant"]), true);
+  assert.equal(buddyStateTesting.canViewIntent(archived, "applicant", ["applicant"], true), true);
+  assert.equal(buddyStateTesting.canViewIntent(archived, "stranger", ["applicant"]), false);
+  assert.equal(buddyStateTesting.canViewIntent({ ...archived, mode: "AUTO" }, "applicant", ["applicant"]), false);
+  assert.equal(buddyStateTesting.canViewIntent({ ...archived, status: "ACTIVE" }, "stranger", []), true);
+  assert.equal(buddyStateTesting.canViewIntent({ ...archived, status: "ACTIVE" }, "stranger", [], true), false);
+});
+
+test("archived groups and former memberships are read only", () => {
+  assert.equal(buddyStateTesting.canReadBuddyGroup("ACTIVE"), true);
+  assert.equal(buddyStateTesting.canReadBuddyGroup("LEFT"), true);
+  assert.equal(buddyStateTesting.canReadBuddyGroup(undefined), false);
+  assert.equal(buddyStateTesting.isBuddyGroupReadOnly({ status: "ACTIVE" }, "ACTIVE"), false);
+  assert.equal(buddyStateTesting.isBuddyGroupReadOnly({ status: "COMPLETED" }, "ACTIVE"), true);
+  assert.equal(buddyStateTesting.isBuddyGroupReadOnly({ status: "ACTIVE" }, "LEFT"), true);
+});

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { CommunityRankingBoard } from "@/components/community/CommunityRankingBoard";
+import { ProductPageHeader } from "@/components/ProductPageHeader";
 import { isCommunityEnabled } from "@/server/config/ugc";
 import { listVenueRanking } from "@/server/community/votes";
 import { getOptionalUser } from "@/server/auth/current-user";
@@ -25,6 +26,7 @@ export default async function RankingPage({ searchParams }: { searchParams: Prom
   const ranking = await listVenueRanking({ city, type, area: params.area, limit: 20, viewerId: viewer?.appUser.id });
   return (
     <main className="community-page-shell">
+      <ProductPageHeader active="community" city={city} />
       <nav className="community-page-nav">
         <Link href="/community"><ArrowLeft size={16} />社区</Link>
         <span>{city} · 城市榜单</span>

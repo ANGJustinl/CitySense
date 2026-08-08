@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { CommunityHub } from "@/components/community/CommunityHub";
+import { ProductPageHeader } from "@/components/ProductPageHeader";
 import { isCommunityEnabled } from "@/server/config/ugc";
 import { listCommunityFeed } from "@/server/community/feed";
 import { getOptionalUser } from "@/server/auth/current-user";
@@ -18,5 +19,5 @@ export default async function CommunityPage({ searchParams }: { searchParams: Pr
   const scope = params.scope === "following" ? "following" : "city";
   if (scope === "following" && !viewer) redirect(buildAuthPath("login", communityPageHref(city, scope)) as never);
   const feed = await listCommunityFeed({ city, scope, limit: 20, viewerId: viewer?.appUser.id });
-  return <main className="community-page-shell"><nav className="community-page-nav"><Link href="/"><ArrowLeft size={16} />城市脉搏</Link><span>{city} · 社区</span></nav><CommunityHub city={city} initialPosts={feed.posts} nextCursor={feed.nextCursor} scope={scope} viewerId={viewer?.appUser.id} /></main>;
+  return <main className="community-page-shell"><ProductPageHeader active="community" city={city} /><nav className="community-page-nav"><Link href="/"><ArrowLeft size={16} />城市脉搏</Link><span>{city} · 社区</span></nav><CommunityHub city={city} initialPosts={feed.posts} nextCursor={feed.nextCursor} scope={scope} viewerId={viewer?.appUser.id} /></main>;
 }

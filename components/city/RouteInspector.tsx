@@ -1,366 +1,108 @@
 "use client";
 
-import Link from "next/link";
-import {
-  Clock3,
-  ExternalLink,
-  Footprints,
-  Gauge,
-  Info,
-  Loader2,
-  MapPin,
-  Navigation,
-  RadioTower,
-  ShieldCheck,
-  Sparkles,
-  UserRoundPlus,
-  Waypoints
-} from "lucide-react";
+import { useEffect, useRef } from "react";
+import { ChevronDown, Clock3, Footprints, Info, Loader2, MapPin, Navigation, RadioTower, ShieldCheck, Sparkles } from "lucide-react";
 import type { RecommendedRoute } from "@/server/recommendation/types";
-import { RouteFeedbackButtons } from "@/components/city/RouteFeedbackButtons";
-import { routeToneAt } from "@/components/city/RouteMapCanvas";
-import {
-  buildRouteChoiceSummary,
-  buildRoutePersona,
-  formatDistance
-} from "@/components/city/route-display";
-import { SourceSignalBadge } from "@/components/city/SourceSignalBadge";
-import { TrafficBadge } from "@/components/city/TrafficBadge";
-import { VenueCard } from "@/components/city/VenueCard";
-import { MomentRecommendationCard } from "@/components/city/MomentRecommendationCard";
+import { PreviewableImage } from "@/components/city/ImagePreview";
+import { buildRouteChoiceSummary, buildRouteJourneyItems, buildRoutePersona, formatDistance } from "@/components/city/route-display";
 import { getRouteWeatherImpact } from "@/components/city/weather-impact";
-import { BuddyIntentComposer } from "@/components/buddy/BuddyIntentComposer";
-import { useState } from "react";
 
 type RouteInspectorProps = {
   routes: RecommendedRoute[];
   selectedRouteId?: string;
   onSelectRoute: (routeId: string) => void;
-  recommendationId?: string;
-  userId?: string;
-  sessionId?: string;
-  onFeedbackRecorded?: () => void;
   isLoading?: boolean;
 };
 
-function roleLabel(role: NonNullable<RecommendedRoute["evidence"]>["signalRoles"][number]["role"]) {
-  if (role === "place_authority") return "地点权威";
-  if (role === "event_authority") return "活动来源";
-  if (role === "traffic_eta") return "ETA";
-  if (role === "condition_estimate") return "状态估算";
-  return "趋势证据";
+const modeLabels = { walking: "步行", transit: "公共交通", driving: "驾车" } as const;
+
+function freshnessLabel(value?: number) {
+  if (value === undefined) return "时间未知";
+  if (value <= 0) return "刚刚更新";
+  return `${value} 分钟前`;
 }
 
-function freshnessLabel(item: NonNullable<RecommendedRoute["evidence"]>["sourceFreshness"][number]) {
-  const age = item.ageMinutes === undefined ? "未知" : item.ageMinutes <= 0 ? "刚刚" : `${item.ageMinutes} 分钟`;
-  return `${item.label} · ${age}`;
-}
+export function RouteInspector({ routes, selectedRouteId, onSelectRoute, isLoading }: RouteInspectorProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const selectedRoute = routes.find((route) => route.id === selectedRouteId) ?? routes[0];
 
-export function RouteInspector({
-  routes,
-  selectedRouteId,
-  onSelectRoute,
-  recommendationId,
-  userId,
-  sessionId,
-  onFeedbackRecorded,
-  isLoading
-}: RouteInspectorProps) {
-  const [buddyOpen, setBuddyOpen] = useState(false);
-  const selectedRoute =
-    routes.find((route) => route.id === selectedRouteId) ?? routes[0];
+  useEffect(() => {
+    const scroller = scrollRef.current?.closest<HTMLElement>(".commercial-route-panel-scroll, .route-commercial-scroll");
+    scroller?.scrollTo({ top: 0, behavior: "auto" });
+  }, [selectedRoute?.id]);
 
   if (isLoading && routes.length === 0) {
-    return (
-      <div className="route-inspector">
-        <div className="inspector-empty">
-          <Loader2 className="spin" size={20} />
-          <strong>路线生成中</strong>
-          <p>正在召回候选、计算 ETA 并重排路线。</p>
-        </div>
-      </div>
-    );
+    return <div className="route-inspector-state"><Loader2 className="spin" size={22} /><strong>正在为今晚编排行程</strong><p>召回地点、核对交通，再把值得去的放在一起。</p></div>;
   }
-
   if (!selectedRoute) {
-    return (
-      <div className="route-inspector">
-        <div className="inspector-empty">
-          <MapPin size={20} />
-          <strong>暂无可用路线</strong>
-          <p>调整城市、区域或兴趣后重新生成路线。</p>
-        </div>
-      </div>
-    );
+    return <div className="route-inspector-state"><MapPin size={22} /><strong>还没有合适路线</strong><p>换一个区域、时间或兴趣再试试。</p></div>;
   }
 
+  const persona = buildRoutePersona(selectedRoute);
+  const summary = buildRouteChoiceSummary(selectedRoute);
+  const weather = getRouteWeatherImpact(selectedRoute);
+  const journey = buildRouteJourneyItems(selectedRoute);
   const distance = formatDistance(selectedRoute.traffic.distanceMeters);
-  const isAmap = selectedRoute.traffic.provider === "amap";
-  const selectedSummary = buildRouteChoiceSummary(selectedRoute);
 
   return (
-    <div className="route-inspector">
-      <MomentRecommendationCard card={selectedRoute.momentCard} compact />
-
-      <div className="route-choice-list" role="listbox" aria-label="route choices">
+    <div className="commercial-route-inspector" ref={scrollRef}>
+      <div aria-label="可选路线" className="commercial-route-switcher" role="listbox">
         {routes.map((route, index) => {
-          const summary = buildRouteChoiceSummary(route);
-          const persona = buildRoutePersona(route);
+          const routeSummary = buildRouteChoiceSummary(route);
+          const routePersona = buildRoutePersona(route);
           const active = route.id === selectedRoute.id;
-          const routeWeather = getRouteWeatherImpact(route);
-
-          return (
-            <button
-              aria-selected={active}
-              className={
-                active
-                  ? `route-choice-card tone-${routeToneAt(index)} active`
-                  : `route-choice-card tone-${routeToneAt(index)}`
-              }
-              key={route.id}
-              onClick={() => onSelectRoute(route.id)}
-              role="option"
-              type="button"
-            >
-              <span className="route-choice-stripe" />
-              <span className="route-choice-top">
-                <span>
-                  路线 {index + 1}
-                  {index === 0 ? <em>Top</em> : null}
-                </span>
-                <strong>{summary.durationLabel}</strong>
-              </span>
-              <span className="route-choice-theme">{persona.themeName}</span>
-              <span className="route-choice-title">{route.title}</span>
-              <span className="route-choice-endpoints">{summary.endpointLabel}</span>
-              <span className="route-choice-tags">
-                {persona.tags.length > 0 ? (
-                  persona.tags.map((tag) => <span key={tag}>{tag}</span>)
-                ) : (
-                  <span>城市探索</span>
-                )}
-              </span>
-              <span className="route-choice-meta">
-                <span>
-                  <MapPin size={13} />
-                  {summary.stopCountLabel}
-                </span>
-                <span>
-                  <RadioTower size={13} />
-                  {summary.signalLabel}
-                </span>
-                <span className="route-choice-score">
-                  <Gauge size={13} />
-                  {summary.scoreLabel}
-                </span>
-              </span>
-              <span className="route-choice-provider">{summary.providerLabel}</span>
-              <span className={`route-choice-weather ${routeWeather.tone}`}>
-                {routeWeather.title}
-              </span>
-            </button>
-          );
+          return <button aria-selected={active} className={active ? "active" : ""} key={route.id} onClick={() => onSelectRoute(route.id)} role="option" type="button"><span>0{index + 1}</span><strong>{routePersona.themeName}</strong><small>{routeSummary.durationLabel}</small></button>;
         })}
       </div>
 
-      <div className="route-selected-detail">
-        <div className="inspector-heading">
-          <h3>{selectedRoute.title}</h3>
-          <span className="route-score">
-            <Gauge size={14} />
-            {selectedRoute.totalScore}
-          </span>
-        </div>
-        <p className="inspector-summary">{selectedRoute.summary}</p>
+      <article className={`commercial-route-hero theme-${persona.themeKey}`}>
+        {persona.representativePlace.imageUrl ? <PreviewableImage alt={persona.representativePlace.name} className="commercial-route-hero-image" loading="eager" src={persona.representativePlace.imageUrl} /> : <span className="commercial-route-hero-fallback">{persona.representativePlace.name.slice(0, 1)}</span>}
+        <div className="commercial-route-hero-shade" />
+        <div className="commercial-route-hero-copy"><p>{persona.themeName}</p><h2>{selectedRoute.title}</h2><span>{persona.representativePlace.name} 领衔</span></div>
+      </article>
 
-        <div className="route-decision-grid" aria-label="selected route summary">
-          <div>
-            <Clock3 size={15} />
-            <span>全程</span>
-            <strong>{selectedSummary.durationLabel}</strong>
-          </div>
-          <div>
-            <Navigation size={15} />
-            <span>距离</span>
-            <strong>{distance ?? "待确认"}</strong>
-          </div>
-          <div>
-            <MapPin size={15} />
-            <span>站点</span>
-            <strong>{selectedSummary.stopCountLabel}</strong>
-          </div>
-          <div>
-            <Gauge size={15} />
-            <span>推荐分</span>
-            <strong>{selectedSummary.scoreLabel}</strong>
-          </div>
-        </div>
+      <section className="commercial-route-intro">
+        <p>{selectedRoute.summary}</p>
+        <div className="commercial-route-tags">{persona.tags.map((tag) => <span key={tag}>{tag}</span>)}</div>
+      </section>
 
-        <div className="route-meta">
-          <TrafficBadge traffic={selectedRoute.traffic} />
-          <span>
-            <Sparkles size={15} />
-            {selectedSummary.signalLabel}
-          </span>
-        </div>
-
-        <p className={isAmap ? "rerank-note amap" : "rerank-note estimated"}>
-          {isAmap ? <Waypoints size={14} /> : <Footprints size={14} />}
-          {isAmap
-            ? "高德实时 ETA 已计入排序分，可达性更优的路线被提升。"
-            : "当前为估算交通（未启用高德实时 ETA），排序使用估算耗时。"}
-        </p>
-
-        {selectedRoute.momentFit ? (
-          <section className="inspector-section moment-fit-section">
-            <h4>
-              <Clock3 size={14} />
-              此刻可行
-            </h4>
-            <p>{selectedRoute.momentFit.whyNow}</p>
-            <div className="moment-fact-row">
-              {selectedRoute.momentFit.facts.map((fact) => (
-                <span key={`${fact.label}-${fact.value}`}>
-                  {fact.label}: <strong>{fact.value}</strong>
-                </span>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        <section className="inspector-section highlight route-highlight-section">
-          <h4>路线亮点</h4>
-          <p>{selectedRoute.reason}</p>
-        </section>
-
-        <section className="inspector-section route-stops-section">
-          <h4>沿线站点</h4>
-          <div className="place-stack">
-            {selectedRoute.places.map((place, index) => (
-              <div className="inspector-stop" key={place.id}>
-                <span className="inspector-stop-index">{index + 1}</span>
-                <VenueCard place={place} variant="compact" />
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="inspector-section route-signals-section">
-          <h4>
-            <RadioTower size={14} />
-            来源信号
-          </h4>
-          <div className="signal-row">
-            {selectedRoute.sourceSignals.length > 0 ? (
-              selectedRoute.sourceSignals.map((signal) => (
-                <SourceSignalBadge key={`${signal.source}-${signal.label}`} signal={signal} />
-              ))
-            ) : (
-              <span className="pulse-empty">暂无来源信号</span>
-            )}
-          </div>
-        </section>
-
-        {selectedRoute.evidence ? (
-          <section className="inspector-section route-evidence-section">
-            <h4>
-              <ShieldCheck size={14} />
-              可信证据
-            </h4>
-            <div className="evidence-place-grid">
-              {selectedRoute.evidence.placeChecks.slice(0, 3).map((check) => (
-                <div key={check.placeId}>
-                  <strong>{check.label}</strong>
-                  <span>{check.source} · {Math.round(check.confidence * 100)}%</span>
-                </div>
-              ))}
-            </div>
-            {selectedRoute.evidence.signalRoles.length > 0 ? (
-              <div className="evidence-token-row">
-                {selectedRoute.evidence.signalRoles.map((role) => (
-                  <span key={`${role.source}-${role.role}`}>
-                    <strong>{role.source}</strong>
-                    {roleLabel(role.role)}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-            {selectedRoute.evidence.sourceFreshness.length > 0 ? (
-              <div className="evidence-freshness-list">
-                {selectedRoute.evidence.sourceFreshness.slice(0, 5).map((item) => (
-                  <p key={`${item.source}-${item.capturedAt ?? item.label}`}>
-                    <RadioTower size={13} />
-                    <span>{item.source}</span>
-                    <strong>{freshnessLabel(item)}</strong>
-                  </p>
-                ))}
-              </div>
-            ) : null}
-            {selectedRoute.evidence.caveats.length > 0 ? (
-              <div className="evidence-caveats">
-                {selectedRoute.evidence.caveats.map((caveat) => (
-                  <p key={caveat}>
-                    <Info size={13} />
-                    {caveat}
-                  </p>
-                ))}
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-
-        {selectedRoute.tips.length > 0 ? (
-          <section className="inspector-section route-tips-section">
-            <h4>出行建议</h4>
-            <div className="tips-list">
-              {selectedRoute.tips.map((tip) => (
-                <p key={tip}>{tip}</p>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        {userId ? (
-          <button className="buddy-route-cta" onClick={() => setBuddyOpen(true)} type="button">
-            <span><UserRoundPlus size={18} /></span>
-            <strong>找一位路线搭子</strong>
-            <small>发布组队或让系统自动匹配</small>
-          </button>
-        ) : (
-          <Link className="buddy-route-cta" href={`/login?next=${encodeURIComponent("/")}`}>
-            <span><UserRoundPlus size={18} /></span>
-            <strong>登录并重新生成路线后找搭子</strong>
-            <small>登录账户生成的路线才能发布组队</small>
-          </Link>
-        )}
-
-        <RouteFeedbackButtons
-          key={selectedRoute.id}
-          recommendationId={recommendationId}
-          routeId={selectedRoute.id}
-          userId={userId}
-          sessionId={sessionId}
-          onRecorded={onFeedbackRecorded}
-        />
-
-        <Link className="text-link" href={`/routes/${selectedRoute.id}`}>
-          <MapPin size={15} />
-          路线详情
-          <ExternalLink size={14} />
-        </Link>
-        {buddyOpen ? (
-          <BuddyIntentComposer
-            onClose={() => setBuddyOpen(false)}
-            onCreated={(result) => {
-              window.location.href = result.groupId
-                ? `/buddy/groups/${result.groupId}`
-                : `/buddy?routeId=${encodeURIComponent(selectedRoute.id)}&tab=mine`;
-            }}
-            routeId={selectedRoute.id}
-            routeTitle={selectedRoute.title}
-          />
-        ) : null}
+      <div aria-label="行程摘要" className="commercial-route-metrics">
+        <div><Clock3 size={17} /><span>全程</span><strong>{summary.durationLabel}</strong></div>
+        <div><MapPin size={17} /><span>站点</span><strong>{summary.stopCountLabel}</strong></div>
+        <div><Navigation size={17} /><span>交通</span><strong>{modeLabels[selectedRoute.traffic.mode]}</strong></div>
+        <div className={`weather-${weather.tone}`}><Sparkles size={17} /><span>天气</span><strong>{weather.title}</strong></div>
       </div>
+
+      <section className="commercial-route-section commercial-route-journey">
+        <header><p className="product-kicker">THE JOURNEY</p><h3>从第一站到最后一站</h3>{distance ? <span>{distance}</span> : null}</header>
+        <div className="commercial-journey-list">
+          {journey.map((item, index) => (
+            <div className={`commercial-journey-row ${item.type}`} key={item.id}>
+              <span className="commercial-journey-index">{item.type === "origin" ? "起" : String(index).padStart(2, "0")}</span>
+              <div>{"legLabel" in item && item.legLabel ? <em>{item.legLabel}</em> : null}<strong>{item.title}</strong>{"address" in item && item.address ? <p>{item.address}</p> : null}{"tags" in item && item.tags.length ? <small>{item.tags.slice(0, 3).join(" · ")}</small> : null}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {selectedRoute.momentFit ? <section className="commercial-route-now"><Clock3 size={20} /><div><p className="product-kicker">WHY TONIGHT</p><h3>今晚为什么适合走</h3><p>{selectedRoute.momentFit.whyNow}</p><div>{selectedRoute.momentFit.facts.slice(0, 4).map((fact) => <span key={`${fact.label}-${fact.value}`}>{fact.label} · {fact.value}</span>)}</div></div></section> : null}
+
+      <section className="commercial-route-section commercial-route-highlight"><p className="product-kicker">ROUTE NOTE</p><h3>这条路线值得在哪里</h3><p>{selectedRoute.reason}</p></section>
+
+      <details className="commercial-route-disclosure">
+        <summary><span><ShieldCheck size={17} /><strong>推荐依据</strong><small>来源、可信度与数据边界</small></span><ChevronDown size={18} /></summary>
+        <div>
+          <p className="commercial-algorithm-note"><Info size={15} />{selectedRoute.traffic.provider === "amap" ? "高德 ETA 已参与路线排序，优先保留此刻更容易到达的组合。" : "当前交通为估算结果，路线仍可浏览，出发前建议再次确认。"}</p>
+          {selectedRoute.evidence?.placeChecks.length ? <div className="commercial-evidence-list">{selectedRoute.evidence.placeChecks.map((check) => <div key={check.placeId}><span>{check.label}</span><strong>{Math.round(check.confidence * 100)}%</strong><small>{check.source}</small></div>)}</div> : <p className="product-empty">这条路线暂无结构化可信证据。</p>}
+          {selectedRoute.evidence?.sourceFreshness.length ? <div className="commercial-source-list">{selectedRoute.evidence.sourceFreshness.slice(0, 6).map((source) => <span key={`${source.source}-${source.label}`}><RadioTower size={13} />{source.label} · {freshnessLabel(source.ageMinutes)}</span>)}</div> : null}
+          {selectedRoute.evidence?.caveats.map((caveat) => <p className="commercial-caveat" key={caveat}>{caveat}</p>)}
+        </div>
+      </details>
+
+      <details className="commercial-route-disclosure">
+        <summary><span><Footprints size={17} /><strong>出行建议</strong><small>出发前再看一眼</small></span><ChevronDown size={18} /></summary>
+        <div className="commercial-tip-list">{selectedRoute.tips.length ? selectedRoute.tips.map((tip) => <p key={tip}>{tip}</p>) : <p className="product-empty">暂无额外建议。</p>}</div>
+      </details>
     </div>
   );
 }

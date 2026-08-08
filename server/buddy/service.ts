@@ -4,7 +4,7 @@ import { BuddyError, assertBuddy } from "@/server/buddy/errors";
 import { createBuddyIntentSchema, buddyProfileSchema, applyBuddySchema, decideBuddyApplicationSchema, versionSchema, buddyPreferenceSchema } from "@/server/buddy/schema";
 import { resolveBuddyRouteSnapshot } from "@/server/buddy/route-snapshot";
 import { publicIntent, toJson } from "@/server/buddy/visibility";
-import { canApply, canCancelIntent, canDecideApplication } from "@/server/buddy/state-machine";
+import { canApply, canCancelIntent, canDecideApplication, canViewIntent } from "@/server/buddy/state-machine";
 import { isCompatibleCandidate, scoreBuddyMatch, type MatchableIntent } from "@/server/buddy/matching";
 import { loadUserProfile, type UserProfileSnapshot } from "@/server/recommendation/user-profile-v2";
 import { createNotification } from "@/server/buddy/notifications";
@@ -112,9 +112,12 @@ export async function listBuddyIntents(userId: string, routeSnapshotId?: string)
 
 export async function getBuddyIntent(userId: string, id: string) {
   const intent = await prisma.buddyIntent.findUnique({ include: { ...intentInclude, applications: { include: { applicant: { include: { buddyProfile: true } } }, orderBy: { createdAt: "desc" } } }, where: { id } });
-  if (!intent || (intent.mode === "AUTO" && intent.ownerId !== userId) || await blockedBetween(userId, intent.ownerId)) throw new BuddyError("intent_not_found", "组队意向不存在", 404);
+  if (!intent) throw new BuddyError("intent_not_found", "组队意向不存在", 404);
+  const applicantIds = intent.applications.map((item) => item.applicantId);
+  const isParticipant = intent.ownerId === userId || applicantIds.includes(userId);
+  if (!canViewIntent(intent, userId, applicantIds, await blockedBetween(userId, intent.ownerId))) throw new BuddyError("intent_not_found", "组队意向不存在", 404);
   return {
-    ...publicIntent(intent, intent.ownerId === userId),
+    ...publicIntent(intent, isParticipant),
     isOwner: intent.ownerId === userId,
     applications: intent.ownerId === userId ? intent.applications.map((application) => ({
       id: application.id, status: application.status, version: application.version, message: application.message,

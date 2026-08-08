@@ -37,10 +37,12 @@ export function CommunityRankingBoard({
   const [cursor, setCursor] = useState(nextCursor);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string>();
+  const [error, setError] = useState<string>();
 
   async function loadMore() {
     if (!cursor || loading) return;
     setLoading(true);
+    setError(undefined);
     try {
       const params = new URLSearchParams({ city, type, cursor });
       if (area) params.set("area", area);
@@ -53,6 +55,8 @@ export function CommunityRankingBoard({
         return [...byId.values()];
       });
       setCursor(data.nextCursor);
+    } catch {
+      setError("榜单加载失败，请重试。");
     } finally {
       setLoading(false);
     }
@@ -66,10 +70,12 @@ export function CommunityRankingBoard({
     }
     const active = entry.viewer?.votedType === type;
     setBusyId(entry.id);
+    setError(undefined);
     try {
       const response = await fetch(`/api/community/venues/${entry.id}/vote`, { method: active ? "DELETE" : "POST", headers: { "content-type": "application/json" }, body: active ? undefined : JSON.stringify({ type }) });
-      if (!response.ok) return;
-      const result: { votedType: VenueVoteType | null; counts: { niche: number; hot: number } } = await response.json();
+      const responseBody = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(responseBody.error ?? "投票失败，请重试");
+      const result = responseBody as { votedType: VenueVoteType | null; counts: { niche: number; hot: number } };
       setEntries((current) => current.flatMap((item) => {
         if (item.id !== entry.id) return [item];
         if (!belongsToRanking(result.counts, type)) return [];
@@ -88,6 +94,8 @@ export function CommunityRankingBoard({
       } catch {
         // Keep the vote response applied locally if refreshing the ranking fails.
       }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "投票失败，请重试");
     } finally {
       setBusyId(undefined);
     }
@@ -162,6 +170,8 @@ export function CommunityRankingBoard({
             : "暂时还没有地点在小众票中胜出。投出第一票，让它登榜。"}
         </p>
       )}
+
+      {error ? <p className="community-ranking-error" role="alert">{error}</p> : null}
 
       {cursor ? (
         <button className="community-load-more" disabled={loading} onClick={() => void loadMore()} type="button">
